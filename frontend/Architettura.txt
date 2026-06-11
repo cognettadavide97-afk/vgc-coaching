@@ -1,0 +1,6 @@
+frontend/
+├── index.html        ← pagina principale cliente
+├── css/
+│   └── style.css     ← stili grafici
+└── js/
+    └── app.js        ← logica JavaScript

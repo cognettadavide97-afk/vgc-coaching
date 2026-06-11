@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VGC Coaching — Admin</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body>
+
+    <!-- SCHERMATA DI LOGIN -->
+    <div id="login-screen">
+        <div class="login-box">
+            <h1>⚔️ VGC Coaching</h1>
+            <h2>Pannello Admin</h2>
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="login-username" placeholder="admin">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="login-password" placeholder="••••••••">
+            </div>
+            <button class="btn-primary" onclick="login()">Accedi</button>
+            <p id="login-error" class="error-msg"></p>
+        </div>
+    </div>
+
+    <!-- PANNELLO PRINCIPALE (nascosto finché non fai login) -->
+    <div id="admin-panel" style="display:none">
+
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>⚔️ Admin</h2>
+            </div>
+            <nav>
+                <button class="nav-btn active" onclick="showSection('dashboard')">
+                    📊 Dashboard
+                </button>
+                <button class="nav-btn" onclick="showSection('prenotazioni')">
+                    📅 Prenotazioni
+                </button>
+                <button class="nav-btn" onclick="showSection('clienti')">
+                    👤 Clienti
+                </button>
+                <button class="nav-btn" onclick="showSection('slots')">
+                    🕐 Slot
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <button class="btn-logout" onclick="logout()">Esci</button>
+            </div>
+        </aside>
+
+        <!-- CONTENUTO PRINCIPALE -->
+        <main class="admin-main">
+
+            <!-- DASHBOARD -->
+            <section id="section-dashboard" class="admin-section active">
+                <h2>Dashboard</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-totale">—</div>
+                        <div class="stat-label">Prenotazioni totali</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-oggi">—</div>
+                        <div class="stat-label">Prenotazioni oggi</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-incassato">—</div>
+                        <div class="stat-label">Totale incassato</div>
+                    </div>
+                </div>
+                <h3>Prossimi slot liberi</h3>
+                <div id="prossimi-slot"></div>
+            </section>
+
+            <!-- PRENOTAZIONI -->
+            <section id="section-prenotazioni" class="admin-section">
+                <div class="section-header">
+                    <h2>Prenotazioni</h2>
+                    <div class="header-actions">
+                        <select id="filtro-stato" onchange="caricaPrenotazioni()">
+                            <option value="">Tutti gli stati</option>
+                            <option value="pending">In attesa</option>
+                            <option value="confirmed">Confermati</option>
+                            <option value="cancelled">Cancellati</option>
+                        </select>
+                        <button class="btn-export" onclick="exportCSV()">
+                            ⬇ Esporta CSV
+                        </button>
+                    </div>
+                </div>
+                <div id="lista-prenotazioni"></div>
+            </section>
+
+            <!-- CLIENTI -->
+            <section id="section-clienti" class="admin-section">
+                <h2>Clienti</h2>
+                <div id="lista-clienti"></div>
+            </section>
+
+            <!-- SLOT -->
+            <section id="section-slots" class="admin-section">
+                <div class="section-header">
+                    <h2>Gestione Slot</h2>
+                </div>
+                <div class="nuovo-slot-form">
+                    <h3>Aggiungi nuovo slot</h3>
+                    <div class="form-inline">
+                        <input type="datetime-local" id="nuovo-slot-data">
+                        <select id="nuovo-slot-durata">
+                            <option value="1">1 ora</option>
+                            <option value="2">2 ore</option>
+                            <option value="3">3 ore</option>
+                        </select>
+                        <button class="btn-primary" onclick="creaSlot()">
+                            + Aggiungi
+                        </button>
+                    </div>
+                </div>
+                <div id="lista-slots"></div>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="/static/js/admin.js"></script>
+</body>
+</html>
