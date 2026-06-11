@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VGC Coaching — Prenota la tua sessione</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+    <!-- INTESTAZIONE -->
+    <header>
+        <div class="header-content">
+            <h1>⚔️ VGC Coaching</h1>
+            <p>Prenota una sessione di coaching personalizzata</p>
+        </div>
+    </header>
+
+    <!-- BARRA DEGLI STEP -->
+    <div class="steps-bar">
+        <div class="step active" id="step-indicator-1">
+            <span class="step-number">1</span>
+            <span class="step-label">Scegli slot</span>
+        </div>
+        <div class="step-divider"></div>
+        <div class="step" id="step-indicator-2">
+            <span class="step-number">2</span>
+            <span class="step-label">I tuoi dati</span>
+        </div>
+        <div class="step-divider"></div>
+        <div class="step" id="step-indicator-3">
+            <span class="step-number">3</span>
+            <span class="step-label">Conferma</span>
+        </div>
+    </div>
+
+    <!-- CONTENUTO PRINCIPALE -->
+    <main>
+
+        <!-- STEP 1: SCELTA SLOT -->
+        <section id="step-1" class="step-content active">
+            <h2>Scegli data e orario</h2>
+            <p class="subtitle">Seleziona uno slot disponibile per la tua sessione</p>
+
+            <div id="slots-container">
+                <p class="loading">Caricamento slot disponibili...</p>
+            </div>
+
+            <div class="duration-selector">
+                <h3>Durata sessione</h3>
+                <div class="duration-buttons">
+                    <button class="duration-btn active" data-hours="1" data-price="35">
+                        1 ora — €35
+                    </button>
+                    <button class="duration-btn" data-hours="2" data-price="60">
+                        2 ore — €60
+                    </button>
+                    <button class="duration-btn" data-hours="3" data-price="80">
+                        3 ore — €80
+                    </button>
+                </div>
+            </div>
+
+            <button class="btn-primary" id="btn-to-step2" disabled>
+                Continua →
+            </button>
+        </section>
+
+        <!-- STEP 2: DATI CLIENTE -->
+        <section id="step-2" class="step-content">
+            <h2>I tuoi dati</h2>
+            <p class="subtitle">Inserisci le tue informazioni per completare la prenotazione</p>
+
+            <form id="booking-form">
+                <div class="form-group">
+                    <label for="nome">Nome completo *</label>
+                    <input type="text" id="nome" placeholder="Ash Ketchum" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email *</label>
+                    <input type="email" id="email" placeholder="ash@pokemon.com" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="showdown">Username Pokémon Showdown</label>
+                    <input type="text" id="showdown" placeholder="Ash_VGC2026">
+                </div>
+
+                <div class="form-group">
+                    <label for="formato">Formato</label>
+                    <select id="formato">
+                        <option value="VGC 2025 Reg G">VGC 2025 Reg G</option>
+                        <option value="VGC 2025 Reg H">VGC 2025 Reg H</option>
+                        <option value="Altro">Altro</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="note">Note (team attuale, obiettivi...)</label>
+                    <textarea id="note" rows="4"
+                        placeholder="Es: uso un team Trick Room con Indeedee-F, ho problemi con la gestione dei turni veloci...">
+                    </textarea>
+                </div>
+            </form>
+
+            <div class="btn-row">
+                <button class="btn-secondary" id="btn-back-1">← Indietro</button>
+                <button class="btn-primary" id="btn-to-step3">Continua →</button>
+            </div>
+        </section>
+
+        <!-- STEP 3: RIEPILOGO E CONFERMA -->
+        <section id="step-3" class="step-content">
+            <h2>Riepilogo prenotazione</h2>
+            <p class="subtitle">Controlla i dati prima di confermare</p>
+
+            <div class="summary-card">
+                <div class="summary-row">
+                    <span>Data e orario</span>
+                    <strong id="summary-slot">—</strong>
+                </div>
+                <div class="summary-row">
+                    <span>Durata</span>
+                    <strong id="summary-duration">—</strong>
+                </div>
+                <div class="summary-row">
+                    <span>Nome</span>
+                    <strong id="summary-nome">—</strong>
+                </div>
+                <div class="summary-row">
+                    <span>Email</span>
+                    <strong id="summary-email">—</strong>
+                </div>
+                <div class="summary-row total">
+                    <span>Totale</span>
+                    <strong id="summary-price">—</strong>
+                </div>
+            </div>
+
+            <div class="btn-row">
+                <button class="btn-secondary" id="btn-back-2">← Indietro</button>
+                <button class="btn-primary" id="btn-confirm">
+                    ✓ Conferma prenotazione
+                </button>
+            </div>
+        </section>
+
+        <!-- STEP 4: CONFERMA FINALE -->
+        <section id="step-success" class="step-content">
+            <div class="success-box">
+                <div class="success-icon">✓</div>
+                <h2>Prenotazione confermata!</h2>
+                <p>Ti abbiamo inviato una email di conferma.<br>A presto!</p>
+                <button class="btn-primary" onclick="location.reload()">
+                    Prenota un'altra sessione
+                </button>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
