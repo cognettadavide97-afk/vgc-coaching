@@ -1,0 +1,8 @@
+[build]
+
+[deploy]
+startCommand = "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+
+[variables]
+RAILPACK_PYTHON_VERSION = "3.11"
+MISE_PYTHON_GITHUB_ATTESTATIONS = "false"
