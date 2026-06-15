@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from backend.routers import slots, bookings, users, admin
+from backend.routers import slots, booking, users, admin
 
 app = FastAPI(title="VGC Coaching API", version="1.0")
 
@@ -14,7 +14,7 @@ app.add_middleware(
 )
 
 app.include_router(slots.router)
-app.include_router(bookings.router)
+app.include_router(booking.router)
 app.include_router(users.router)
 app.include_router(admin.router)
 
