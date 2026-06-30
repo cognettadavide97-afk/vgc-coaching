@@ -147,18 +147,29 @@
         </section>
 
         <!-- STEP 4: CONFERMA FINALE -->
-        <section id="step-success" class="step-content">
-            <div class="success-box">
-                <div class="success-icon">✓</div>
-                <h2>Prenotazione confermata!</h2>
-                <p>Ti abbiamo inviato una email di conferma.<br>A presto!</p>
-                <button class="btn-primary" onclick="location.reload()">
-                    Prenota un'altra sessione
-                </button>
-            </div>
-        </section>
+<section id="step-success" class="step-content">
+    <div class="success-box">
+        <div class="success-icon">✓</div>
+        <h2>Prenotazione ricevuta!</h2>
+        <p>Ti abbiamo inviato una email con le istruzioni per il pagamento.</p>
 
-    </main>
+        <div style="background: #fff3cd; border-radius: 10px; padding: 1.25rem; margin: 1.5rem 0; text-align: left;">
+            <h3 style="color: #856404; margin-top: 0;">💳 Come pagare</h3>
+            <p style="font-size: 0.95rem; color: #555;">
+                Invia il pagamento tramite PayPal Amici e familiari a:<br>
+                <strong id="paypal-email-display" style="font-size: 1.1rem; color: #1a1a2e;"></strong>
+            </p>
+            <p style="font-size: 0.85rem; color: #856404;">
+                Nella causale scrivi il tuo nome e la data della sessione.<br>
+                Riceverai una conferma definitiva dopo il pagamento.
+            </p>
+        </div>
+
+        <button class="btn-primary" onclick="location.reload()">
+            Prenota un'altra sessione
+        </button>
+    </div>
+</section>
 
     <script src="/static/js/app.js"></script>
 </body>

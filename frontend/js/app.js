@@ -179,6 +179,14 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
         // successo
         showStep('step-success');
 
+        // carica l'email PayPal da mostrare nella pagina di conferma
+        fetch('/config/paypal-email')
+            .then(r => r.json())
+            .then(data => {
+                const el = document.getElementById('paypal-email-display');
+                if (el) el.textContent = data.email;
+            });
+
     } catch (error) {
         alert('Si è verificato un errore. Riprova.');
         btn.disabled = false;
