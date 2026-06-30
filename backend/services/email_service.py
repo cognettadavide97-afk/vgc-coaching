@@ -3,12 +3,13 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from dotenv import load_dotenv
 
-# prova a caricare il .env con il percorso assoluto
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env'))
+load_dotenv()
 
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 EMAIL_MITTENTE = os.getenv("EMAIL_MITTENTE")
 EMAIL_ADMIN = os.getenv("EMAIL_ADMIN")
+PAYPAL_EMAIL = os.getenv("PAYPAL_EMAIL")
+
 
 def invia_conferma_cliente(
     email_cliente: str,
@@ -22,13 +23,16 @@ def invia_conferma_cliente(
 
     corpo_email = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+
         <div style="background: #1a1a2e; padding: 2rem; text-align: center;">
             <h1 style="color: white; margin: 0;">VGC Coaching</h1>
         </div>
+
         <div style="padding: 2rem; background: #f9f9f9;">
-            <h2 style="color: #1a1a2e;">Prenotazione confermata!</h2>
+            <h2 style="color: #1a1a2e;">Prenotazione ricevuta!</h2>
             <p>Ciao <strong>{nome_cliente}</strong>,</p>
-            <p>La tua sessione di coaching VGC è stata prenotata con successo.</p>
+            <p>La tua richiesta di sessione coaching VGC e stata ricevuta.</p>
+
             <div style="background: white; border-radius: 8px; padding: 1.5rem; margin: 1.5rem 0; border-left: 4px solid #e74c3c;">
                 <h3 style="margin-top: 0; color: #555;">Dettagli sessione</h3>
                 <p><strong>Data:</strong> {data_slot}</p>
@@ -36,18 +40,34 @@ def invia_conferma_cliente(
                 <p><strong>Durata:</strong> {durata} ora{"e" if durata > 1 else ""}</p>
                 <p><strong>Totale:</strong> €{prezzo_euro:.2f}</p>
             </div>
-            <p>Ci vediamo presto su Pokémon Showdown!</p>
+
+            <div style="background: #fff3cd; border-radius: 8px; padding: 1.5rem; margin: 1.5rem 0; border-left: 4px solid #ffc107;">
+                <h3 style="margin-top: 0; color: #856404;">Come completare il pagamento</h3>
+                <p>Per confermare la prenotazione invia <strong>€{prezzo_euro:.2f}</strong> tramite PayPal a:</p>
+                <p style="font-size: 1.2rem; font-weight: bold; color: #1a1a2e;">{PAYPAL_EMAIL}</p>
+                <p style="font-size: 0.9rem; color: #856404;">
+                    Usa il pagamento Amici e familiari per evitare commissioni.<br>
+                    Nella causale scrivi il tuo nome e la data della sessione.
+                </p>
+                <p style="font-size: 0.9rem;">
+                    Una volta ricevuto il pagamento riceverai una email di conferma definitiva.
+                </p>
+            </div>
+
+            <p>Per qualsiasi domanda rispondi a questa email.</p>
         </div>
+
         <div style="background: #1a1a2e; padding: 1rem; text-align: center;">
             <p style="color: #888; font-size: 0.8rem; margin: 0;">VGC Coaching</p>
         </div>
+
     </div>
     """
 
     messaggio = Mail(
         from_email=EMAIL_MITTENTE,
         to_emails=email_cliente,
-        subject="Prenotazione confermata — VGC Coaching",
+        subject="Prenotazione ricevuta — Completa il pagamento",
         html_content=corpo_email
     )
 
@@ -77,6 +97,10 @@ def invia_notifica_admin(
             <p><strong>Orario:</strong> {ora_slot}</p>
             <p><strong>Durata:</strong> {durata} ora{"e" if durata > 1 else ""}</p>
             <p><strong>Note:</strong> {note_cliente or "Nessuna nota"}</p>
+            <p style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #ddd;">
+                Ricorda di confermare la prenotazione dal pannello admin
+                dopo aver ricevuto il pagamento su PayPal.
+            </p>
         </div>
     </div>
     """

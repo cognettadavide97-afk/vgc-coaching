@@ -48,3 +48,8 @@ def root():
 @app.get("/admin-panel")
 def admin_panel():
     return FileResponse("frontend/admin.html")
+
+@app.get("/config/paypal-email")
+def paypal_email():
+    import os
+    return {"email": os.getenv("PAYPAL_EMAIL", "")}
