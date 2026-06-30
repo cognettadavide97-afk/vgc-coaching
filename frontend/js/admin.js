@@ -339,13 +339,21 @@ async function eliminaSlot(id) {
     if (!confirm('Sei sicuro di voler eliminare questo slot?')) return;
 
     try {
-        await fetch(`/admin/slots/${id}`, {
+        const res = await fetch(`/admin/slots/${id}`, {
             method: 'DELETE',
             headers: authHeaders()
         });
+
+        if (!res.ok) {
+            const errore = await res.json();
+            alert(errore.detail || 'Errore durante l\'eliminazione dello slot.');
+            return;
+        }
+
         caricaSlots();
     } catch (error) {
         console.error('Errore eliminazione slot:', error);
+        alert('Errore di connessione durante l\'eliminazione.');
     }
 }
 
