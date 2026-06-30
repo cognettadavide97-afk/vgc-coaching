@@ -249,16 +249,23 @@ def elimina_slot(
     db: Session = Depends(get_db)
 ):
     """
-    Elimina uno slot. Se è già prenotato
-    non può essere eliminato.
+    Elimina uno slot. Se ha prenotazioni collegate
+    (anche cancellate) non può essere eliminato fisicamente
+    per preservare lo storico — viene invece disattivato.
     """
     slot = db.query(Slot).filter(Slot.id == slot_id).first()
     if not slot:
         raise HTTPException(status_code=404, detail="Slot non trovato")
-    if not slot.is_available:
+
+    # controlla se esistono prenotazioni collegate a questo slot
+    prenotazioni_collegate = db.query(Booking).filter(
+        Booking.slot_id == slot_id
+    ).count()
+
+    if prenotazioni_collegate > 0:
         raise HTTPException(
             status_code=400,
-            detail="Slot già prenotato — cancella prima la prenotazione"
+            detail=f"Impossibile eliminare: questo slot ha {prenotazioni_collegate} prenotazione/i collegate nello storico. Non può essere rimosso per preservare i dati."
         )
 
     db.delete(slot)
