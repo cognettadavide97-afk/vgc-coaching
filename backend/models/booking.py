@@ -14,6 +14,7 @@ class Booking(Base):
     status = Column(String(20), default="pending")  # pending, confirmed, cancelled
     note_cliente = Column(Text, nullable=True)
     note_admin = Column(Text, nullable=True)
+    calendar_event_id = Column(String(200), nullable=True)  # ← nuovo campo
     created_at = Column(DateTime, default=func.now())
 
     # relazioni — permettono di accedere ai dati collegati

@@ -12,6 +12,7 @@ import csv
 import io
 from fastapi.responses import StreamingResponse
 from datetime import datetime, date
+from backend.services.calendar_service import crea_evento_calendario, elimina_evento_calendario
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -144,22 +145,50 @@ def aggiorna_stato(
     db: Session = Depends(get_db)
 ):
     """
-    Cambia lo stato di una prenotazione:
-    pending → confirmed → cancelled
+    Cambia lo stato di una prenotazione.
+    Se confermata → crea evento su Google Calendar.
+    Se cancellata → elimina evento da Google Calendar.
     """
     stati_validi = ["pending", "confirmed", "cancelled"]
     if nuovo_stato not in stati_validi:
         raise HTTPException(status_code=400, detail="Stato non valido")
 
-    prenotazione = db.query(Booking).filter(Booking.id == booking_id).first()
+    prenotazione = db.query(Booking).filter(
+        Booking.id == booking_id
+    ).first()
     if not prenotazione:
         raise HTTPException(status_code=404, detail="Prenotazione non trovata")
 
     prenotazione.status = nuovo_stato
 
-    # se cancellata, libera lo slot
-    if nuovo_stato == "cancelled":
-        slot = db.query(Slot).filter(Slot.id == prenotazione.slot_id).first()
+    # recupera i dati collegati
+    user = db.query(User).filter(User.id == prenotazione.user_id).first()
+    slot = db.query(Slot).filter(Slot.id == prenotazione.slot_id).first()
+
+    data_slot = slot.start_time.strftime("%d/%m/%Y")
+    ora_slot = slot.start_time.strftime("%H:%M")
+
+    if nuovo_stato == "confirmed":
+        # crea evento su Google Calendar
+        event_id = crea_evento_calendario(
+            nome_cliente=user.nome,
+            email_cliente=user.email,
+            showdown_username=user.showdown_username,
+            data_slot=data_slot,
+            ora_slot=ora_slot,
+            durata_ore=prenotazione.duration_hours,
+            note_cliente=prenotazione.note_cliente
+        )
+        if event_id:
+            prenotazione.calendar_event_id = event_id
+
+    elif nuovo_stato == "cancelled":
+        # elimina evento da Google Calendar se esiste
+        if prenotazione.calendar_event_id:
+            elimina_evento_calendario(prenotazione.calendar_event_id)
+            prenotazione.calendar_event_id = None
+
+        # libera lo slot
         if slot:
             slot.is_available = True
 
