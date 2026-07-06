@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
@@ -45,14 +46,11 @@ def crea_evento_calendario(
         service = get_calendar_service()
 
         # costruisce data e ora di inizio e fine
-        # data_slot è "dd/mm/yyyy", ora_slot è "HH:MM"
-        from datetime import datetime, timedelta
         dt_inizio = datetime.strptime(
             f"{data_slot} {ora_slot}", "%d/%m/%Y %H:%M"
         )
         dt_fine = dt_inizio + timedelta(hours=durata_ore)
 
-        # formatta nel formato richiesto da Google Calendar
         formato = "%Y-%m-%dT%H:%M:%S"
 
         evento = {
@@ -72,9 +70,6 @@ def crea_evento_calendario(
                 "dateTime": dt_fine.strftime(formato),
                 "timeZone": "Europe/Rome"
             },
-            "attendees": [
-                {"email": email_cliente}
-            ],
             "reminders": {
                 "useDefault": False,
                 "overrides": [
@@ -86,8 +81,7 @@ def crea_evento_calendario(
 
         risultato = service.events().insert(
             calendarId=CALENDAR_ID,
-            body=evento,
-            sendUpdates="all"
+            body=evento
         ).execute()
 
         print(f"Evento creato: {risultato.get('htmlLink')}")
