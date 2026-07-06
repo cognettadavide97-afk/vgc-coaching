@@ -179,6 +179,20 @@ def aggiorna_stato(
             durata_ore=prenotazione.duration_hours,
             note_cliente=prenotazione.note_cliente
         )
+        
+        #DEBUG
+        print("=== Tentativo creazione evento Google Calendar ===")
+        event_id = crea_evento_calendario(
+            nome_cliente=user.nome,
+            email_cliente=user.email,
+            showdown_username=user.showdown_username,
+            data_slot=data_slot,
+            ora_slot=ora_slot,
+            durata_ore=prenotazione.duration_hours,
+            note_cliente=prenotazione.note_cliente
+        )
+        print(f"=== Event ID ricevuto: {event_id} ===")
+    
         if event_id:
             prenotazione.calendar_event_id = event_id
 
