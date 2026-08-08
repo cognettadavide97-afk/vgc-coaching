@@ -1,29 +1,174 @@
-from fastapi import APIRouter, Depends, HTTPException
+# Questo è il primo "router" che leggi, quindi spieghiamo per bene come
+# funziona un router FastAPI — negli altri file di questa cartella troverai
+# la stessa logica, con meno ripetizioni nei commenti.
+#
+# Un router raggruppa un insieme di "endpoint" (indirizzi web) legati tra
+# loro da un prefisso comune. Ogni funzione qui sotto, decorata con
+# @router.get(...) o @router.post(...), diventa raggiungibile da un browser
+# o da fetch() nel frontend non appena main.py fa
+# app.include_router(users.router) — prima di quel momento, questo file da
+# solo non fa nulla di per sé, definisce solo del codice Python.
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models.users import User
+from backend.models.booking import Booking
+from backend.models.slots import Slot
 from backend.schemas.users import UserCreate, UserResponse
-from typing import List
+from backend.routers.admin import get_admin
+from backend.services.auth_service import verifica_token_studente
+from backend.services.timezone_service import utc_to_rome
+from backend.rate_limit import limiter
+from typing import List, Optional
 
+# APIRouter() crea "questo gruppo di indirizzi". prefix="/users" vuol dire
+# che ogni endpoint qui sotto avrà "/users" davanti al proprio percorso —
+# per esempio @router.get("/me") diventa davvero raggiungibile all'indirizzo
+# "/users/me", non solo "/me".
 router = APIRouter(prefix="/users", tags=["Users"])
 
+# OAuth2PasswordBearer è la stessa classe che vedrai usata in admin.py per
+# il login del coach, ma qui con auto_error=False: normalmente, se manca il
+# token nell'header Authorization, FastAPI blocca subito la richiesta con
+# errore. Con auto_error=False invece "lascia correre", restituendo
+# semplicemente None — necessario qui perché il login studente è SEMPRE
+# opzionale: una richiesta senza token non è un errore, vuol dire solo "chi
+# prenota non è loggato" (guest checkout).
+oauth2_scheme_studente = OAuth2PasswordBearer(tokenUrl="/auth/discord/login", auto_error=False)
+
+
+def get_studente_opzionale(
+    token: Optional[str] = Depends(oauth2_scheme_studente),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """
+    Questa funzione è una "dependency" — non è un endpoint, è un pezzo di
+    logica riutilizzabile che altri endpoint richiedono con Depends(...).
+    Nota come le dependency possono incatenarsi: questa funzione stessa usa
+    Depends(oauth2_scheme_studente) per farsi passare il token, e a sua
+    volta viene usata da get_studente() qui sotto — FastAPI risolve tutta
+    la catena da solo, in ordine, prima di eseguire l'endpoint finale.
+    """
+    if not token:
+        return None
+    payload = verifica_token_studente(token)
+    if not payload:
+        return None
+    return db.query(User).filter(User.id == payload["user_id"]).first()
+
+
+def get_studente(studente: Optional[User] = Depends(get_studente_opzionale)) -> User:
+    """
+    Questa è la versione "obbligatoria": riusa get_studente_opzionale, ma se
+    il risultato è None (nessun login), blocca la richiesta con un errore
+    401 (Unauthorized) invece di lasciarla proseguire. È il pattern
+    "dependency che ne richiama un'altra e aggiunge un controllo in più" —
+    invece di riscrivere tutta la logica di lettura del token da capo.
+    """
+    if not studente:
+        raise HTTPException(status_code=401, detail="Login richiesto")
+    return studente
+
+
+# @router.get("/", ...) dice a FastAPI: "quando arriva una richiesta HTTP
+# GET su /users/, esegui questa funzione". response_model=List[UserResponse]
+# dice inoltre "il risultato deve avere la forma di una LISTA di
+# UserResponse" — FastAPI userà questo per validare/formattare
+# automaticamente l'output e per generare la documentazione su /docs.
+#
+# admin: str = Depends(get_admin) è quello che protegge questo endpoint:
+# get_admin (definita in admin.py) controlla che ci sia un token JWT admin
+# valido nell'header della richiesta, e se manca o non è valido blocca
+# tutto PRIMA che il corpo della funzione venga eseguito. È così che il
+# progetto protegge gli endpoint riservati, senza ripetere il controllo
+# manualmente in ogni funzione.
 @router.get("/", response_model=List[UserResponse])
-def get_users(db: Session = Depends(get_db)):
+def get_users(admin: str = Depends(get_admin), db: Session = Depends(get_db)):
     return db.query(User).all()
 
+
+@router.get("/me", response_model=UserResponse)
+def get_utente_corrente(studente: User = Depends(get_studente)):
+    """Restituisce il profilo dello studente loggato via Discord, per precompilare il form."""
+    # Qui "return studente" restituisce direttamente l'oggetto User (un
+    # model SQLAlchemy) — FastAPI, grazie a response_model=UserResponse e a
+    # from_attributes=True nello schema (vedi backend/schemas/users.py),
+    # sa da solo come trasformarlo nel JSON corretto da mandare al client.
+    return studente
+
+
+@router.get("/me/prenotazioni")
+def get_prenotazioni_studente(
+    studente: User = Depends(get_studente),
+    db: Session = Depends(get_db)
+):
+    """Storico prenotazioni dello studente loggato via Discord, più recenti prima."""
+    # .join(Slot) unisce le tabelle bookings e slots nella stessa query (ci
+    # serve per poter ordinare per Slot.start_time, un campo che sta
+    # sull'altra tabella). .order_by(Slot.start_time.desc()) ordina dal più
+    # recente al più vecchio ("desc" = decrescente).
+    prenotazioni = db.query(Booking).join(Slot).filter(
+        Booking.user_id == studente.id
+    ).order_by(Slot.start_time.desc()).all()
+
+    # Qui, invece di restituire direttamente oggetti Booking, costruiamo a
+    # mano una lista di dizionari con solo i campi che servono al frontend
+    # (e già formattati in modo leggibile, es. la data). Questo endpoint
+    # non usa un response_model Pydantic — FastAPI converte comunque questa
+    # lista in JSON automaticamente, ma senza la validazione/documentazione
+    # extra che avresti con uno schema dedicato.
+    return [
+        {
+            "id": p.id,
+            "servizio": p.service_type,
+            "stato": p.status,
+            "data": utc_to_rome(p.slot.start_time).strftime("%d/%m/%Y"),
+            "ora": utc_to_rome(p.slot.start_time).strftime("%H:%M"),
+            "durata_ore": p.duration_hours
+        }
+        for p in prenotazioni  # "list comprehension": costruisce la lista in una riga sola, un dizionario per ogni prenotazione
+    ]
+
+
 @router.post("/", response_model=UserResponse)
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
+# @limiter.limit("5/minute") è un secondo decoratore sullo stesso endpoint:
+# applica la protezione anti-abuso vista in backend/rate_limit.py,
+# impedendo che lo stesso indirizzo IP chiami questo endpoint più di 5
+# volte al minuto — impedisce a un bot di creare migliaia di utenti falsi.
+@limiter.limit("5/minute")
+def create_user(request: Request, user: UserCreate, db: Session = Depends(get_db)):
+    # request: Request è un parametro che slowapi richiede per poter
+    # identificare da dove arriva la richiesta (il suo indirizzo IP) — non
+    # lo usiamo direttamente nel corpo della funzione, ma deve essere
+    # presente perché il decoratore @limiter.limit funzioni.
+
     # controlla se l'email esiste già
     existing = db.query(User).filter(User.email == user.email).first()
     if existing:
         return existing  # restituisce l'utente esistente invece di creare un duplicato
+        # Questo pattern si chiama "get or create" (prendi se esiste, altrimenti
+        # crea): dato che email è unique nel database (vedi backend/models/users.py),
+        # non possiamo comunque creare un secondo utente con la stessa email — invece
+        # di far fallire la richiesta con un errore, la trasformiamo in un
+        # comportamento utile: "se questo studente ha già prenotato in passato,
+        # ritrovalo invece di dare errore".
 
     db_user = User(
         nome=user.nome,
         email=user.email,
         telefono=user.telefono,
-        showdown_username=user.showdown_username
+        showdown_username=user.showdown_username,
+        discord_tag=user.discord_tag
     )
+    # Queste tre righe sono il pattern standard di SQLAlchemy per salvare
+    # qualcosa di nuovo:
+    # db.add(...)     → "prepara" l'inserimento (non ancora salvato)
+    # db.commit()      → salva DAVVERO nel database
+    # db.refresh(...)  → rilegge l'oggetto dal database, per aggiornare i
+    #                    campi che il database stesso ha generato (qui:
+    #                    l'id assegnato automaticamente, e created_at)
     db.add(db_user)
     db.commit()
     db.refresh(db_user)

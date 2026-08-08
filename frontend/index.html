@@ -1,3 +1,17 @@
+<!--
+    Questa è la pagina pubblica di prenotazione — quella che vede uno
+    studente. È un file HTML "statico": il server (backend/main.py) lo
+    manda al browser così com'è, senza modificarlo. Tutta la parte
+    "dinamica" (caricare gli slot, gestire i click, mandare la
+    prenotazione...) è compito del file frontend/js/app.js, collegato in
+    fondo alla pagina con <script src="...">.
+
+    Concetto chiave da notare in tutto il file: ogni elemento con un
+    attributo id="qualcosa" è un "gancio" che app.js userà per trovarlo
+    (con document.getElementById("qualcosa")) e leggerlo o modificarlo.
+    Se rinomini un id qui, devi aggiornare anche app.js, altrimenti quel
+    collegamento si rompe silenziosamente.
+-->
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -16,6 +30,24 @@
         </div>
     </header>
 
+    <!--
+        Questo div è vuoto qui — il suo contenuto (il bottone "Accedi con
+        Discord", oppure il messaggio di bentornato) viene scritto
+        interamente da app.js con innerHTML, in base al fatto che lo
+        studente sia già loggato o no. In HTML puro non c'è nulla da vedere
+        qui: è solo un "contenitore" che aspetta di essere riempito da
+        JavaScript quando la pagina si carica.
+    -->
+    <!-- LOGIN DISCORD (opzionale) -->
+    <div id="discord-login-bar" class="login-bar"></div>
+
+    <!--
+        La barra che mostra "a che punto sei" nel flusso di prenotazione a
+        3 step. Le classi "active"/"completed" su questi div (aggiunte e
+        rimosse da app.js con classList.add/remove) sono quello che il CSS
+        usa per evidenziare visivamente lo step corrente — vedi
+        frontend/css/style.css per come reagiscono queste classi.
+    -->
     <!-- BARRA DEGLI STEP -->
     <div class="steps-bar">
         <div class="step active" id="step-indicator-1">
@@ -34,6 +66,15 @@
         </div>
     </div>
 
+    <!--
+        Da qui in poi ci sono QUATTRO <section>, una per ogni step del
+        flusso (più la schermata finale di successo). Sono tutte presenti
+        nella pagina fin dall'inizio — non è che vengono "create" quando
+        servono. Solo UNA alla volta ha la classe "active" (vedi il CSS:
+        .step-content senza "active" ha display:none, quella con "active"
+        è visibile) — è così che app.js "cambia pagina" senza mai
+        ricaricare davvero il browser: nasconde uno step e mostra l'altro.
+    -->
     <!-- CONTENUTO PRINCIPALE -->
     <main>
 
@@ -42,13 +83,40 @@
             <h2>Scegli data e orario</h2>
             <p class="subtitle">Seleziona uno slot disponibile per la tua sessione</p>
 
+            <!-- Riempito da app.js (funzione renderSlots) con una card per ogni slot disponibile -->
             <div id="slots-container">
                 <p class="loading">Caricamento slot disponibili...</p>
             </div>
 
             <div class="duration-selector">
+                <h3>Tipo di sessione</h3>
+                <div class="duration-buttons">
+                    <!--
+                        data-service="..." è un "data attribute": un modo
+                        standard in HTML per attaccare a un elemento un
+                        pezzetto di informazione che serve solo al
+                        JavaScript, non alla pagina in sé. app.js legge
+                        questi valori con btn.dataset.service.
+                    -->
+                    <button class="service-btn active" data-service="vod_review">
+                        VOD Review
+                    </button>
+                    <button class="service-btn" data-service="team_building">
+                        Team Building
+                    </button>
+                    <button class="service-btn" data-service="bo3_sparring">
+                        Bo3 Sparring
+                    </button>
+                    <button class="service-btn" data-service="mentality_prep">
+                        Mentality Prep
+                    </button>
+                </div>
+            </div>
+
+            <div class="duration-selector">
                 <h3>Durata sessione</h3>
                 <div class="duration-buttons">
+                    <!-- data-hours/data-price: stesso concetto di data-service sopra, letti da app.js per calcolare il prezzo -->
                     <button class="duration-btn active" data-hours="1" data-price="35">
                         1 ora — €35
                     </button>
@@ -61,6 +129,7 @@
                 </div>
             </div>
 
+            <!-- "disabled" all'inizio: il bottone si attiva (via JS) solo quando è stato scelto uno slot -->
             <button class="btn-primary" id="btn-to-step2" disabled>
                 Continua →
             </button>
@@ -71,6 +140,14 @@
             <h2>I tuoi dati</h2>
             <p class="subtitle">Inserisci le tue informazioni per completare la prenotazione</p>
 
+            <!--
+                Questo <form> non ha un attributo "action" né "method":
+                non si comporta come un form HTML classico che ricarica la
+                pagina al submit. app.js legge il valore di ogni campo a
+                mano (con document.getElementById(...).value) quando serve
+                e li manda via fetch() — il tag <form> qui è usato più che
+                altro per il raggruppamento visivo e semantico dei campi.
+            -->
             <form id="booking-form">
                 <div class="form-group">
                     <label for="nome">Nome completo *</label>
@@ -88,12 +165,8 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="formato">Formato</label>
-                    <select id="formato">
-                        <option value="VGC 2025 Reg G">VGC 2025 Reg G</option>
-                        <option value="VGC 2025 Reg H">VGC 2025 Reg H</option>
-                        <option value="Altro">Altro</option>
-                    </select>
+                    <label for="discord">Discord Tag</label>
+                    <input type="text" id="discord" placeholder="ash_ketchum">
                 </div>
 
                 <div class="form-group">
@@ -101,6 +174,16 @@
                     <textarea id="note" rows="4"
                         placeholder="Es: uso un team Trick Room con Indeedee-F, ho problemi con la gestione dei turni veloci...">
                     </textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="vod-link">Link VOD (opzionale)</label>
+                    <input type="text" id="vod-link" placeholder="https://youtube.com/...">
+                </div>
+
+                <div class="form-group">
+                    <label for="replay-code">Codice replay Showdown (opzionale)</label>
+                    <input type="text" id="replay-code" placeholder="gen9vgc2026regh-1234567890">
                 </div>
             </form>
 
@@ -115,10 +198,15 @@
             <h2>Riepilogo prenotazione</h2>
             <p class="subtitle">Controlla i dati prima di confermare</p>
 
+            <!-- Ogni <strong> qui dentro viene riempito da app.js con i dati scelti nei passi precedenti, prima di mostrare questo step -->
             <div class="summary-card">
                 <div class="summary-row">
                     <span>Data e orario</span>
                     <strong id="summary-slot">—</strong>
+                </div>
+                <div class="summary-row">
+                    <span>Servizio</span>
+                    <strong id="summary-service">—</strong>
                 </div>
                 <div class="summary-row">
                     <span>Durata</span>
@@ -150,27 +238,30 @@
 <section id="step-success" class="step-content">
     <div class="success-box">
         <div class="success-icon">✓</div>
-        <h2>Prenotazione ricevuta!</h2>
-        <p>Ti abbiamo inviato una email con le istruzioni per il pagamento.</p>
+        <h2>Prenotazione confermata!</h2>
+        <p>Ti abbiamo inviato una email di conferma con tutti i dettagli della sessione.</p>
 
-        <div style="background: #fff3cd; border-radius: 10px; padding: 1.25rem; margin: 1.5rem 0; text-align: left;">
-            <h3 style="color: #856404; margin-top: 0;">💳 Come pagare</h3>
-            <p style="font-size: 0.95rem; color: #555;">
-                Invia il pagamento tramite PayPal Amici e familiari a:<br>
-                <strong id="paypal-email-display" style="font-size: 1.1rem; color: #1a1a2e;"></strong>
-            </p>
-            <p style="font-size: 0.85rem; color: #856404;">
-                Nella causale scrivi il tuo nome e la data della sessione.<br>
-                Riceverai una conferma definitiva dopo il pagamento.
-            </p>
-        </div>
-
+        <!--
+            onclick="location.reload()" è JavaScript scritto DIRETTAMENTE
+            dentro l'HTML (un "inline event handler") — un'alternativa più
+            semplice, per azioni molto piccole, rispetto ad aggiungere un
+            addEventListener in app.js come si fa per gli altri bottoni.
+            location.reload() ricarica semplicemente la pagina da capo.
+        -->
         <button class="btn-primary" onclick="location.reload()">
             Prenota un'altra sessione
         </button>
     </div>
 </section>
 
+    <!--
+        Questo script va messo alla FINE del <body> (non nel <head>) per un
+        motivo preciso: quando il browser arriva a questa riga, ha già
+        letto e costruito tutto l'HTML sopra. Se lo script fosse nel <head>
+        e provasse a fare document.getElementById("nome") prima che quel
+        tag <input> esistesse ancora, otterrebbe "null" — un errore
+        classico per chi inizia con JavaScript nel browser.
+    -->
     <script src="/static/js/app.js"></script>
 </body>
 </html>

@@ -1,3 +1,18 @@
+<!--
+    Questa è la pagina del pannello admin, usata solo dal coach. Vedi i
+    commenti in frontend/index.html per la spiegazione generale di come
+    HTML e JavaScript si parlano tramite gli id — qui vale lo stesso
+    principio, il "cervello" di questa pagina è frontend/js/admin.js.
+
+    Struttura generale: la pagina ha DUE "schermate" alternative
+    (#login-screen e #admin-panel) — non loggato vedi solo la prima,
+    loggato solo la seconda (admin.js le nasconde/mostra cambiando lo
+    stile "display"). Dentro #admin-panel, poi, c'è UN'ALTRA alternanza:
+    quattro <section> (dashboard, prenotazioni, clienti, slot), di cui una
+    sola visibile alla volta — stesso concetto degli "step" del form
+    pubblico, ma qui il cambio avviene cliccando i bottoni della barra
+    laterale invece che avanzando in un flusso lineare.
+-->
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -21,11 +36,19 @@
                 <label>Password</label>
                 <input type="password" id="login-password" placeholder="••••••••">
             </div>
+            <!-- onclick="login()" chiama la funzione login() dentro admin.js, che manda username/password al server e, se corretti, salva il token JWT ricevuto -->
             <button class="btn-primary" onclick="login()">Accedi</button>
             <p id="login-error" class="error-msg"></p>
         </div>
     </div>
 
+    <!--
+        style="display:none" nasconde questo intero blocco finché admin.js
+        non lo mostra esplicitamente (dopo un login riuscito) — è la stessa
+        idea del CSS che nasconde gli step non attivi in index.html, solo
+        scritta qui direttamente come stile inline invece che tramite una
+        classe CSS.
+    -->
     <!-- PANNELLO PRINCIPALE (nascosto finché non fai login) -->
     <div id="admin-panel" style="display:none">
 
@@ -35,6 +58,13 @@
                 <h2>⚔️ Admin</h2>
             </div>
             <nav>
+                <!--
+                    Ogni bottone chiama showSection("nome") con un nome
+                    diverso — quella funzione (in admin.js) nasconde tutte
+                    le <section> qui sotto e mostra solo quella con
+                    id="section-NOME", oltre a caricare i suoi dati freschi
+                    dal server.
+                -->
                 <button class="nav-btn active" onclick="showSection('dashboard')">
                     📊 Dashboard
                 </button>
@@ -59,6 +89,7 @@
             <!-- DASHBOARD -->
             <section id="section-dashboard" class="admin-section active">
                 <h2>Dashboard</h2>
+                <!-- Questi tre numeri vengono riempiti da admin.js (funzione caricaDashboard) leggendo GET /admin/dashboard -->
                 <div class="stats-grid">
                     <div class="stat-card">
                         <div class="stat-number" id="stat-totale">—</div>
@@ -75,6 +106,36 @@
                 </div>
                 <h3>Prossimi slot liberi</h3>
                 <div id="prossimi-slot"></div>
+
+                <!-- Questi tre e i tre grafici sotto vengono da GET /admin/analytics (funzione caricaAnalytics in admin.js) -->
+                <div class="stats-grid" style="margin-top:1.5rem">
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-no-show">—</div>
+                        <div class="stat-label">Tasso no-show</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-clienti-nuovi">—</div>
+                        <div class="stat-label">Clienti nuovi</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-clienti-ricorrenti">—</div>
+                        <div class="stat-label">Clienti ricorrenti</div>
+                    </div>
+                </div>
+
+                <!--
+                    Questi tre div sono vuoti in HTML: admin.js li riempie
+                    con delle "barre" fatte di semplici <div> in CSS (niente
+                    librerie grafiche) — vedi renderBarChart in admin.js.
+                -->
+                <h3 style="margin-top:1.5rem">Sessioni per mese</h3>
+                <div id="chart-sessioni-mese" class="mini-chart"></div>
+
+                <h3 style="margin-top:1.5rem">Incasso per mese</h3>
+                <div id="chart-incasso-mese" class="mini-chart"></div>
+
+                <h3 style="margin-top:1.5rem">Servizi più richiesti</h3>
+                <div id="chart-servizi" class="mini-chart"></div>
             </section>
 
             <!-- PRENOTAZIONI -->
@@ -82,17 +143,24 @@
                 <div class="section-header">
                     <h2>Prenotazioni</h2>
                     <div class="header-actions">
+                        <!--
+                            onchange (non onclick!): scatta quando il valore
+                            selezionato in questa tendina CAMBIA, non quando
+                            ci clicchi sopra — perfetto per un filtro che
+                            deve aggiornarsi appena scegli un'opzione diversa.
+                        -->
                         <select id="filtro-stato" onchange="caricaPrenotazioni()">
                             <option value="">Tutti gli stati</option>
-                            <option value="pending">In attesa</option>
                             <option value="confirmed">Confermati</option>
                             <option value="cancelled">Cancellati</option>
+                            <option value="no_show">No-show</option>
                         </select>
                         <button class="btn-export" onclick="exportCSV()">
                             ⬇ Esporta CSV
                         </button>
                     </div>
                 </div>
+                <!-- Riempito da admin.js con la tabella delle prenotazioni + i controlli di paginazione -->
                 <div id="lista-prenotazioni"></div>
             </section>
 
@@ -106,10 +174,26 @@
             <section id="section-slots" class="admin-section">
                 <div class="section-header">
                     <h2>Gestione Slot</h2>
+                    <button class="btn-export" onclick="sincronizzaCalendario()">
+                        🔄 Sincronizza calendario
+                    </button>
                 </div>
                 <div class="nuovo-slot-form">
                     <h3>Aggiungi nuovo slot</h3>
+                    <p style="font-size: 0.85rem; color: #888; margin-top: -0.5rem;">
+                        L'orario inserito è sempre riferito al fuso orario italiano (Europe/Rome).
+                    </p>
                     <div class="form-inline">
+                        <!--
+                            type="datetime-local" è un tipo di <input> HTML
+                            che mostra automaticamente un selettore di
+                            data+ora nel browser, senza bisogno di nessuna
+                            libreria JavaScript — il valore che produce è
+                            però sempre "senza fuso orario" (es.
+                            "2026-08-12T18:00"), per questo il backend deve
+                            interpretarlo esplicitamente come ora italiana
+                            (vedi il validator in backend/schemas/slots.py).
+                        -->
                         <input type="datetime-local" id="nuovo-slot-data">
                         <select id="nuovo-slot-durata">
                             <option value="1">1 ora</option>
@@ -121,6 +205,51 @@
                         </button>
                     </div>
                 </div>
+                <div class="nuovo-slot-form">
+                    <h3>Disponibilità ricorrente</h3>
+                    <p style="font-size: 0.85rem; color: #888; margin-top: -0.5rem;">
+                        Genera automaticamente gli slot per le prossime 8 settimane. Orari in ora italiana.
+                    </p>
+                    <div class="form-inline">
+                        <!-- Il "value" di ogni <option> qui deve combaciare con la numerazione 0=lunedì...6=domenica usata dal backend (vedi AvailabilityRule) -->
+                        <select id="regola-giorno">
+                            <option value="0">Lunedì</option>
+                            <option value="1">Martedì</option>
+                            <option value="2">Mercoledì</option>
+                            <option value="3">Giovedì</option>
+                            <option value="4">Venerdì</option>
+                            <option value="5">Sabato</option>
+                            <option value="6">Domenica</option>
+                        </select>
+                        <input type="time" id="regola-ora-inizio" value="18:00">
+                        <span>—</span>
+                        <input type="time" id="regola-ora-fine" value="22:00">
+                        <select id="regola-durata">
+                            <option value="1">slot da 1 ora</option>
+                            <option value="2">slot da 2 ore</option>
+                            <option value="3">slot da 3 ore</option>
+                        </select>
+                        <button class="btn-primary" onclick="creaRegolaDisponibilita()">
+                            + Aggiungi regola
+                        </button>
+                    </div>
+                    <div id="lista-regole"></div>
+                </div>
+
+                <div class="nuovo-slot-form">
+                    <h3>Blocchi eccezionali (ferie, indisponibilità)</h3>
+                    <div class="form-inline">
+                        <input type="date" id="blocco-data-inizio">
+                        <span>—</span>
+                        <input type="date" id="blocco-data-fine">
+                        <input type="text" id="blocco-motivo" placeholder="Motivo (opzionale, es. Ferie)">
+                        <button class="btn-primary" onclick="creaBloccoEccezionale()">
+                            + Aggiungi blocco
+                        </button>
+                    </div>
+                    <div id="lista-blocchi"></div>
+                </div>
+
                 <div id="lista-slots"></div>
             </section>
 

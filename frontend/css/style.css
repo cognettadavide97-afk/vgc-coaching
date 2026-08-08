@@ -1,3 +1,40 @@
+/*
+   Questo file definisce l'aspetto grafico della pagina pubblica di
+   prenotazione. Se vieni da Python, il CSS ha una logica molto diversa dal
+   codice che sei abituato a scrivere: non è una sequenza di istruzioni
+   eseguite in ordine, è un insieme di REGOLE. Ogni regola ha la forma:
+
+       selettore { proprietà: valore; proprietà: valore; ... }
+
+   Il "selettore" (es. ".step-content" o "header h1") dice A QUALI elementi
+   della pagina si applica la regola; le proprietà dentro le graffe dicono
+   COME devono apparire. Il browser applica tutte le regole che
+   corrispondono a un elemento, combinandole insieme.
+
+   Alcuni selettori che vedrai spesso in questo file:
+   - "nomeclasse"          → tutti gli elementi con class="nomeclasse"
+   - "tag"                 → tutti gli elementi di quel tipo (es. "header")
+   - "tag.classe"          → un elemento di quel tipo CHE ha anche quella classe
+   - ".a .b"               → un elemento con classe "b" DENTRO uno con classe "a"
+   - ".a.b"                → un elemento che ha ENTRAMBE le classi "a" e "b"
+   - ".classe:hover"       → lo stato di un elemento quando il mouse ci passa sopra
+   - ".classe:disabled"    → lo stato di un elemento (es. un bottone) quando è disabilitato
+
+   Un pattern che ricorre in tutto il progetto (qui e in admin.js): molte
+   classi non sono scritte a mano nell'HTML, ma AGGIUNTE E RIMOSSE da
+   JavaScript con classList.add()/remove() (vedi frontend/js/app.js) — es.
+   ".step-content.active" sotto esiste apposta per essere "attivata" via
+   codice, non è mai scritta staticamente nell'HTML.
+*/
+
+/* Reset universale: il browser applica di suo margini/padding diversi a
+   seconda dell'elemento (es. <h1> ha un margine diverso da <p>) — questa
+   regola li azzera tutti, per partire da una base pulita e prevedibile e
+   controllare noi ogni spaziatura esplicitamente. box-sizing: border-box
+   cambia il modo in cui viene calcolata la dimensione di un elemento: con
+   questa opzione, padding e bordo sono INCLUSI nella larghezza dichiarata
+   (invece che aggiunti sopra), il che rende molto più semplice prevedere
+   quanto spazio occuperà davvero un elemento. */
 * {
     margin: 0;
     padding: 0;
@@ -8,16 +45,24 @@ body {
     font-family: 'Segoe UI', sans-serif;
     background: #f5f5f5;
     color: #333;
-    min-height: 100vh;
+    min-height: 100vh; /* "100vh" = 100% dell'altezza della finestra del browser (viewport height) */
 }
 
 /* HEADER */
 header {
+    /* Un "gradiente lineare": una transizione fluida di colore invece di un
+       colore singolo, qui da un blu scuro a un altro leggermente diverso,
+       diagonale ("135deg" è l'angolo). */
     background: linear-gradient(135deg, #1a1a2e, #16213e);
     color: white;
     padding: 2rem;
     text-align: center;
 }
+/* "rem" (usato ovunque in questo file) è un'unità di misura relativa alla
+   dimensione del font base della pagina — a differenza dei "px" (pixel
+   assoluti), usare "rem" fa sì che l'intero sito si ridimensioni in modo
+   coerente se l'utente cambia le impostazioni di accessibilità del testo
+   del browser. */
 
 header h1 {
     font-size: 2rem;
@@ -31,13 +76,18 @@ header p {
 
 /* STEPS BAR */
 .steps-bar {
+    /* display:flex trasforma questo elemento in un "flex container": i suoi
+       figli diretti si dispongono automaticamente in riga (o colonna),
+       e align-items/justify-content controllano il loro allineamento
+       verticale/orizzontale — è lo strumento CSS più usato in questo
+       progetto per centrare e distribuire elementi senza calcoli manuali. */
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 1.5rem;
     background: white;
     border-bottom: 1px solid #eee;
-    gap: 0;
+    gap: 0; /* "gap" è lo spazio tra i figli di un flex/grid container */
 }
 
 .step {
@@ -45,9 +95,15 @@ header p {
     align-items: center;
     gap: 0.5rem;
     opacity: 0.4;
+    /* "transition" dice al browser di animare dolcemente il cambiamento di
+       una proprietà (qui "opacity") invece di cambiarla di scatto — 0.3s è
+       la durata dell'animazione. */
     transition: opacity 0.3s;
 }
 
+/* .step.active seleziona un elemento che ha ENTRAMBE le classi "step" e
+   "active" insieme — è così che si sovrascrivono le proprietà di sopra
+   quando JavaScript aggiunge la classe "active" allo step corrente. */
 .step.active {
     opacity: 1;
 }
@@ -60,7 +116,7 @@ header p {
 .step-number {
     width: 28px;
     height: 28px;
-    border-radius: 50%;
+    border-radius: 50%; /* un cerchio perfetto: metà della larghezza/altezza */
     background: #ddd;
     display: flex;
     align-items: center;
@@ -70,6 +126,10 @@ header p {
     transition: background 0.3s;
 }
 
+/* ".step.active .step-number" (con uno SPAZIO, non un punto) vuol dire "un
+   elemento .step-number che si trova DENTRO un elemento .step.active" —
+   diverso da ".step.active" (senza spazio) visto sopra, che invece cerca
+   un singolo elemento con entrambe le classi. */
 .step.active .step-number {
     background: #e74c3c;
     color: white;
@@ -95,17 +155,21 @@ header p {
 /* MAIN */
 main {
     max-width: 640px;
-    margin: 2rem auto;
+    margin: 2rem auto; /* "auto" a sinistra/destra centra orizzontalmente un elemento a larghezza fissa */
     padding: 0 1rem;
 }
 
 /* STEP CONTENT */
 .step-content {
+    /* display:none nasconde completamente l'elemento (non occupa nemmeno
+       spazio nella pagina) — questa è la regola "di default" per ogni
+       step; solo quello con la classe "active" (sotto) torna visibile.
+       Questo è il meccanismo CSS dietro showStep() in frontend/js/app.js. */
     display: none;
     background: white;
     border-radius: 12px;
     padding: 2rem;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08); /* ombra morbida: offset-x offset-y sfocatura colore(con trasparenza) */
 }
 
 .step-content.active {
@@ -126,6 +190,16 @@ main {
 
 /* SLOTS */
 #slots-container {
+    /* display:grid è l'altro grande strumento di layout del CSS moderno,
+       pensato per griglie bidimensionali (righe E colonne insieme).
+       grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)) vuol
+       dire: "riempi automaticamente tante colonne quante ce ne stanno,
+       ognuna larga almeno 180px ma capace di allargarsi (1fr = una
+       porzione dello spazio libero) per riempire lo spazio rimanente" — è
+       così che le card degli slot si dispongono automaticamente in più o
+       meno colonne a seconda della larghezza dello schermo, senza bisogno
+       di regole diverse per mobile/desktop.
+    */
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 0.75rem;
@@ -136,8 +210,8 @@ main {
     border: 2px solid #eee;
     border-radius: 10px;
     padding: 1rem;
-    cursor: pointer;
-    transition: all 0.2s;
+    cursor: pointer; /* mostra la manina al passaggio del mouse, segnalando che è cliccabile */
+    transition: all 0.2s; /* "all" anima QUALUNQUE proprietà cambi (bordo, sfondo...) */
     text-align: center;
 }
 
@@ -166,7 +240,7 @@ main {
 .loading {
     color: #aaa;
     font-style: italic;
-    grid-column: 1 / -1;
+    grid-column: 1 / -1; /* dentro la griglia sopra, occupa tutte le colonne (dalla prima all'ultima) invece di una sola cella */
 }
 
 /* DURATA */
@@ -183,11 +257,16 @@ main {
 .duration-buttons {
     display: flex;
     gap: 0.75rem;
-    flex-wrap: wrap;
+    flex-wrap: wrap; /* se non c'è abbastanza spazio in riga, i bottoni vanno a capo invece di restringersi troppo */
 }
 
-.duration-btn {
-    flex: 1;
+/* Questa regola si applica a DUE classi diverse insieme (separate da
+   virgola): .duration-btn (i bottoni di durata) e .service-btn (i bottoni
+   di servizio) condividono lo stesso aspetto grafico, anche se sono
+   gestiti da pezzi diversi di JavaScript — evita di duplicare lo stesso
+   blocco di regole due volte. */
+.duration-btn, .service-btn {
+    flex: 1; /* dentro un flex container, cresce per occupare spazio uguale agli altri bottoni */
     padding: 0.75rem;
     border: 2px solid #eee;
     border-radius: 8px;
@@ -199,11 +278,11 @@ main {
     min-width: 120px;
 }
 
-.duration-btn:hover {
+.duration-btn:hover, .service-btn:hover {
     border-color: #e74c3c;
 }
 
-.duration-btn.active {
+.duration-btn.active, .service-btn.active {
     border-color: #e74c3c;
     background: #fff5f5;
     color: #e74c3c;
@@ -215,7 +294,7 @@ main {
 }
 
 .form-group label {
-    display: block;
+    display: block; /* forza il <label> a occupare una riga propria, invece di stare in linea col campo */
     font-size: 0.9rem;
     font-weight: 500;
     margin-bottom: 0.4rem;
@@ -230,11 +309,13 @@ main {
     border: 1.5px solid #ddd;
     border-radius: 8px;
     font-size: 0.95rem;
-    font-family: inherit;
+    font-family: inherit; /* usa lo stesso font del resto della pagina invece del font di default del browser per i form */
     transition: border-color 0.2s;
-    outline: none;
+    outline: none; /* toglie il bordo blu di default che il browser mette sugli elementi selezionati */
 }
 
+/* :focus è lo stato di un campo quando l'utente ci sta scrivendo dentro
+   (ci ha cliccato sopra, o ci è arrivato con Tab) */
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
@@ -251,12 +332,15 @@ main {
 
 .summary-row {
     display: flex;
-    justify-content: space-between;
+    justify-content: space-between; /* spinge i due figli (etichetta e valore) ai due estremi opposti della riga */
     padding: 0.6rem 0;
     border-bottom: 1px solid #eee;
     font-size: 0.95rem;
 }
 
+/* :last-child seleziona l'ultimo figlio del suo genitore — qui toglie la
+   linea di separazione dall'ultima riga del riepilogo, che altrimenti
+   sarebbe "appesa" senza motivo prima del bordo esterno della card. */
 .summary-row:last-child {
     border-bottom: none;
 }
@@ -291,6 +375,10 @@ main {
     background: #c0392b;
 }
 
+/* :disabled si applica solo quando l'elemento ha l'attributo HTML
+   "disabled" (vedi <button id="btn-to-step2" disabled> in index.html, e
+   ".disabled = true/false" impostato da JavaScript) — utile per dare un
+   feedback visivo immediato "questo bottone non è ancora cliccabile". */
 .btn-primary:disabled {
     background: #ddd;
     cursor: not-allowed;
@@ -344,8 +432,87 @@ main {
     color: #27ae60;
 }
 
+/* LOGIN DISCORD */
+.login-bar {
+    background: white;
+    border-bottom: 1px solid #eee;
+    padding: 0.75rem 1.5rem;
+    text-align: center;
+}
+
+.discord-login-btn {
+    display: inline-block;
+    padding: 0.6rem 1.25rem;
+    background: #5865f2; /* il colore ufficiale del brand Discord */
+    color: white;
+    text-decoration: none; /* toglie la sottolineatura di default dei link */
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    transition: background 0.2s;
+}
+
+.discord-login-btn:hover {
+    background: #4752c4;
+}
+
+.login-bar-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    font-size: 0.9rem;
+}
+
+.link-btn {
+    background: none;
+    border: none;
+    color: #e74c3c;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+}
+
+.storico-lista {
+    list-style: none; /* toglie i pallini di default di una lista <ul> */
+    max-width: 480px;
+    margin: 1rem auto 0;
+    text-align: left;
+}
+
+.storico-lista li {
+    background: #f9f9f9;
+    border-radius: 8px;
+    padding: 0.6rem 1rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.storico-stato {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    border-radius: 12px;
+    white-space: nowrap; /* impedisce al testo di andare a capo, anche se lo spazio è stretto */
+}
+
+/* Tre classi diverse (una per ogni possibile stato di una prenotazione)
+   scritte in forma compatta su una riga sola — sintassi equivalente a
+   scriverle su più righe con le graffe, solo più breve quando la regola è
+   semplicissima come questa. */
+.storico-stato-confirmed { background: #d4edda; color: #155724; }
+.storico-stato-cancelled { background: #f8d7da; color: #721c24; }
+.storico-stato-no_show { background: #e2e3e5; color: #383d41; }
+
 .success-box p {
     color: #888;
     margin-bottom: 1.5rem;
-    line-height: 1.6;
+    line-height: 1.6; /* spaziatura verticale tra le righe di testo, per una lettura più ariosa */
 }

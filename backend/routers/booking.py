@@ -1,52 +1,166 @@
-from fastapi import APIRouter, Depends, HTTPException
+# Questo è il file più importante del progetto: gestisce la creazione di
+# una prenotazione, l'operazione che mette insieme praticamente tutti gli
+# altri pezzi dell'app (database, calendario, email, Discord). Vedi
+# backend/routers/users.py per la spiegazione generale di un router FastAPI.
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import update
 from sqlalchemy.orm import Session
+from datetime import datetime, timezone
 from backend.database import get_db
 from backend.models.booking import Booking
 from backend.models.slots import Slot
 from backend.models.users import User
 from backend.schemas.booking import BookingCreate, BookingResponse
 from backend.services.email_service import invia_conferma_cliente, invia_notifica_admin
+from backend.services.timezone_service import utc_to_rome
+from backend.services.calendar_service import crea_evento_calendario
+from backend.services.discord_service import invia_notifica_discord
+from backend.routers.admin import get_admin
+from backend.rate_limit import limiter
 from typing import List
+
+MAX_PRENOTAZIONI_ATTIVE = 2
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
-PRICE_TABLE = {1: 3500, 2: 6000, 3: 8000}
+# I prezzi sono fissi e decisi dal server, non dal client (vedi il commento
+# in backend/schemas/booking.py sul perché BookingCreate non ha un campo
+# prezzo). Questo dizionario associa "quante ore" a "quanti centesimi".
+TABELLA_PREZZI = {1: 3500, 2: 6000, 3: 8000}
+
 
 @router.get("/", response_model=List[BookingResponse])
-def get_bookings(db: Session = Depends(get_db)):
+def get_bookings(admin: str = Depends(get_admin), db: Session = Depends(get_db)):
     return db.query(Booking).all()
 
+
 @router.post("/", response_model=BookingResponse)
-def create_booking(booking: BookingCreate, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def create_booking(request: Request, booking: BookingCreate, db: Session = Depends(get_db)):
+    # Questo endpoint NON richiede login: chiunque può prenotare (guest
+    # checkout) — è una scelta di prodotto esplicita del progetto ("il
+    # pagamento non è gestito in-app, quindi non serve un vero account").
 
     slot = db.query(Slot).filter(Slot.id == booking.slot_id).first()
     if not slot:
         raise HTTPException(status_code=404, detail="Slot non trovato")
-    if not slot.is_available:
-        raise HTTPException(status_code=400, detail="Slot non disponibile")
+
+    # Controllo di coerenza: la durata richiesta deve corrispondere
+    # esattamente alla durata reale dello slot scelto (uno slot da 1 ora
+    # non può diventare una prenotazione da 2 ore solo perché il client lo
+    # chiede) — il frontend (frontend/js/app.js) evita già che questo
+    # succeda nell'uso normale, ma il server non si fida MAI solo del
+    # client: ricontrolla sempre, perché chiunque può mandare una richiesta
+    # HTTP direttamente, scavalcando l'interfaccia grafica.
+    if booking.duration_hours != slot.duration_hours:
+        raise HTTPException(
+            status_code=400,
+            detail=f"La durata richiesta ({booking.duration_hours}h) non corrisponde alla durata dello slot selezionato ({slot.duration_hours}h)"
+        )
 
     user = db.query(User).filter(User.id == booking.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Utente non trovato")
 
-    price = PRICE_TABLE.get(booking.duration_hours, 3500)
+    # limite anti-abuso: senza pagamento anticipato, niente impedisce a una
+    # stessa persona di occupare più slot contemporaneamente. Contiamo solo
+    # le prenotazioni confermate con slot ancora futuro (quelle "attive").
+    prenotazioni_attive = db.query(Booking).join(Slot).filter(
+        Booking.user_id == booking.user_id,
+        Booking.status == "confirmed",
+        Slot.start_time >= datetime.now(timezone.utc).replace(tzinfo=None)
+    ).count()
+    if prenotazioni_attive >= MAX_PRENOTAZIONI_ATTIVE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Hai già {MAX_PRENOTAZIONI_ATTIVE} prenotazioni attive. Cancella o completa una sessione prima di prenotarne un'altra."
+        )
+
+    # ─────────────────────────────────────────────────────────────
+    # QUESTA È LA PARTE PIÙ DELICATA DI TUTTO IL PROGETTO. Spieghiamola con
+    # calma perché il "perché" è più importante del "come".
+    #
+    # Immagina che due studenti clicchino "Conferma" nello stesso identico
+    # istante sullo stesso slot. Se il codice facesse semplicemente:
+    #
+    #   if slot.is_available:        # 1. leggi
+    #       slot.is_available = False  # 2. scrivi
+    #
+    # esiste una finestra di tempo, piccolissima ma reale, tra il momento
+    # in cui LEGGIAMO che lo slot è libero e il momento in cui SCRIVIAMO che
+    # non lo è più. Se la seconda richiesta arriva a leggere lo slot proprio
+    # in quella finestra — prima che la prima richiesta abbia scritto il suo
+    # cambiamento — anche lei lo troverebbe ancora "libero", e finiremmo con
+    # DUE prenotazioni sullo stesso slot. Questo si chiama "race condition"
+    # (condizione di gara): il risultato dipende da chi "vince la gara" ad
+    # arrivare per primo, in un modo imprevedibile e potenzialmente rotto.
+    #
+    # La soluzione qui è un UPDATE condizionale: invece di leggere e poi
+    # scrivere in due passi separati, chiediamo al database di fare "leggi
+    # e scrivi" come UNA SINGOLA operazione atomica (indivisibile). La
+    # query dice letteralmente: "aggiorna questo slot mettendo is_available
+    # a False, MA SOLO SE è ancora True in questo momento". MySQL garantisce
+    # che, quando due richieste provano a fare questo nello stesso istante,
+    # una delle due (chiunque arrivi fisicamente prima al database) blocca
+    # temporaneamente quella riga finché non ha finito, e SOLO DOPO lascia
+    # che l'altra richiesta proceda — che a quel punto troverà già
+    # is_available=False, e quindi non modificherà nulla.
+    esito = db.execute(
+        update(Slot)
+        .where(Slot.id == booking.slot_id, Slot.is_available == True)
+        .values(is_available=False)
+    )
+    # esito.rowcount dice quante righe sono state DAVVERO modificate da
+    # questo UPDATE. Se è 0, vuol dire che la condizione "is_available ==
+    # True" non era più vera quando la nostra richiesta è arrivata — cioè
+    # qualcun altro ci ha preceduto. In quel caso rifiutiamo la richiesta.
+    if esito.rowcount == 0:
+        db.rollback()  # annulla qualunque modifica non ancora salvata in questa sessione
+        raise HTTPException(status_code=400, detail="Slot non disponibile")
+    # ─────────────────────────────────────────────────────────────
+
+    price = TABELLA_PREZZI.get(booking.duration_hours, 3500)
+
+    slot_rome = utc_to_rome(slot.start_time)
+    data_slot = slot_rome.strftime("%d/%m/%Y")
+    ora_slot = slot_rome.strftime("%H:%M")
+
+    # crea l'evento sul calendario Google del coach subito alla prenotazione,
+    # dato che ora la conferma è immediata (nessun passaggio manuale admin dopo).
+    # In caso di errore l'evento è semplicemente assente (non blocca la prenotazione).
+    event_id = crea_evento_calendario(
+        nome_cliente=user.nome,
+        email_cliente=user.email,
+        showdown_username=user.showdown_username,
+        data_slot=data_slot,
+        ora_slot=ora_slot,
+        durata_ore=booking.duration_hours,
+        note_cliente=booking.note_cliente
+    )
 
     db_booking = Booking(
         user_id=booking.user_id,
         slot_id=booking.slot_id,
         duration_hours=booking.duration_hours,
         price_cents=price,
+        service_type=booking.service_type,
         note_cliente=booking.note_cliente,
-        status="pending"
+        vod_link=booking.vod_link,
+        replay_code=booking.replay_code,
+        status="confirmed",
+        calendar_event_id=event_id
     )
     db.add(db_booking)
-    slot.is_available = False
     db.commit()
     db.refresh(db_booking)
 
-    data_slot = slot.start_time.strftime("%d/%m/%Y")
-    ora_slot = slot.start_time.strftime("%H:%M")
-
+    # Le tre notifiche seguenti vengono mandate DOPO che la prenotazione è
+    # già salvata (db.commit() sopra) — così, anche se una di queste
+    # dovesse fallire (vedi i commenti try/except in email_service.py e
+    # discord_service.py), la prenotazione resta comunque valida: le
+    # notifiche sono un "di più", non una condizione per il successo della
+    # prenotazione stessa.
     invia_conferma_cliente(
         email_cliente=user.email,
         nome_cliente=user.nome,
@@ -62,6 +176,16 @@ def create_booking(booking: BookingCreate, db: Session = Depends(get_db)):
         data_slot=data_slot,
         ora_slot=ora_slot,
         durata=booking.duration_hours,
+        note_cliente=booking.note_cliente
+    )
+
+    invia_notifica_discord(
+        nome_cliente=user.nome,
+        discord_tag=user.discord_tag,
+        service_type=booking.service_type,
+        data_slot=data_slot,
+        ora_slot=ora_slot,
+        durata_ore=booking.duration_hours,
         note_cliente=booking.note_cliente
     )
 

@@ -1,3 +1,10 @@
+/*
+   Stile del pannello admin. Vedi i commenti in frontend/css/style.css per
+   la spiegazione dei concetti CSS di base (selettori, flexbox, grid,
+   :hover/:disabled, transition...) — qui ci concentriamo sulle regole
+   nuove che non compaiono nel CSS pubblico.
+*/
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -39,6 +46,8 @@ body {
 .form-group input:focus { border-color: #e74c3c; }
 
 .error-msg { color: #e74c3c; font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2rem; }
+/* min-height qui evita che il layout "salti" quando appare un messaggio
+   d'errore: lo spazio è già riservato anche quando #login-error è vuoto. */
 
 /* LAYOUT PANNELLO */
 #admin-panel {
@@ -52,14 +61,21 @@ body {
     background: #1a1a2e;
     color: white;
     display: flex;
-    flex-direction: column;
+    flex-direction: column; /* dentro un flex container, dispone i figli in colonna invece che in riga */
+    /* position:fixed "stacca" questo elemento dal normale flusso della
+       pagina e lo ancora a una posizione fissa nella FINESTRA del browser
+       — resta visibile nello stesso punto anche scorrendo la pagina verso
+       il basso. Per questo .admin-main più sotto ha un margin-left
+       uguale alla larghezza della sidebar: serve a "lasciarle spazio",
+       dato che essendo "fixed" non spinge più gli altri elementi di lato
+       come farebbe normalmente. */
     position: fixed;
     height: 100vh;
 }
 
 .sidebar-header {
     padding: 1.5rem;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
+    border-bottom: 1px solid rgba(255,255,255,0.1); /* bianco con 10% di opacità: un bordo sottile e discreto sopra lo sfondo scuro */
 }
 
 .sidebar-header h2 { font-size: 1.1rem; }
@@ -72,14 +88,14 @@ nav { flex: 1; padding: 1rem 0; }
     color: rgba(255,255,255,0.7);
     text-align: left; cursor: pointer;
     font-size: 0.9rem; transition: all 0.2s;
-    border-left: 3px solid transparent;
+    border-left: 3px solid transparent; /* bordo "invisibile" già riservato, per evitare che il bottone "si sposti" quando diventa attivo (sotto) */
 }
 
 .nav-btn:hover { background: rgba(255,255,255,0.05); color: white; }
 .nav-btn.active {
     background: rgba(231,76,60,0.15);
     color: white;
-    border-left-color: #e74c3c;
+    border-left-color: #e74c3c; /* qui il bordo "invisibile" sopra diventa visibile, senza cambiare le dimensioni del bottone */
 }
 
 .sidebar-footer { padding: 1rem 1.5rem; }
@@ -95,7 +111,7 @@ nav { flex: 1; padding: 1rem 0; }
 
 /* MAIN */
 .admin-main {
-    margin-left: 220px;
+    margin-left: 220px; /* compensa la sidebar "fixed" qui sopra, vedi il commento su .sidebar */
     flex: 1;
     padding: 2rem;
 }
@@ -118,6 +134,10 @@ nav { flex: 1; padding: 1rem 0; }
 /* STATS */
 .stats-grid {
     display: grid;
+    /* repeat(3, 1fr): esattamente 3 colonne, tutte della stessa larghezza
+       (a differenza di style.css, dove #slots-container usa auto-fill per
+       un numero di colonne VARIABILE — qui invece vogliamo sempre
+       esattamente 3 riquadri per riga). */
     grid-template-columns: repeat(3, 1fr);
     gap: 1rem;
     margin-bottom: 2rem;
@@ -164,6 +184,15 @@ nav { flex: 1; padding: 1rem 0; }
 }
 .btn-primary:hover { background: #c0392b; }
 
+.btn-secondary {
+    padding: 0.75rem 1.5rem;
+    background: #eee; color: #555;
+    border: none; border-radius: 8px;
+    font-size: 0.9rem; font-weight: 600;
+    cursor: pointer; transition: background 0.2s;
+}
+.btn-secondary:hover { background: #ddd; }
+
 .btn-export {
     padding: 0.5rem 1rem;
     background: #27ae60; color: white;
@@ -178,9 +207,9 @@ nav { flex: 1; padding: 1rem 0; }
     width: 100%;
     background: white;
     border-radius: 12px;
-    overflow: hidden;
+    overflow: hidden; /* necessario perché border-radius "arrotondi" davvero gli angoli di una <table>, che altrimenti ignorerebbe l'arrotondamento sulle celle interne */
     box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-    border-collapse: collapse;
+    border-collapse: collapse; /* unisce i bordi delle celle adiacenti in una singola linea, invece di avere doppi bordi con uno spazio in mezzo (il comportamento di default delle tabelle HTML) */
 }
 
 .admin-table th {
@@ -190,8 +219,8 @@ nav { flex: 1; padding: 1rem 0; }
     font-size: 0.8rem;
     font-weight: 600;
     color: #888;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    text-transform: uppercase; /* forza il testo in maiuscolo a prescindere da come è scritto nell'HTML/JS */
+    letter-spacing: 0.05em; /* aumenta leggermente lo spazio tra le lettere, look tipico delle intestazioni di tabella */
     border-bottom: 1px solid #eee;
 }
 
@@ -209,7 +238,7 @@ nav { flex: 1; padding: 1rem 0; }
 .badge {
     display: inline-block;
     padding: 0.25rem 0.75rem;
-    border-radius: 20px;
+    border-radius: 20px; /* un raggio molto più grande dell'altezza del testo produce l'effetto "pillola" arrotondata */
     font-size: 0.75rem;
     font-weight: 600;
 }
@@ -217,6 +246,7 @@ nav { flex: 1; padding: 1rem 0; }
 .badge-pending { background: #fff3cd; color: #856404; }
 .badge-confirmed { background: #d4edda; color: #155724; }
 .badge-cancelled { background: #f8d7da; color: #721c24; }
+.badge-no-show { background: #e2e3e5; color: #383d41; }
 
 /* AZIONI TABELLA */
 .action-btn {
@@ -226,10 +256,10 @@ nav { flex: 1; padding: 1rem 0; }
     margin-right: 0.25rem; transition: all 0.2s;
 }
 
-.action-confirm { background: #d4edda; color: #155724; }
-.action-confirm:hover { background: #27ae60; color: white; }
 .action-cancel { background: #f8d7da; color: #721c24; }
 .action-cancel:hover { background: #e74c3c; color: white; }
+.action-no-show { background: #e2e3e5; color: #383d41; }
+.action-no-show:hover { background: #6c757d; color: white; }
 .action-note { background: #e8f4fd; color: #0c5460; }
 .action-note:hover { background: #3498db; color: white; }
 .action-delete { background: #f8d7da; color: #721c24; }
@@ -258,4 +288,159 @@ nav { flex: 1; padding: 1rem 0; }
     border: 1.5px solid #ddd; border-radius: 8px;
     font-size: 0.9rem; outline: none;
 }
+
+/* MODALE NOTE TECNICHE CLIENTE */
+.modal-overlay {
+    display: none;
+    /* position:fixed + top/left/right/bottom tutti a 0 fa sì che questo
+       elemento copra l'INTERA finestra del browser, indipendentemente da
+       dove si trova nell'HTML (vedi come viene creato dinamicamente in
+       admin.js con document.createElement e appendChild) — è così che si
+       ottiene lo sfondo semi-trasparente dietro un modale. */
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); /* nero al 50% di opacità: l'effetto "oscura il resto della pagina" */
+    align-items: center;
+    justify-content: center;
+    /* z-index controlla quale elemento sta "sopra" quale altro quando si
+       sovrappongono (come una pila di fogli): un numero più alto sta più
+       in cima. Senza questo, il modale rischierebbe di finire nascosto
+       dietro altri elementi della pagina, come la sidebar. */
+    z-index: 1000;
+    padding: 1rem;
+}
+/* Nota: display:none E display:flex(dalle proprietà align-items/justify-content
+   sopra, che hanno senso solo se il display è flex) sembrano in
+   contraddizione, ma non lo sono: JavaScript (admin.js, funzione
+   apriNoteCliente) imposta esplicitamente overlay.style.display = 'flex'
+   quando apre il modale, sovrascrivendo il display:none di questa regola
+   — quel valore "flex" è quello che rende align-items/justify-content
+   effettivi, quando il modale è visibile. */
+
+.modal-card {
+    background: white;
+    border-radius: 16px;
+    padding: 1.75rem;
+    width: 100%;
+    max-width: 480px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+.modal-card h3 { margin-bottom: 1rem; font-size: 1.1rem; }
+
+#note-modal-lista {
+    /* overflow-y:auto fa comparire una barra di scorrimento VERTICALE
+       (solo se necessaria) quando il contenuto è più alto di max-height —
+       così una lista lunga di note resta contenuta in uno spazio fisso
+       invece di allungare il modale a dismisura. */
+    overflow-y: auto;
+    max-height: 40vh;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.nota-item {
+    background: #f9f9f9;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    border-left: 3px solid #e74c3c;
+}
+
+.nota-data { font-size: 0.75rem; color: #999; margin-bottom: 0.25rem; }
+.nota-testo { font-size: 0.9rem; white-space: pre-wrap; }
+/* white-space:pre-wrap rispetta gli "a capo" scritti dall'utente nel testo
+   della nota (come farebbe <pre>), ma permette ANCHE al testo di andare a
+   capo automaticamente se una riga è troppo lunga per lo spazio disponibile
+   — il comportamento "migliore dei due mondi" per testo libero multi-riga. */
+
+#nuova-nota-testo {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1.5px solid #ddd;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    resize: vertical; /* permette all'utente di trascinare l'angolo della textarea per renderla più alta/bassa, ma non più larga */
+    margin-bottom: 1rem;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end; /* allinea i bottoni "Chiudi"/"Aggiungi nota" a destra invece che al centro o a sinistra */
+    gap: 0.75rem;
+}
+
+/* MINI GRAFICI ANALYTICS (barre proporzionali, no librerie) */
+.mini-chart {
+    background: white;
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.bar-row {
+    display: grid;
+    /* Tre colonne di larghezza DIVERSA: la prima e la terza sono fisse
+       (110px e 70px, per etichetta e valore numerico), la centrale (1fr)
+       occupa tutto lo spazio rimanente — è lì che vive la "barra" vera e
+       propria (.bar-fill sotto), che quindi si allunga o accorcia in base
+       allo spazio disponibile sullo schermo, mentre etichetta e valore
+       restano sempre leggibili alla stessa larghezza. */
+    grid-template-columns: 110px 1fr 70px;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.85rem;
+}
+
+.bar-label {
+    color: #555;
+    white-space: nowrap; /* impedisce all'etichetta di andare a capo */
+    overflow: hidden; /* nasconde il testo che eccede lo spazio disponibile */
+    text-overflow: ellipsis; /* ...e al posto del testo tagliato mostra "..." — utile per nomi di servizio lunghi in uno spazio stretto */
+}
+
+.bar-track {
+    background: #f0f0f0;
+    border-radius: 6px;
+    height: 14px;
+    overflow: hidden; /* fa sì che .bar-fill dentro, se troppo largo, resti comunque contenuto dentro gli angoli arrotondati */
+}
+
+.bar-fill {
+    background: linear-gradient(90deg, #e74c3c, #c0392b);
+    height: 100%;
+    border-radius: 6px;
+    /* Anima il cambiamento di "width" — questa è la proprietà che
+       admin.js imposta dinamicamente in JavaScript (vedi renderBarChart),
+       calcolando una percentuale diversa per ogni barra: grazie a questa
+       transition, il passaggio da una larghezza all'altra (es. quando
+       cambi sezione e i dati si ricaricano) è animato invece che di scatto. */
+    transition: width 0.4s;
+}
+
+.bar-value { text-align: right; font-weight: 600; color: #333; }
 .form-inline input:focus, .form-inline select:focus { border-color: #e74c3c; }
+
+/* PAGINAZIONE */
+.paginazione {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 1rem;
+    font-size: 0.85rem;
+    color: #555;
+}
+
+.paginazione button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
