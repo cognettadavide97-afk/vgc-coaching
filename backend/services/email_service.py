@@ -1,9 +1,11 @@
 # Questo file si occupa di UNA cosa sola: costruire e inviare le email
 # dell'app (conferma prenotazione, promemoria, notifica al coach), usando
-# SendGrid come "postino" — un servizio esterno che si occupa davvero di
-# consegnare l'email nella casella del destinatario (un programma normale
-# non può "inviare email" da solo: ha bisogno di appoggiarsi a un servizio
-# come questo, o a un proprio server di posta).
+# il server SMTP di Gmail come "postino" — un programma normale non può
+# "inviare email" da solo: ha bisogno di appoggiarsi al server di posta di
+# qualcuno, in questo caso lo stesso account Gmail del coach (autenticato
+# con una "password per le app", non la password normale dell'account).
+# smtplib ed email.message sono moduli della libreria standard di Python:
+# nessuna dipendenza esterna da installare per mandare email.
 #
 # Pattern che vedrai ripetuto in ogni funzione di questo file: costruire il
 # contenuto, provare a inviarlo, e se qualcosa va storto stampare l'errore
@@ -11,17 +13,37 @@
 # invia_conferma_cliente per il perché di questa scelta.
 
 import os
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+import smtplib
+from email.message import EmailMessage
 from dotenv import load_dotenv
 
 load_dotenv()
 
-SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
 EMAIL_MITTENTE = os.getenv("EMAIL_MITTENTE")
 EMAIL_ADMIN = os.getenv("EMAIL_ADMIN")
 COACH_DISCORD_TAG = os.getenv("COACH_DISCORD_TAG")
 COACH_TELEGRAM_CONTACT = os.getenv("COACH_TELEGRAM_CONTACT")
+
+
+# Funzione condivisa dalle tre email qui sotto: costruisce il messaggio
+# (con una versione testuale semplice + quella HTML vera e propria, così i
+# client di posta che non mostrano HTML hanno comunque un contenuto
+# leggibile) e lo invia collegandosi al server SMTP di Gmail con
+# STARTTLS (la connessione parte in chiaro e viene "promossa" a cifrata
+# prima di inviare login e contenuto — è lo standard per la porta 587).
+def _invia_via_gmail(destinatario: str, oggetto: str, corpo_html: str):
+    messaggio = EmailMessage()
+    messaggio["From"] = EMAIL_MITTENTE
+    messaggio["To"] = destinatario
+    messaggio["Subject"] = oggetto
+    messaggio.set_content("Questa email richiede un client che supporta l'HTML per essere visualizzata correttamente.")
+    messaggio.add_alternative(corpo_html, subtype="html")
+
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.starttls()
+        server.login(EMAIL_MITTENTE, EMAIL_APP_PASSWORD)
+        server.send_message(messaggio)
 
 
 def invia_conferma_cliente(
@@ -83,30 +105,19 @@ def invia_conferma_cliente(
     </div>
     """
 
-    # Mail(...) è un oggetto della libreria sendgrid che rappresenta "una
-    # email da inviare": chi la manda, chi la riceve, oggetto e contenuto.
-    # Costruirlo non invia ancora nulla — è solo la preparazione.
-    messaggio = Mail(
-        from_email=EMAIL_MITTENTE,
-        to_emails=email_cliente,
-        subject="Prenotazione confermata",
-        html_content=corpo_email
-    )
-
     # Perché try/except invece di lasciare che un errore fermi tutto? Perché
-    # l'invio di un'email dipende da un servizio ESTERNO (SendGrid), che può
-    # avere un problema temporaneo, un timeout di rete, una chiave API
-    # scaduta... Se quell'errore facesse fallire l'intera richiesta,
-    # un'email non consegnata bloccherebbe anche il salvataggio della
-    # prenotazione nel database — anche se il vero problema è solo "email
-    # non partita". Meglio "provare, e se fallisce solo segnalarlo nei log
-    # (qui: stampandolo in console)", lasciando che il resto dell'operazione
-    # vada comunque a buon fine. Ritrovi lo stesso ragionamento in
-    # calendar_service.py e discord_service.py.
+    # l'invio di un'email dipende da un servizio ESTERNO (il server SMTP di
+    # Gmail), che può avere un problema temporaneo, un timeout di rete, una
+    # password per le app revocata... Se quell'errore facesse fallire
+    # l'intera richiesta, un'email non consegnata bloccherebbe anche il
+    # salvataggio della prenotazione nel database — anche se il vero
+    # problema è solo "email non partita". Meglio "provare, e se fallisce
+    # solo segnalarlo nei log (qui: stampandolo in console)", lasciando che
+    # il resto dell'operazione vada comunque a buon fine. Ritrovi lo stesso
+    # ragionamento in calendar_service.py e discord_service.py.
     try:
-        sg = SendGridAPIClient(SENDGRID_API_KEY)
-        response = sg.send(messaggio)
-        print(f"Email inviata a {email_cliente} — status: {response.status_code}")
+        _invia_via_gmail(email_cliente, "Prenotazione confermata", corpo_email)
+        print(f"Email inviata a {email_cliente}")
     except Exception as e:
         print(f"Errore invio email DETTAGLIO: {type(e).__name__}: {e}")
 
@@ -157,17 +168,9 @@ def invia_promemoria_cliente(
     </div>
     """
 
-    messaggio = Mail(
-        from_email=EMAIL_MITTENTE,
-        to_emails=email_cliente,
-        subject="Promemoria: la tua sessione di coaching VGC si avvicina",
-        html_content=corpo_email
-    )
-
     try:
-        sg = SendGridAPIClient(SENDGRID_API_KEY)
-        response = sg.send(messaggio)
-        print(f"Promemoria inviato a {email_cliente} — status: {response.status_code}")
+        _invia_via_gmail(email_cliente, "Promemoria: la tua sessione di coaching VGC si avvicina", corpo_email)
+        print(f"Promemoria inviato a {email_cliente}")
     except Exception as e:
         print(f"Errore invio promemoria DETTAGLIO: {type(e).__name__}: {e}")
 
@@ -181,7 +184,8 @@ def invia_notifica_admin(
     note_cliente: str
 ):
     # Questa email va al COACH (EMAIL_ADMIN), non allo studente — nota che
-    # to_emails più sotto è diverso rispetto alle due funzioni precedenti.
+    # il destinatario passato a _invia_via_gmail più sotto è diverso
+    # rispetto alle due funzioni precedenti (lì era email_cliente).
     corpo_email = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 2rem;">
         <h2 style="color: #e74c3c;">Nuova prenotazione ricevuta</h2>
@@ -201,16 +205,8 @@ def invia_notifica_admin(
     # compatto per dire "usa note_cliente se c'è qualcosa di sensato,
     # altrimenti usa questo testo di default".
 
-    messaggio = Mail(
-        from_email=EMAIL_MITTENTE,
-        to_emails=EMAIL_ADMIN,
-        subject=f"Nuova prenotazione — {nome_cliente}",
-        html_content=corpo_email
-    )
-
     try:
-        sg = SendGridAPIClient(SENDGRID_API_KEY)
-        response = sg.send(messaggio)
-        print(f"Notifica admin inviata — status: {response.status_code}")
+        _invia_via_gmail(EMAIL_ADMIN, f"Nuova prenotazione — {nome_cliente}", corpo_email)
+        print("Notifica admin inviata")
     except Exception as e:
         print(f"Errore notifica admin DETTAGLIO: {type(e).__name__}: {e}")
