@@ -1,11 +1,21 @@
 # Questo file si occupa di UNA cosa sola: costruire e inviare le email
 # dell'app (conferma prenotazione, promemoria, notifica al coach), usando
-# il server SMTP di Gmail come "postino" — un programma normale non può
-# "inviare email" da solo: ha bisogno di appoggiarsi al server di posta di
-# qualcuno, in questo caso lo stesso account Gmail del coach (autenticato
-# con una "password per le app", non la password normale dell'account).
-# smtplib ed email.message sono moduli della libreria standard di Python:
-# nessuna dipendenza esterna da installare per mandare email.
+# l'API Gmail di Google come "postino" — un programma normale non può
+# "inviare email" da solo: ha bisogno di appoggiarsi al server di
+# qualcuno, in questo caso lo stesso account Gmail del coach.
+#
+# Perché l'API via HTTPS e non SMTP diretto (che sarebbe più semplice)?
+# Perché Railway (come molte piattaforme cloud) blocca le connessioni SMTP
+# in uscita per evitare che i suoi server vengano usati per spam — un
+# tentativo reale di invio SMTP da lì fallisce con "Network is
+# unreachable". L'API Gmail invece è una normale chiamata HTTPS (stessa
+# porta 443 di qualunque sito web), mai bloccata. Il prezzo da pagare è
+# l'autenticazione: non basta una password, serve OAuth2 — un
+# "refresh token" ottenuto una tantum autorizzando l'app dal browser (vedi
+# lo script usato in fase di setup), che l'API di Google scambia ad ogni
+# invio con un token di accesso temporaneo tramite Credentials.refresh().
+# google-auth e google-api-python-client sono già dipendenze del progetto
+# (usate anche da calendar_service.py per lo stesso tipo di autenticazione).
 #
 # Pattern che vedrai ripetuto in ogni funzione di questo file: costruire il
 # contenuto, provare a inviarlo, e se qualcosa va storto stampare l'errore
@@ -13,13 +23,18 @@
 # invia_conferma_cliente per il perché di questa scelta.
 
 import os
-import smtplib
+import base64
 from email.message import EmailMessage
 from dotenv import load_dotenv
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
 
 load_dotenv()
 
-EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
+GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
+GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
+GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN")
 EMAIL_MITTENTE = os.getenv("EMAIL_MITTENTE")
 EMAIL_ADMIN = os.getenv("EMAIL_ADMIN")
 COACH_DISCORD_TAG = os.getenv("COACH_DISCORD_TAG")
@@ -29,9 +44,12 @@ COACH_TELEGRAM_CONTACT = os.getenv("COACH_TELEGRAM_CONTACT")
 # Funzione condivisa dalle tre email qui sotto: costruisce il messaggio
 # (con una versione testuale semplice + quella HTML vera e propria, così i
 # client di posta che non mostrano HTML hanno comunque un contenuto
-# leggibile) e lo invia collegandosi al server SMTP di Gmail con
-# STARTTLS (la connessione parte in chiaro e viene "promossa" a cifrata
-# prima di inviare login e contenuto — è lo standard per la porta 587).
+# leggibile), lo autentica scambiando il refresh_token con un token di
+# accesso valido (Credentials.refresh() fa una chiamata HTTPS a Google per
+# ottenerlo — dura poco, per questo va rifatta ad ogni invio invece di
+# essere salvata), e lo invia tramite l'API Gmail. L'API vuole il
+# messaggio codificato in base64 (formato "raw" richiesto da
+# users.messages.send), non l'oggetto EmailMessage direttamente.
 def _invia_via_gmail(destinatario: str, oggetto: str, corpo_html: str):
     messaggio = EmailMessage()
     messaggio["From"] = EMAIL_MITTENTE
@@ -40,10 +58,18 @@ def _invia_via_gmail(destinatario: str, oggetto: str, corpo_html: str):
     messaggio.set_content("Questa email richiede un client che supporta l'HTML per essere visualizzata correttamente.")
     messaggio.add_alternative(corpo_html, subtype="html")
 
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(EMAIL_MITTENTE, EMAIL_APP_PASSWORD)
-        server.send_message(messaggio)
+    credenziali = Credentials(
+        token=None,
+        refresh_token=GMAIL_REFRESH_TOKEN,
+        client_id=GMAIL_CLIENT_ID,
+        client_secret=GMAIL_CLIENT_SECRET,
+        token_uri="https://oauth2.googleapis.com/token",
+    )
+    credenziali.refresh(Request())
+
+    servizio = build("gmail", "v1", credentials=credenziali)
+    raw = base64.urlsafe_b64encode(messaggio.as_bytes()).decode()
+    servizio.users().messages().send(userId="me", body={"raw": raw}).execute()
 
 
 def invia_conferma_cliente(

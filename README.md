@@ -94,7 +94,7 @@ Non sono la stessa cosa: per esempio, quando crei una prenotazione mandi `durati
 Ogni file qui incapsula la logica per **parlare con qualcosa di esterno o fare un calcolo complesso**, tenuta separata dai router per non ripetere codice e per poterla testare/riusare facilmente.
 
 - `auth_service.py` — crea e verifica i token JWT (il "biglietto" digitale che prova che sei loggato, sia come admin che come studente — vedi il riquadro "Cos'è un JWT" più sotto).
-- `email_service.py` — costruisce e invia le email (conferma, promemoria, notifica admin) tramite il server SMTP di Gmail.
+- `email_service.py` — costruisce e invia le email (conferma, promemoria, notifica admin) tramite l'API Gmail (OAuth2, via HTTPS — non SMTP diretto, bloccato su Railway).
 - `calendar_service.py` — parla con le API di Google Calendar: crea/elimina eventi, legge gli eventi esistenti per la sincronizzazione.
 - `discord_service.py` — invia messaggi al canale Discord del coach tramite un "webhook" (un URL segreto su cui puoi mandare messaggi senza dover programmare un vero bot).
 - `timezone_service.py` — un'unica funzione (`utc_to_rome`) che converte un orario UTC nell'ora italiana, usata ovunque serva mostrare un orario al coach.
@@ -216,7 +216,7 @@ uvicorn backend.main:app --reload --port 8000
 | `DATABASE_URL` | Sì | Stringa di connessione MySQL (`mysql+pymysql://utente:password@host/db`). L'app non parte senza. |
 | `SECRET_KEY` | No | Chiave generica, tenuta per compatibilità. |
 | `FRONTEND_ORIGINS` | No | Origini autorizzate via CORS, separate da virgola. Default locale già coperto nel codice. |
-| `EMAIL_APP_PASSWORD` | Sì (per le email) | Password per le app di Google, per autenticarsi sul server SMTP di Gmail. |
+| `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN` | Sì (per le email) | Credenziali OAuth2 per inviare email tramite l'API Gmail (SMTP diretto è bloccato su Railway). |
 | `EMAIL_MITTENTE` | Sì (per le email) | Indirizzo email mittente di tutte le comunicazioni. |
 | `EMAIL_ADMIN` | Sì (per le email) | Indirizzo email del coach, riceve le notifiche di nuova prenotazione. |
 | `COACH_DISCORD_TAG` | No | Tag Discord del coach, mostrato nell'email di conferma al cliente. |
@@ -243,10 +243,13 @@ uvicorn backend.main:app --reload --port 8000
 
 ## Configurazione dei servizi esterni
 
-### Gmail SMTP (email)
-1. Sull'account Google che farà da mittente, attiva la Verifica in due passaggi (Account Google → Sicurezza), prerequisito per il passo successivo.
-2. Genera una "Password per le app" (Account Google → Sicurezza → Password per le app), scegliendo un nome a piacere (es. "VGC Coaching App").
-3. Imposta `EMAIL_APP_PASSWORD` con la password generata, `EMAIL_MITTENTE` con l'indirizzo Gmail stesso, `EMAIL_ADMIN` con l'indirizzo che riceve le notifiche.
+### Gmail API (email)
+SMTP diretto è bloccato dalla rete di Railway (`OSError: Network is unreachable`), quindi l'invio passa dall'API Gmail via HTTPS con autenticazione OAuth2, non da una semplice password.
+1. Su [Google Cloud Console](https://console.cloud.google.com), nello stesso progetto usato per Google Calendar (o uno nuovo), abilita la "Gmail API".
+2. Configura la schermata di consenso OAuth (tipo "Esterno"), aggiungi l'ambito `https://www.googleapis.com/auth/gmail.send`, e aggiungi l'account Gmail mittente come utente di test (evita la verifica completa dell'app — nota: senza verifica il refresh token scade dopo 7 giorni di inattività dell'app in stato "Testing", va rifatta l'autorizzazione se serve stabilità a lungo termine).
+3. Crea credenziali → ID client OAuth → tipo "App per computer" → copia Client ID e Client Secret.
+4. Ottieni un `GMAIL_REFRESH_TOKEN` autorizzando l'app una tantum dal browser con quell'account (flusso OAuth2 "authorization code", non incluso come script in questo repository).
+5. Imposta `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `EMAIL_MITTENTE` (lo stesso account autorizzato), `EMAIL_ADMIN`.
 
 ### Google Calendar (sync disponibilità)
 1. Crea un progetto su [Google Cloud Console](https://console.cloud.google.com), abilita la "Google Calendar API".
