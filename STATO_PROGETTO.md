@@ -1,6 +1,6 @@
 # STATO_PROGETTO.md — VGC Coaching App
 
-> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`, commit `abf67ca`, 2026-08-08). Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo precedente e sono coerenti con questo documento, ma in caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
+> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`, commit `abf67ca`, 2026-08-08), **aggiornato al commit `3260848`, 2026-08-19** dopo la sessione di deploy in produzione descritta nella sezione 10. Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo precedente e sono coerenti con questo documento, ma in caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
 
 ---
 
@@ -171,7 +171,7 @@ Relazione: `ClientNote.user`, backref `User.note_tecniche`.
 ### `/slots` (`backend/routers/slots.py`)
 | Metodo | Path | Auth | Payload | Cosa fa |
 |---|---|---|---|---|
-| GET | `/slots/` | no | — | slot con `is_available=True` |
+| GET | `/slots/` | no | — | slot con `is_available=True` **e `start_time` non ancora passato** (fix 2026-08-19, prima mostrava anche slot mai prenotati ma con orario già trascorso) |
 | GET | `/slots/{id}` | no | — | un singolo slot, **qualsiasi stato** (anche occupato/bloccato) |
 | POST | `/slots/` | admin (JWT) | `SlotCreate{start_time, duration_hours}` | crea slot singolo; `start_time` interpretato come ora italiana e convertito in UTC; rifiuta con 400 se si sovrappone a uno slot esistente |
 
@@ -243,7 +243,7 @@ Solo nomi e descrizione — **nessun valore reale va mai riportato in questo o a
 | `DATABASE_URL` | Sì | connessione MySQL (`mysql+pymysql://...`), l'app fallisce esplicitamente all'avvio se manca |
 | `SECRET_KEY` | No | non più usata direttamente, tenuta per compatibilità |
 | `FRONTEND_ORIGINS` | No | origini CORS consentite, separate da virgola (default localhost) |
-| `SENDGRID_API_KEY` | Sì (per le email) | API key SendGrid |
+| `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN` | Sì (per le email) | Credenziali OAuth2 per l'API Gmail (sostituiscono SendGrid dal 2026-08-19, vedi sezione 10) |
 | `EMAIL_MITTENTE` | Sì (per le email) | indirizzo mittente |
 | `EMAIL_ADMIN` | Sì (per le email) | indirizzo del coach per le notifiche |
 | `COACH_DISCORD_TAG` | No | mostrato nelle email di conferma/promemoria |
@@ -267,11 +267,11 @@ Solo nomi e descrizione — **nessun valore reale va mai riportato in questo o a
 
 ## 6. Servizi esterni
 
-- **SendGrid** — email transazionali (conferma cliente, promemoria, notifica admin). Configurato via `SENDGRID_API_KEY` in `backend/services/email_service.py`. Ogni chiamata è avvolta in try/except: un errore SendGrid non blocca mai la prenotazione.
+- **Gmail API (OAuth2)** — email transazionali (conferma cliente, promemoria, notifica admin), tramite `backend/services/email_service.py`. **Sostituisce SendGrid dal 2026-08-19** (vedi sezione 10 per il perché). Ogni chiamata è avvolta in try/except: un errore d'invio non blocca mai la prenotazione. Nota operativa: il progetto Google Cloud OAuth resta in stato "Testing" (non verificato) per evitare di dover possedere un dominio — questo significa che `GMAIL_REFRESH_TOKEN` scade dopo 7 giorni di inattività dell'app, richiedendo di rifare l'autorizzazione OAuth2 una tantum.
 - **Google Calendar** — service account (non OAuth utente), configurato via `GOOGLE_SERVICE_ACCOUNT_EMAIL`/`GOOGLE_PRIVATE_KEY`/`GOOGLE_CALENDAR_ID` in `backend/services/calendar_service.py`. Il calendario del coach deve essere condiviso esplicitamente con l'email del service account. Scrittura (crea/elimina evento a ogni prenotazione/cancellazione) + lettura (sync manuale via bottone admin, non periodica).
 - **Discord** — due integrazioni indipendenti: (1) webhook in uscita (`DISCORD_WEBHOOK_URL`) per notificare il coach di ogni nuova prenotazione/promemoria, via `backend/services/discord_service.py`; (2) OAuth2 in entrata (`DISCORD_CLIENT_ID`/`SECRET`/`REDIRECT_URI`) per il login opzionale studenti, via `backend/routers/discord_auth.py`.
 - **PayPal** — **rimosso completamente** (storico: era un flusso di pagamento manuale via bonifico, con stato prenotazione "pending" in attesa di conferma admin). Nessuna traccia nel codice attuale: nessun model, nessun endpoint, nessuna dipendenza.
-- **Railway** — hosting previsto per app + MySQL, build via Nixpacks (`nixpacks.toml`). **Attualmente sospeso**: trial scaduto, l'utente non intende riattivarlo finché il progetto non è completo. Nessun deploy live in questo momento.
+- **Railway** — hosting per app + MySQL, build via Nixpacks (`nixpacks.toml`). **Riattivato e live dal 2026-08-19**: collaudo end-to-end completo in produzione superato (slot → prenotazione → email → Calendar → Discord → export CSV). URL pubblico: `https://vgc-coaching-production.up.railway.app` (dominio personalizzato non ancora acquistato, decisione consapevole dell'utente).
 
 ---
 
@@ -293,9 +293,11 @@ Solo nomi e descrizione — **nessun valore reale va mai riportato in questo o a
 
 8. **Export CSV volutamente non paginato** (`GET /admin/export/csv`), a differenza di tutte le altre liste admin — deve restare un export completo.
 
-9. **Password DB esposta in git history**: la password dell'utente MySQL `Desuzakiddo` è rimasta pubblicamente visibile su GitHub per circa un mese (dal primo commit `dd4a88b`). Storia riscritta e ripulita il 2026-08-08 (`git filter-repo` + force push su `master`/`main`/`railway/fix-deploy-e53c40`), ma un riferimento interno di GitHub legato alla PR chiusa #1 (`refs/pull/1/head`) può ancora puntare alla vecchia storia — rischio residuo accettato. **La password MySQL deve comunque essere ruotata prima di riattivare Railway**, indipendentemente dalla pulizia della storia.
+9. **Password DB esposta in git history — impatto ridimensionato**: la password dell'utente MySQL `Desuzakiddo` è rimasta pubblicamente visibile su GitHub per circa un mese (dal primo commit `dd4a88b`). Storia riscritta e ripulita il 2026-08-08 (`git filter-repo`). **Verificato il 2026-08-19**: quella credenziale riguardava solo il MySQL locale di sviluppo — il database di produzione su Railway usa da sempre un utente `root` con password generata autonomamente da Railway, mai passata per la cronologia Git. Nessun dato di produzione è mai stato a rischio. Resta buona norma ruotare la password locale, ma non è più bloccante.
 
-10. **`main` è indietro rispetto a `master`**: il branch predefinito del repository su GitHub è `main`, ma tutto il lavoro (questa sessione e le precedenti) avviene su `master`. Al momento `main` non include l'ultimo commit (`abf67ca`) — occhio a non confonderli, specialmente se Railway fosse configurato per fare deploy da `main`.
+10. **Un solo branch su GitHub**: `main` e il branch residuo `railway/fix-deploy-e53c40` (entrambi fermi a giugno 2026) sono stati **eliminati il 2026-08-19** — `master` è ora l'unico branch e il branch predefinito del repository. Il problema di ambiguità descritto in precedenza non esiste più.
+
+11. **SMTP diretto non funziona su Railway**: un tentativo di inviare email via `smtplib`/SMTP diretto (porta 587, incluso Gmail) fallisce in produzione con `OSError: [Errno 101] Network is unreachable` — Railway blocca le connessioni SMTP in uscita a livello di rete (comune su piattaforme PaaS, anti-spam). Confermato con test diretti il 2026-08-19. Qualunque invio email da questo progetto deve passare da un'API HTTPS (Gmail API con OAuth2, o un provider come SendGrid), mai da SMTP grezzo.
 
 ---
 
@@ -310,12 +312,41 @@ Il commit `abf67ca` (2026-08-08) ha consolidato in un solo commit tutto il lavor
 
 ---
 
-## 9. Cosa funziona e cosa no, ad oggi
+## 9. Cosa funziona e cosa no, ad oggi (aggiornato 2026-08-19)
 
-**Non verificato in questa sessione**: questa sessione si è occupata esclusivamente di sicurezza/git, non ha avviato l'applicazione né eseguito test funzionali. `ROADMAP.md` riporta una verifica end-to-end per ciascuno step fatta nella sessione di sviluppo precedente (server reale, non test automatizzati), ma quello stato non è stato ri-confermato ora.
+**Verificato end-to-end in produzione, sul dominio pubblico Railway** (`https://vgc-coaching-production.up.railway.app`), con database svuotato di ogni dato di test prima della verifica finale:
+- Creazione slot da pannello admin
+- Prenotazione cliente via form pubblico (claim atomico, prezzo server-side, `service_type`)
+- Email di conferma al cliente + notifica al coach (via Gmail API)
+- Evento creato su Google Calendar
+- Notifica Discord al coach
+- Export CSV dal pannello admin
+- Endpoint admin/protetti rifiutano correttamente richieste senza token JWT (`401`)
+- HTTPS valido sul dominio Railway di default
 
-**Noto per certo**:
-- Il codice è stato committato e pushato correttamente su `master` (`git status` pulito, verificato contro GitHub).
-- Il database su Railway non è raggiungibile in questo momento (trial scaduto, servizio sospeso) — l'app non può essere avviata puntando a quel database finché non viene riattivato.
-- Il flusso di consenso OAuth2 completo di Discord è segnalato in `ROADMAP.md` (P3-1) come "non testabile" nella sessione precedente perché richiede interazione umana reale sulla schermata di autorizzazione — non risulta una verifica manuale successiva documentata.
-- Non esiste ancora nessun ambiente di test automatizzato (nessuna cartella `tests/`, nessun file di test nel repository) — ogni verifica citata in `ROADMAP.md` è stata manuale.
+**Non ancora verificato**:
+- Il flusso di consenso OAuth2 completo di Discord (login studenti) è segnalato in `ROADMAP.md` (P3-1) come "non testabile" nella sessione di sviluppo originale perché richiede interazione umana reale sulla schermata di autorizzazione — non risulta una verifica manuale successiva documentata.
+- Non esiste ancora nessun ambiente di test automatizzato (nessuna cartella `tests/`, nessun file di test nel repository) — ogni verifica è manuale.
+- Dominio personalizzato non acquistato (si usa l'URL `*.up.railway.app`) — decisione consapevole dell'utente, vedi sezione 10.
+
+---
+
+## 10. Sessione 2026-08-19 — deploy in produzione, log modifiche
+
+Sessione dedicata a portare il progetto da "codice pronto ma Railway sospeso" a servizio pubblico realmente funzionante. In ordine:
+
+1. **Pulizia branch GitHub**: eliminati `main` e `railway/fix-deploy-e53c40` (entrambi fermi a giugno, causavano confusione — GitHub mostrava "aggiornato 2 mesi fa" perché il branch default era il vecchio `main`). `master` impostato come branch default, ora l'unico branch del repository.
+2. **Riattivazione Railway**: l'utente ha riattivato il servizio (piano a pagamento). Tutte le variabili d'ambiente impostate da zero sulle Railway Variables (vedi sezione 5), inclusi `JWT_SECRET`/`ADMIN_PASSWORD` generati sicuri via `secrets` di Python. Deploy verificato: migrazioni eseguite, container attivo, endpoint pubblici e protetti verificati dal vivo.
+3. **Verifica password DB esposta**: confermato che la password compromessa nella cronologia Git riguardava solo il MySQL locale — quello di produzione ha sempre avuto credenziali proprie (vedi punto 9 della sezione 7). Rischio residuo declassato da bloccante a igiene facoltativa.
+4. **Migrazione email: SendGrid → Gmail SMTP → Gmail API**: la Fase 5 (dominio personalizzato) è stata scartata per decisione dell'utente (costo). Senza dominio, l'autenticazione SPF/DKIM/DMARC vera non è possibile, quindi si è scelto di inviare direttamente dall'account Gmail del coach. Primo tentativo con SMTP diretto (`smtplib`) funzionava in locale ma falliva su Railway (`Network is unreachable`, vedi punto 11 della sezione 7). Sostituito con l'**API Gmail via OAuth2** (HTTPS, mai bloccata): nessuna nuova dipendenza (riusa `google-auth`/`google-api-python-client`, già presenti per Google Calendar). Verificato che le email arrivano in posta in arrivo normale (non spam) sia su Gmail che su un dominio Outlook/Office365 (`studenti.uniba.it`).
+5. **Fix `GET /slots/`**: mancava un filtro sulla data — slot mai prenotati ma con orario già passato restavano visibili/prenotabili all'infinito sul form pubblico. Aggiunto lo stesso confronto naive-UTC già usato altrove nel codice (`booking.py`, `admin.py`).
+6. **Reset database di produzione**: svuotate (via `TRUNCATE`, diretto sul database) le tabelle `bookings`, `client_notes`, `slots`, `users`, `availability_rules`, `availability_exceptions` — erano piene di dati di sviluppo/test (slot con date di giugno-luglio, utenti e prenotazioni di prova). Database ripartito da zero, ID auto-incrementali resettati.
+7. **Collaudo end-to-end finale**: su database pulito, verificato l'intero flusso reale (slot → prenotazione → email → Calendar → Discord → CSV) sul dominio pubblico Railway — vedi sezione 9.
+
+### Backlog / problemi aperti
+
+- **Token OAuth Gmail scade dopo 7 giorni di inattività** (app Google in stato "Testing", non verificata — scelta deliberata per evitare di dover comprare un dominio). Se le email smettono di funzionare dopo una pausa, rifare l'autorizzazione OAuth2 una tantum (non c'è uno script dedicato nel repository, va ricostruito il flusso "authorization code" manualmente se serve).
+- **Password MySQL locale** (`Desuzakiddo`) non ancora ruotata — non urgente (non riguarda la produzione), ma resta buona norma.
+- **Dominio personalizzato + HTTPS proprio** (Fase 5 originale) non fatto, per scelta dell'utente — il sito resta su `*.up.railway.app`. Da riconsiderare se serve un'immagine più professionale o per sbloccare SPF/DKIM/DMARC veri in futuro.
+- **`GET /slots/{id}` resta pubblico e senza filtro data/disponibilità** (punto 7 della sezione 7) — non toccato in questa sessione, da verificare se è voluto.
+- Nessun test automatizzato nel repository — ogni verifica fatta finora (questa sessione e le precedenti) è manuale.
