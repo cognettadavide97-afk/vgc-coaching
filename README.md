@@ -233,6 +233,7 @@ uvicorn backend.main:app --reload --port 8000
 | `PUBLIC_BASE_URL` | No | Dominio pubblico usato per costruire link assoluti nelle email (es. il link di recensione post-sessione). Se assente, si usa la prima origine di `FRONTEND_ORIGINS`. |
 | `REVIEW_CHECK_INTERVAL_MINUTES` | No | Ogni quanti minuti lo scheduler controlla se ci sono richieste di recensione da inviare (default `60`). |
 | `CALENDAR_SYNC_INTERVAL_MINUTES` | No | Ogni quanti minuti lo scheduler sincronizza automaticamente gli slot col calendario Google, oltre al bottone manuale in admin (default `60`). |
+| `GMAIL_HEALTHCHECK_INTERVAL_HOURS` | No | Ogni quante ore lo scheduler controlla che `GMAIL_REFRESH_TOKEN` sia ancora valido, avvisando su Discord se smette di funzionare (default `24`). Vedi la sezione "Gmail API" più sotto. |
 
 ## Comandi disponibili
 
@@ -243,16 +244,22 @@ uvicorn backend.main:app --reload --port 8000
 | `python -m alembic downgrade -1` | Annulla l'ultima migrazione |
 | `python -m alembic revision -m "descrizione"` | Crea una nuova migrazione vuota (da scrivere a mano) |
 | `pip install -r requirements.txt` | Installa/aggiorna le dipendenze |
+| `pip install -r requirements-dev.txt` | Installa anche le dipendenze di test (pytest, httpx) |
+| `pytest` | Esegue la suite di test automatici (`tests/`) — usa un database SQLite in memoria, non tocca mai il MySQL di sviluppo o produzione |
 
 ## Configurazione dei servizi esterni
 
 ### Gmail API (email)
 SMTP diretto è bloccato dalla rete di Railway (`OSError: Network is unreachable`), quindi l'invio passa dall'API Gmail via HTTPS con autenticazione OAuth2, non da una semplice password.
 1. Su [Google Cloud Console](https://console.cloud.google.com), nello stesso progetto usato per Google Calendar (o uno nuovo), abilita la "Gmail API".
-2. Configura la schermata di consenso OAuth (tipo "Esterno"), aggiungi l'ambito `https://www.googleapis.com/auth/gmail.send`, e aggiungi l'account Gmail mittente come utente di test (evita la verifica completa dell'app — nota: senza verifica il refresh token scade dopo 7 giorni di inattività dell'app in stato "Testing", va rifatta l'autorizzazione se serve stabilità a lungo termine).
+2. Configura la schermata di consenso OAuth (tipo "Esterno"), aggiungi l'ambito `https://www.googleapis.com/auth/gmail.send`, e aggiungi l'account Gmail mittente come utente di test.
 3. Crea credenziali → ID client OAuth → tipo "App per computer" → copia Client ID e Client Secret.
-4. Ottieni un `GMAIL_REFRESH_TOKEN` autorizzando l'app una tantum dal browser con quell'account (flusso OAuth2 "authorization code", non incluso come script in questo repository).
-5. Imposta `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `EMAIL_MITTENTE` (lo stesso account autorizzato), `EMAIL_ADMIN`.
+4. Imposta `GMAIL_CLIENT_ID` e `GMAIL_CLIENT_SECRET` nel `.env`, poi ottieni un `GMAIL_REFRESH_TOKEN` eseguendo `python scripts/reauth_gmail.py` — apre il browser, chiede di autorizzare l'app con l'account Gmail mittente, e alla fine offre di scrivere subito il token nel `.env` locale (va comunque copiato a mano anche su Railway).
+5. Imposta anche `EMAIL_MITTENTE` (lo stesso account autorizzato) ed `EMAIL_ADMIN`.
+
+**⚠️ Scadenza del refresh token — leggi con attenzione.** Finché la schermata di consenso OAuth resta in stato **"Testing"**, il `GMAIL_REFRESH_TOKEN` scade dopo 7 giorni di inattività dell'app: prima o poi le email smettono di partire, silenziosamente. Ci sono due livelli di protezione:
+- **Rete di sicurezza già attiva**: lo scheduler (`controlla_credenziali_gmail` in `backend/scheduler.py`) controlla il token ogni `GMAIL_HEALTHCHECK_INTERVAL_HOURS` ore e avvisa il coach su Discord appena smette di funzionare — a quel punto rilancia `python scripts/reauth_gmail.py` e aggiorna `GMAIL_REFRESH_TOKEN` su Railway.
+- **Soluzione definitiva (consigliata)**: su Google Cloud Console, porta la schermata di consenso OAuth da "Testing" a **"In production"** (non richiede la verifica completa di Google per un solo scope non sensibile come `gmail.send`). Fatto questo, il token smette di scadere per inattività e il controllo automatico/lo script restano solo una rete di sicurezza, non una necessità periodica.
 
 ### Google Calendar (sync disponibilità)
 1. Crea un progetto su [Google Cloud Console](https://console.cloud.google.com), abilita la "Google Calendar API".

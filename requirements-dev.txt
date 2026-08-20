@@ -1,0 +1,8 @@
+# Dipendenze SOLO per sviluppo/test — non servono per far girare l'app in
+# produzione (Railway installa solo requirements.txt, vedi nixpacks.toml),
+# quindi restano separate per non appesantire il deploy con pacchetti che
+# il server non userà mai.
+-r requirements.txt
+
+pytest==9.1.1
+httpx==0.28.1

@@ -3,7 +3,7 @@
 # unique): il link inviato via email (vedi backend/scheduler.py) è
 # monouso, non ha senso poter votare due volte la stessa sessione.
 
-from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.sql import func
 from backend.database import Base
@@ -16,6 +16,14 @@ class Review(Base):
     booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=False, unique=True)
     voto = Column(Integer, nullable=False)  # 1-5, validato lato schema Pydantic prima di arrivare qui
     commento = Column(Text, nullable=True)
+
+    # Una recensione appena lasciata dal cliente NON è subito pubblica: il
+    # coach deve prima approvarla dal pannello admin (vedi
+    # PATCH /admin/recensioni/{id} in backend/routers/admin.py). Solo le
+    # recensioni con approvata=True compaiono nell'endpoint pubblico
+    # GET /bookings/recensioni/pubbliche, usato dalla pagina About.
+    approvata = Column(Boolean, default=False, nullable=False)
+
     created_at = Column(DateTime, default=func.now())
 
     # uselist=False: senza questa opzione SQLAlchemy tratterebbe

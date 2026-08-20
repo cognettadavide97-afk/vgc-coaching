@@ -16,6 +16,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VGC Coaching — Meet the Coach</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/png" href="/static/images/favicon.png">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -87,11 +89,12 @@
     </section>
 
     <!--
-        Placeholder per le recensioni clienti — solo la struttura, non la
-        funzionalità: oggi il backend salva le recensioni (vedi
-        backend/models/review.py) ma non espone ancora un endpoint
-        pubblico per elencarle qui. Da collegare quando quella parte verrà
-        costruita.
+        Recensioni clienti: solo quelle approvate dal coach (vedi
+        GET /bookings/recensioni/pubbliche in backend/routers/booking.py e
+        PATCH /admin/recensioni/{id} in backend/routers/admin.py). Il
+        placeholder sotto resta visibile finché non ce n'è almeno una —
+        frontend/js/about.js lo nasconde e riempie #reviews-list solo se la
+        richiesta trova recensioni da mostrare.
     -->
     <section class="reviews-section">
         <h2 data-i18n="reviews_title">Client Reviews</h2>
@@ -99,8 +102,10 @@
         <div class="reviews-placeholder" data-i18n="reviews_placeholder">
             No reviews to show yet.
         </div>
+        <div id="reviews-list" class="reviews-list"></div>
     </section>
 
     <script src="/static/js/i18n.js"></script>
+    <script src="/static/js/about.js"></script>
 </body>
 </html>

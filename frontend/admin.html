@@ -19,6 +19,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VGC Coaching — Admin</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/png" href="/static/images/favicon.png">
     <link rel="stylesheet" href="/static/css/admin.css">
 </head>
 <body>
@@ -79,6 +81,9 @@
                 </button>
                 <button class="nav-btn" onclick="showSection('pacchetti')">
                     🎁 Pacchetti
+                </button>
+                <button class="nav-btn" onclick="showSection('recensioni')">
+                    ⭐ Recensioni
                 </button>
             </nav>
             <div class="sidebar-footer">
@@ -265,6 +270,24 @@
                     L'assegnazione va fatta SOLO dopo aver ricevuto il pagamento (concordato privatamente, come per le prenotazioni singole). Per assegnarne uno a un cliente, usa il bottone "🎁 Pacchetto" nella scheda Clienti.
                 </p>
                 <div id="lista-pacchetti"></div>
+            </section>
+
+            <!-- RECENSIONI -->
+            <section id="section-recensioni" class="admin-section">
+                <div class="section-header">
+                    <h2>Recensioni</h2>
+                    <div class="header-actions">
+                        <select id="filtro-recensioni" onchange="caricaRecensioni()">
+                            <option value="">Tutte</option>
+                            <option value="false">In attesa di approvazione</option>
+                            <option value="true">Approvate</option>
+                        </select>
+                    </div>
+                </div>
+                <p style="font-size: 0.85rem; color: #888; margin-top: -0.5rem;">
+                    Solo le recensioni approvate compaiono nella pagina pubblica "About" del sito.
+                </p>
+                <div id="lista-recensioni"></div>
             </section>
 
         </main>

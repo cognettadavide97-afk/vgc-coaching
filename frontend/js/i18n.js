@@ -23,6 +23,8 @@ const TRANSLATIONS = {
         your_bookings: 'Your bookings',
         log_out: 'Log out',
         discord_login_failed: 'Discord login failed. Please try again, or book as a guest without logging in.',
+        cancel_booking: 'Cancel',
+        confirm_cancel_booking: 'Cancel this booking? The time slot will be freed up and this cannot be undone.',
 
         // Consulenza gratuita
         consulenza_link: '🎁 Not sure? Ask for a free consultation!',
@@ -136,6 +138,8 @@ const TRANSLATIONS = {
         your_bookings: 'Le tue prenotazioni',
         log_out: 'Esci',
         discord_login_failed: 'Accesso con Discord non riuscito. Riprova, oppure prenota come ospite senza login.',
+        cancel_booking: 'Cancella',
+        confirm_cancel_booking: 'Cancellare questa prenotazione? Lo slot orario tornerà libero e l\'azione non è reversibile.',
 
         consulenza_link: '🎁 Indeciso? Chiedi una consulenza gratuita!',
         label_name: 'Nome *',

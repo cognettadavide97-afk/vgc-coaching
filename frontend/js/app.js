@@ -24,8 +24,8 @@
 // Qui salviamo tutto quello che l'utente sceglie durante il flusso
 const state = {
     selectedSlot: null,      // slot scelto
-    selectedHours: 1,        // durata scelta
-    selectedPrice: 20,       // prezzo calcolato
+    selectedHours: 2,        // durata scelta (default 2h, vedi bottone "active" in index.html)
+    selectedPrice: 40,       // prezzo calcolato
     selectedService: 'vod_review', // tipo di servizio scelto
     userId: null,              // id utente creato nel DB
     pacchettoAttivo: null,      // { id, nome, sessioni_residue, durata_sessione_ore } se trovato per l'email inserita
@@ -229,14 +229,28 @@ function renderBookingHistory(prenotazioni) {
     const container = document.getElementById('storico-prenotazioni');
     if (!container) return;
 
+    // Cancellabile solo se ancora confermata E non già passata — stesso
+    // controllo (ridondante apposta) che il backend rifà comunque in
+    // cancella_prenotazione_cliente (vedi backend/routers/booking.py):
+    // qui serve solo a decidere se mostrare il bottone.
+    const ora = Date.now();
+
     container.innerHTML = `
         <ul class="storico-lista">
-            ${prenotazioni.map(p => `
+            ${prenotazioni.map(p => {
+                const cancellabile = p.stato === 'confirmed' && new Date(p.start_time_iso).getTime() > ora;
+                return `
                 <li>
                     ${getServiceLabel(p.servizio)} — ${p.data} ${t('at_time_connector')} ${p.ora}
                     <span class="storico-stato storico-stato-${p.stato}">${getStatusLabel(p.stato)}</span>
+                    ${cancellabile ? `
+                        <button class="link-btn storico-cancella" onclick="cancellaPrenotazione(${p.id})">
+                            ${t('cancel_booking')}
+                        </button>
+                    ` : ''}
                 </li>
-            `).join('')}
+            `;
+            }).join('')}
         </ul>
     `;
     // prenotazioni.map(p => `...`) è l'equivalente JavaScript di una list
@@ -249,6 +263,33 @@ function renderBookingHistory(prenotazioni) {
     // scrivere una funzione piccola, equivalente a "function(p) { return
     // `...` }" — molto simile nello spirito a una lambda Python, ma
     // utilizzabile anche per funzioni con un corpo più lungo.
+}
+
+async function cancellaPrenotazione(bookingId) {
+    // confirm() è un dialogo BLOCCANTE nativo del browser: l'esecuzione si
+    // ferma finché l'utente non clicca OK/Annulla — va benissimo qui,
+    // perché è un'azione irreversibile (libera lo slot, cancella l'evento
+    // sul calendario del coach) e vogliamo un ultimo controllo esplicito.
+    if (!confirm(t('confirm_cancel_booking'))) return;
+
+    try {
+        const res = await fetch(`/bookings/${bookingId}/cancella`, {
+            method: 'PATCH',
+            headers: { 'Authorization': `Bearer ${studentToken}` }
+        });
+        if (!res.ok) {
+            const errore = await res.json().catch(() => ({}));
+            alert(errore.detail || t('generic_error'));
+            return;
+        }
+        // Ricarica sia lo storico (mostra "cancelled" al posto del bottone)
+        // sia gli slot dello step 1 (quello appena liberato torna prenotabile).
+        const prenotazioni = await loadBookingHistory();
+        renderBookingHistory(prenotazioni);
+        loadSlots();
+    } catch (error) {
+        alert(t('generic_error'));
+    }
 }
 
 function toggleBookingHistory() {
@@ -362,26 +403,60 @@ async function loadSlots() {
     }
 }
 
+// Estrae l'ora (0-23) di un istante nel fuso orario italiano, A
+// PRESCINDERE da dove si trovi fisicamente chi guarda la pagina — a
+// differenza di new Date(...).getHours(), che userebbe il fuso del
+// dispositivo del visitatore. Serve per applicare la stessa regola "solo
+// 15:00 o 17:00" di ORE_INIZIO_VALIDE_2H in backend/routers/booking.py,
+// che è un orario di ricevimento fissato in ora italiana, non locale a chi
+// prenota.
+function oraItaliana(isoString) {
+    return parseInt(
+        new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', hourCycle: 'h23' })
+            .format(new Date(isoString))
+    );
+}
+
+const ORE_INIZIO_VALIDE_2H = [15, 17];
+
 function renderSlots() {
     const container = document.getElementById('slots-container');
-    // .filter(...) costruisce un nuovo array con solo gli elementi che
-    // soddisfano la condizione — l'equivalente JavaScript di
-    // [s for s in all_slots if s.duration_hours == state.selectedHours]
-    // in Python.
-    const slotsFiltrati = allSlots.filter(s => s.duration_hours === state.selectedHours);
-    // "===" (triplo uguale) confronta valore E TIPO senza fare nessuna
-    // conversione automatica — è la forma raccomandata in JavaScript,
-    // perché "==" (doppio uguale) a volte confronta cose di tipo diverso
-    // in modi sorprendenti (es. 0 == '' è true con "=="). Non esiste un
-    // equivalente di questa distinzione in Python, dove "==" si comporta
-    // già come il "===" di JavaScript.
 
-    if (slotsFiltrati.length === 0) {
+    // Il calendario genera SOLO slot da 1 ora (vedi
+    // backend/services/availability_service.py). Una card da 1h è quindi
+    // uno slot reale, presa così com'è; una card da 2h è invece "virtuale":
+    // esiste solo se ci sono DUE slot da 1h adiacenti (stesso giorno, il
+    // secondo inizia esattamente un'ora dopo il primo) E l'orario di inizio
+    // è uno di quelli ammessi per una sessione da 2h — la stessa identica
+    // logica che il backend riapplica per davvero al momento della
+    // prenotazione (vedi create_booking in backend/routers/booking.py), qui
+    // serve solo a decidere quali card mostrare.
+    const slotsUnOra = allSlots.filter(s => s.duration_hours === 1);
+
+    let cardsDaMostrare;
+    if (state.selectedHours === 1) {
+        cardsDaMostrare = slotsUnOra;
+    } else {
+        // .getTime() converte una data in un numero (millisecondi dall'inizio
+        // del 1970) — confrontare numeri è più sicuro che confrontare
+        // stringhe, che potrebbero essere formattate in modo leggermente
+        // diverso pur rappresentando lo stesso istante.
+        const perTimestamp = new Map(slotsUnOra.map(s => [new Date(s.start_time).getTime(), s]));
+        cardsDaMostrare = slotsUnOra.filter(slot => {
+            if (!ORE_INIZIO_VALIDE_2H.includes(oraItaliana(slot.start_time))) return false;
+            const inizioSecondario = new Date(slot.start_time).getTime() + 60 * 60 * 1000;
+            return perTimestamp.has(inizioSecondario);
+        });
+    }
+
+    if (cardsDaMostrare.length === 0) {
         container.innerHTML = `<p class="loading">${t('no_slots')}</p>`;
         return;
     }
 
-    container.innerHTML = slotsFiltrati.map(slot => `
+    // Anche per una card da 2h, si passa a selectSlot() solo il PRIMO slot:
+    // il backend risale da solo al secondo (stesso motivo del filtro sopra).
+    container.innerHTML = cardsDaMostrare.map(slot => `
         <div class="slot-card" onclick="selectSlot(${slot.id}, '${slot.start_time}')">
             <div class="slot-date">${formatDate(slot.start_time)}</div>
             <div class="slot-time">${formatTime(slot.start_time)}</div>

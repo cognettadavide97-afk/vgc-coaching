@@ -321,6 +321,8 @@ nav { flex: 1; padding: 1rem 0; }
 .action-note:hover { background: #3498db; color: white; }
 .action-delete { background: #f8d7da; color: #721c24; }
 .action-delete:hover { background: var(--color-red); color: white; }
+.action-confirm { background: #d4edda; color: #155724; }
+.action-confirm:hover { background: #28a745; color: white; }
 
 /* SLOT LIBERI DASHBOARD */
 .slot-list { display: flex; flex-direction: column; gap: 0.5rem; }

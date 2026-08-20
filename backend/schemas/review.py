@@ -20,6 +20,30 @@ class ReviewResponse(BaseModel):
     booking_id: int
     voto: int
     commento: Optional[str]
+    approvata: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ReviewApprovazione(BaseModel):
+    approvata: bool
+
+
+class ReviewPubblica(BaseModel):
+    """
+    Versione "pulita" di una recensione per la vetrina pubblica (pagina
+    About) — niente booking_id né altri dettagli interni, solo ciò che ha
+    senso mostrare a un visitatore. nome_cliente è costruito a mano
+    dall'endpoint (solo il nome di battesimo, vedi
+    GET /bookings/recensioni/pubbliche in backend/routers/booking.py), non
+    esiste come colonna sul model Review.
+    """
+    id: int
+    voto: int
+    commento: Optional[str]
+    nome_cliente: str
     created_at: datetime
 
     class Config:

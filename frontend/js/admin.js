@@ -137,6 +137,7 @@ function showSection(nome) {
         caricaBlocchi();
     }
     if (nome === 'pacchetti') caricaPacchetti();
+    if (nome === 'recensioni') caricaRecensioni();
 }
 
 const GIORNI_SETTIMANA = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
@@ -712,6 +713,72 @@ async function caricaPacchetti() {
         `;
     } catch (error) {
         console.error('Errore pacchetti:', error);
+    }
+}
+
+// ─── RECENSIONI ──────────────────────────────────────────────
+async function caricaRecensioni() {
+    const container = document.getElementById('lista-recensioni');
+    const filtro = document.getElementById('filtro-recensioni').value;
+    try {
+        const url = filtro ? `/admin/recensioni?approvata=${filtro}` : '/admin/recensioni';
+        const res = await fetch(url, { headers: authHeaders() });
+        const recensioni = await res.json();
+
+        if (recensioni.length === 0) {
+            container.innerHTML = '<p style="color:#aaa; padding:1rem">Nessuna recensione da mostrare.</p>';
+            return;
+        }
+
+        container.innerHTML = `
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>Cliente</th>
+                        <th>Servizio</th>
+                        <th>Voto</th>
+                        <th>Commento</th>
+                        <th>Data</th>
+                        <th>Stato</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${recensioni.map(r => `
+                        <tr>
+                            <td>${escapeHtml(r.cliente.nome)}<br><small style="color:#888">${escapeHtml(r.cliente.email)}</small></td>
+                            <td>${SERVICE_LABELS[r.servizio] || r.servizio}</td>
+                            <td>${'⭐'.repeat(r.voto)}</td>
+                            <td>${r.commento ? escapeHtml(r.commento) : '<span style="color:#aaa">—</span>'}</td>
+                            <td>${r.created_at}</td>
+                            <td>${r.approvata
+                                ? '<span class="badge badge-confirmed">Approvata</span>'
+                                : '<span class="badge badge-pending">In attesa</span>'}</td>
+                            <td>
+                                ${r.approvata
+                                    ? `<button class="action-btn action-cancel" onclick="impostaApprovazioneRecensione(${r.id}, false)">Ritira</button>`
+                                    : `<button class="action-btn action-confirm" onclick="impostaApprovazioneRecensione(${r.id}, true)">✓ Approva</button>`}
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        console.error('Errore recensioni:', error);
+    }
+}
+
+async function impostaApprovazioneRecensione(id, approvata) {
+    try {
+        await fetch(`/admin/recensioni/${id}`, {
+            method: 'PATCH',
+            headers: authHeaders(),
+            body: JSON.stringify({ approvata })
+        });
+        caricaRecensioni();
+    } catch (error) {
+        console.error('Errore approvazione recensione:', error);
     }
 }
 

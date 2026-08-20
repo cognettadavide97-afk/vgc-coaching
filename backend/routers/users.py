@@ -12,6 +12,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+from datetime import timezone
 from backend.database import get_db
 from backend.models.users import User
 from backend.models.booking import Booking
@@ -107,11 +108,15 @@ def get_prenotazioni_studente(
     db: Session = Depends(get_db)
 ):
     """Storico prenotazioni dello studente loggato via Discord, più recenti prima."""
-    # .join(Slot) unisce le tabelle bookings e slots nella stessa query (ci
-    # serve per poter ordinare per Slot.start_time, un campo che sta
-    # sull'altra tabella). .order_by(Slot.start_time.desc()) ordina dal più
-    # recente al più vecchio ("desc" = decrescente).
-    prenotazioni = db.query(Booking).join(Slot).filter(
+    # .join(Booking.slot) unisce le tabelle bookings e slots nella stessa
+    # query (ci serve per poter ordinare per Slot.start_time, un campo che
+    # sta sull'altra tabella). .order_by(Slot.start_time.desc()) ordina dal
+    # più recente al più vecchio ("desc" = decrescente). Nota: passiamo la
+    # relationship (Booking.slot), non solo "Slot" — da quando Booking ha
+    # DUE colonne che puntano a slots (slot_id e slot_id_secondario, vedi
+    # backend/models/booking.py), un semplice ".join(Slot)" non saprebbe più
+    # quale delle due usare e solleverebbe un errore di ambiguità.
+    prenotazioni = db.query(Booking).join(Booking.slot).filter(
         Booking.user_id == studente.id
     ).order_by(Slot.start_time.desc()).all()
 
@@ -128,7 +133,13 @@ def get_prenotazioni_studente(
             "stato": p.status,
             "data": utc_to_rome(p.slot.start_time).strftime("%d/%m/%Y"),
             "ora": utc_to_rome(p.slot.start_time).strftime("%H:%M"),
-            "durata_ore": p.duration_hours
+            "durata_ore": p.duration_hours,
+            # ISO con offset UTC esplicito (stesso pattern di SlotResponse in
+            # backend/schemas/slots.py), così il frontend può confrontare in
+            # modo affidabile "è già passata?" senza dover reinterpretare le
+            # stringhe già formattate "data"/"ora" sopra — serve al bottone
+            # di cancellazione self-service, vedi frontend/js/app.js.
+            "start_time_iso": p.slot.start_time.replace(tzinfo=timezone.utc).isoformat()
         }
         for p in prenotazioni  # "list comprehension": costruisce la lista in una riga sola, un dizionario per ogni prenotazione
     ]

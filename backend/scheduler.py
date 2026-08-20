@@ -15,8 +15,8 @@ from backend.models.booking import Booking
 from backend.models.slots import Slot
 from backend.models.users import User
 from backend.models.availability_rule import AvailabilityRule
-from backend.services.email_service import invia_promemoria_cliente, invia_richiesta_recensione
-from backend.services.discord_service import invia_promemoria_discord
+from backend.services.email_service import invia_promemoria_cliente, invia_richiesta_recensione, verifica_credenziali_gmail
+from backend.services.discord_service import invia_promemoria_discord, invia_alert_sistema
 from backend.services.timezone_service import utc_to_rome
 from backend.services.calendar_service import sincronizza_slot_con_calendario
 from backend.services.availability_service import genera_slot_da_regola
@@ -39,6 +39,15 @@ PUBLIC_BASE_URL = os.getenv(
 ).rstrip("/")
 
 CALENDAR_SYNC_INTERVAL_MINUTES = int(os.getenv("CALENDAR_SYNC_INTERVAL_MINUTES", "60"))
+
+GMAIL_HEALTHCHECK_INTERVAL_HOURS = float(os.getenv("GMAIL_HEALTHCHECK_INTERVAL_HOURS", "24"))
+# Ricorda l'esito dell'ultimo controllo, per mandare l'alert Discord solo
+# al MOMENTO in cui le credenziali smettono di funzionare (transizione
+# ok→rotto), non a ogni singolo controllo mentre restano rotte — altrimenti,
+# con un controllo giornaliero, il coach riceverebbe lo stesso alert ogni
+# giorno finché non risolve, invece di uno solo. None = non ancora
+# controllato da quando il server è partito.
+_ultimo_controllo_gmail_ok = None
 
 
 def controlla_e_invia_promemoria():
@@ -64,11 +73,14 @@ def controlla_e_invia_promemoria():
         soglia = ora + timedelta(hours=REMINDER_HOURS_BEFORE)
 
         # Una query con più condizioni: SQLAlchemy le combina tutte con "AND".
-        # .join(Slot) è necessario perché la condizione sulla data (Slot.start_time)
-        # riguarda la tabella slots, non bookings — bisogna "unire" le due
-        # tabelle per poterle confrontare nella stessa query, esattamente
-        # come faresti con una JOIN in SQL puro.
-        prenotazioni = db.query(Booking).join(Slot).filter(
+        # .join(Booking.slot) è necessario perché la condizione sulla data
+        # (Slot.start_time) riguarda la tabella slots, non bookings — bisogna
+        # "unire" le due tabelle per poterle confrontare nella stessa query,
+        # esattamente come faresti con una JOIN in SQL puro. Passiamo la
+        # relationship (Booking.slot) e non solo "Slot": da quando Booking ha
+        # due colonne che puntano a slots (slot_id e slot_id_secondario),
+        # ".join(Slot)" da solo non saprebbe più quale usare.
+        prenotazioni = db.query(Booking).join(Booking.slot).filter(
             Booking.status == "confirmed",
             Booking.reminder_sent == False,
             Slot.start_time > ora,       # non ancora passato
@@ -137,7 +149,7 @@ def controlla_e_invia_richieste_recensione():
         # che in realtà è già finita. Il controllo esatto (che tiene conto
         # della durata reale di ciascuna prenotazione) avviene poi in
         # Python riga per riga.
-        candidate = db.query(Booking).join(Slot).filter(
+        candidate = db.query(Booking).join(Booking.slot).filter(
             Booking.status == "confirmed",
             Booking.review_email_sent == False,
             Slot.start_time <= ora - timedelta(hours=2)
@@ -206,6 +218,37 @@ def genera_slot_giornaliero():
         db.close()
 
 
+def controlla_credenziali_gmail():
+    """
+    Controllo di salute periodico (non manda nessuna email): verifica che
+    GMAIL_REFRESH_TOKEN sia ancora valido (vedi verifica_credenziali_gmail
+    in backend/services/email_service.py per il perché può scadere) e, solo
+    quando smette di funzionare, avvisa il coach su Discord — che a quel
+    punto deve rifare l'autorizzazione con scripts/reauth_gmail.py e
+    aggiornare la variabile d'ambiente su Railway.
+    """
+    global _ultimo_controllo_gmail_ok
+    ok = verifica_credenziali_gmail()
+
+    if not ok and _ultimo_controllo_gmail_ok is not False:
+        invia_alert_sistema(
+            "Refresh token Gmail scaduto o non valido",
+            "L'invio email (conferme, promemoria, richieste recensione) è FERMO. "
+            "Rifai l'autorizzazione con `python scripts/reauth_gmail.py`, poi "
+            "aggiorna GMAIL_REFRESH_TOKEN su Railway. Vedi README.md, sezione "
+            "\"Gmail API\", per evitare che si ripeta (schermata di consenso "
+            "OAuth in stato \"In production\" invece di \"Testing\")."
+        )
+    elif ok and _ultimo_controllo_gmail_ok is False:
+        invia_alert_sistema(
+            "Refresh token Gmail di nuovo valido",
+            "L'invio email è ripreso a funzionare normalmente."
+        )
+
+    _ultimo_controllo_gmail_ok = ok
+    return ok
+
+
 def avvia_scheduler():
     """
     Crea e avvia lo scheduler in background. BackgroundScheduler è la
@@ -249,6 +292,12 @@ def avvia_scheduler():
         hour=3,
         minute=0,
         id="genera_slot_giornaliero"
+    )
+    scheduler.add_job(
+        controlla_credenziali_gmail,
+        "interval",
+        hours=GMAIL_HEALTHCHECK_INTERVAL_HOURS,
+        id="controlla_credenziali_gmail"
     )
     scheduler.start()
     return scheduler

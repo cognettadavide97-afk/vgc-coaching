@@ -24,6 +24,7 @@ from backend.schemas.availability import (
     AvailabilityExceptionCreate, AvailabilityExceptionResponse
 )
 from backend.schemas.package import PackageCreate, PackageResponse
+from backend.schemas.review import ReviewApprovazione
 from backend.services.package_service import CATALOGO_PACCHETTI
 from backend.services.auth_service import verifica_credenziali, crea_token, verifica_token
 from typing import List, Optional
@@ -31,7 +32,8 @@ import csv
 import io
 from fastapi.responses import StreamingResponse
 from datetime import datetime, timedelta, timezone
-from backend.services.calendar_service import elimina_evento_calendario, leggi_eventi_calendario, sincronizza_slot_con_calendario
+from backend.services.calendar_service import leggi_eventi_calendario, sincronizza_slot_con_calendario
+from backend.services.booking_service import libera_slot_prenotazione
 from backend.services.timezone_service import utc_to_rome, ROME_TZ
 from backend.services.availability_service import genera_slot_da_regola, applica_blocco_eccezionale
 
@@ -107,7 +109,10 @@ def dashboard(
     oggi_utc_inizio = oggi_rome_inizio.astimezone(timezone.utc).replace(tzinfo=None)
     oggi_utc_fine = (oggi_rome_inizio + timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
 
-    prenotazioni_oggi = db.query(Booking).join(Slot).filter(
+    # .join(Booking.slot) e non solo ".join(Slot)": da quando Booking ha due
+    # colonne che puntano a slots (slot_id e slot_id_secondario, vedi
+    # backend/models/booking.py), un join generico sarebbe ambiguo.
+    prenotazioni_oggi = db.query(Booking).join(Booking.slot).filter(
         Slot.start_time >= oggi_utc_inizio,
         Slot.start_time < oggi_utc_fine
     ).count()
@@ -167,7 +172,7 @@ def analytics(
     # esprimere in SQL puro, e per un progetto di queste dimensioni (poche
     # centinaia di prenotazioni, non milioni) è più semplice e leggibile
     # farlo con un ciclo Python piuttosto che con SQL molto elaborato.
-    prenotazioni = db.query(Booking).join(Slot).all()
+    prenotazioni = db.query(Booking).join(Booking.slot).all()
     ora_utc = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Calcola le "chiavi" (anno, mese) degli ultimi 6 mesi, dal più vecchio
@@ -295,7 +300,7 @@ def get_prenotazioni(
     pagina = max(pagina, 1)
     per_pagina = min(max(per_pagina, 1), 100)
 
-    query = db.query(Booking).join(User).join(Slot)
+    query = db.query(Booking).join(User).join(Booking.slot)
 
     if stato:
         query = query.filter(Booking.status == stato)
@@ -392,16 +397,11 @@ def aggiorna_stato(
     prenotazione.status = nuovo_stato
 
     if nuovo_stato == "cancelled":
-        slot = db.query(Slot).filter(Slot.id == prenotazione.slot_id).first()
-
-        # elimina evento da Google Calendar se esiste
-        if prenotazione.calendar_event_id:
-            elimina_evento_calendario(prenotazione.calendar_event_id)
-            prenotazione.calendar_event_id = None
-
-        # libera lo slot
-        if slot:
-            slot.is_available = True
+        # libera_slot_prenotazione (backend/services/booking_service.py)
+        # gestisce sia lo slot singolo sia, per le sessioni da 2 ore che ne
+        # avevano uniti due, anche lo slot secondario — stessa funzione
+        # riusata dalla cancellazione self-service del cliente.
+        libera_slot_prenotazione(prenotazione, db)
 
     db.commit()
     return {"message": f"Stato aggiornato a {nuovo_stato}"}
@@ -835,6 +835,63 @@ def crea_pacchetto(
     db.refresh(db_pacchetto)
     return db_pacchetto
 
+# ─── RECENSIONI ──────────────────────────────────────────────
+# Una recensione lasciata dal cliente (vedi POST /bookings/{id}/recensione
+# in backend/routers/booking.py) non è subito pubblica: il coach la vede
+# qui, e decide se approvarla prima che compaia nella vetrina pubblica
+# (GET /bookings/recensioni/pubbliche, mostrata in frontend/about.html).
+@router.get("/recensioni")
+def lista_recensioni(
+    approvata: Optional[bool] = None,
+    admin: str = Depends(get_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Tutte le recensioni, più recenti prima — con il contesto del cliente e
+    della sessione, per aiutare il coach a decidere se approvarle.
+    approvata=true/false filtra solo quelle già approvate/in attesa; senza
+    il parametro le mostra tutte.
+    """
+    query = db.query(Review)
+    if approvata is not None:
+        query = query.filter(Review.approvata == approvata)
+
+    recensioni = query.order_by(Review.created_at.desc()).all()
+
+    return [
+        {
+            "id": r.id,
+            "voto": r.voto,
+            "commento": r.commento,
+            "approvata": r.approvata,
+            "created_at": r.created_at.strftime("%d/%m/%Y %H:%M"),
+            "cliente": {
+                "nome": r.booking.user.nome,
+                "email": r.booking.user.email
+            },
+            "servizio": r.booking.service_type
+        }
+        for r in recensioni
+    ]
+
+
+@router.patch("/recensioni/{recensione_id}")
+def approva_recensione(
+    recensione_id: int,
+    dati: ReviewApprovazione,
+    admin: str = Depends(get_admin),
+    db: Session = Depends(get_db)
+):
+    """Approva (o ritira l'approvazione di) una recensione."""
+    recensione = db.query(Review).filter(Review.id == recensione_id).first()
+    if not recensione:
+        raise HTTPException(status_code=404, detail="Recensione non trovata")
+
+    recensione.approvata = dati.approvata
+    db.commit()
+    db.refresh(recensione)
+    return recensione
+
 # ─── EXPORT CSV ──────────────────────────────────────────────
 @router.get("/export/csv")
 def export_csv(
@@ -845,7 +902,7 @@ def export_csv(
     Genera e scarica un file CSV con tutte
     le prenotazioni — apribile in Excel.
     """
-    prenotazioni = db.query(Booking).join(User).join(Slot).all()
+    prenotazioni = db.query(Booking).join(User).join(Booking.slot).all()
 
     # io.StringIO() crea un "file finto" che vive solo in memoria, non sul
     # disco — utile qui perché non ci serve conservare questo CSV da

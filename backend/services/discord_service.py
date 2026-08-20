@@ -161,6 +161,38 @@ def invia_richiesta_consulenza_discord(
         print(f"Errore invio notifica Discord richiesta consulenza: {e}")
 
 
+def invia_alert_sistema(titolo: str, descrizione: str):
+    """
+    Avviso TECNICO per il coach, non per un cliente: usato per problemi che
+    richiedono un intervento manuale, come un GMAIL_REFRESH_TOKEN scaduto
+    (vedi controlla_credenziali_gmail in backend/scheduler.py) o una
+    migrazione del database fallita all'avvio (vedi run_migrations in
+    backend/main.py). Stesso canale/webhook delle altre notifiche — un
+    progetto di queste dimensioni non ha bisogno di un canale separato —
+    ma un rosso acceso e l'emoji 🚨 lo rendono riconoscibile a colpo
+    d'occhio in mezzo alle notifiche di prenotazione normali.
+    """
+    if not DISCORD_WEBHOOK_URL:
+        print(f"DISCORD_WEBHOOK_URL non configurato — salto alert di sistema: {titolo}")
+        return
+
+    embed = {
+        "title": f"🚨 {titolo}",
+        "description": descrizione,
+        "color": 0xFF0000
+    }
+
+    try:
+        response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
+        response.raise_for_status()
+        print(f"Alert di sistema Discord inviato: {titolo}")
+    except Exception as e:
+        # Ultima spiaggia: anche l'alert stesso può fallire (es. webhook
+        # scaduto) — stampiamo comunque nei log del server, che restano
+        # l'ultima rete di sicurezza se pure Discord non è raggiungibile.
+        print(f"Errore invio alert di sistema Discord: {e}")
+
+
 def invia_richiesta_pacchetto_discord(
     nome_cliente: str,
     email_cliente: str,

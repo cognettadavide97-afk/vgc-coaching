@@ -44,6 +44,7 @@ class BookingResponse(BaseModel):
     id: int
     user_id: int
     slot_id: int
+    slot_id_secondario: Optional[int]
     duration_hours: int
     price_cents: int
     service_type: str

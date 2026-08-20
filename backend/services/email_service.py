@@ -72,6 +72,42 @@ def _invia_via_gmail(destinatario: str, oggetto: str, corpo_html: str):
     servizio.users().messages().send(userId="me", body={"raw": raw}).execute()
 
 
+def verifica_credenziali_gmail() -> bool:
+    """
+    Controllo di salute, richiamato periodicamente dallo scheduler (vedi
+    controlla_credenziali_gmail in backend/scheduler.py): prova a scambiare
+    il refresh token per un token di accesso e a fare UNA chiamata Gmail
+    che non manda nessuna email (users.getProfile — restituisce solo dati
+    sull'account, tipo diagnostico "sono ancora autorizzato?"). Restituisce
+    True se tutto ok, False altrimenti — non solleva mai un'eccezione verso
+    il chiamante, così un fallimento qui non può mai far crashare lo
+    scheduler.
+
+    Perché serve: con l'app Google OAuth ancora in stato "Testing" (vedi
+    README.md, sezione Gmail API), il refresh token scade dopo 7 giorni di
+    inattività — un problema silenzioso, perché finché nessuno controlla
+    esplicitamente lo si scopre solo quando un'email a un cliente non
+    parte. Questo controllo lo scopre PRIMA, e avvisa il coach via Discord
+    (vedi invia_alert_sistema in backend/services/discord_service.py) così
+    può rifare l'autorizzazione con scripts/reauth_gmail.py.
+    """
+    try:
+        credenziali = Credentials(
+            token=None,
+            refresh_token=GMAIL_REFRESH_TOKEN,
+            client_id=GMAIL_CLIENT_ID,
+            client_secret=GMAIL_CLIENT_SECRET,
+            token_uri="https://oauth2.googleapis.com/token",
+        )
+        credenziali.refresh(Request())
+        servizio = build("gmail", "v1", credentials=credenziali)
+        servizio.users().getProfile(userId="me").execute()
+        return True
+    except Exception as e:
+        print(f"Controllo credenziali Gmail fallito: {e}")
+        return False
+
+
 def invia_conferma_cliente(
     email_cliente: str,
     nome_cliente: str,

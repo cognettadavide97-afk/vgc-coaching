@@ -35,6 +35,7 @@ import backend.routers.pacchetti_richieste as pacchetti_richieste
 import os
 from alembic.config import Config
 from alembic import command
+from backend.services.discord_service import invia_alert_sistema
 
 
 def run_migrations():
@@ -51,7 +52,11 @@ def run_migrations():
     continua comunque ad avviarsi (stampa solo un errore) invece di bloccarsi
     del tutto — utile in fase di sviluppo, ma vuol dire che un problema del
     database potrebbe manifestarsi più tardi con errori meno chiari quando
-    qualcuno prova a usare una funzione che ne ha bisogno.
+    qualcuno prova a usare una funzione che ne ha bisogno. Per questo, oltre
+    al print(), avvisiamo subito il coach su Discord (vedi
+    invia_alert_sistema in backend/services/discord_service.py): un deploy
+    con una migrazione fallita è il tipo di problema che altrimenti si nota
+    solo quando un cliente prova a usare la funzione nuova e trova un errore.
     """
     try:
         database_url = os.getenv("DATABASE_URL")
@@ -64,6 +69,12 @@ def run_migrations():
             print("DATABASE_URL non trovata — salto migrazioni")
     except Exception as e:
         print(f"Errore migrazioni: {e}")
+        invia_alert_sistema(
+            "Migrazione database fallita all'avvio",
+            f"L'app è comunque partita, ma il database potrebbe non essere "
+            f"aggiornato all'ultima versione attesa dal codice — alcune "
+            f"funzionalità nuove potrebbero non funzionare. Dettaglio: {e}"
+        )
 
 
 # Questa chiamata avviene SUBITO, appena il file viene importato — prima

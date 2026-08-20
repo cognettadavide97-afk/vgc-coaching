@@ -23,6 +23,13 @@ class Booking(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     slot_id = Column(Integer, ForeignKey("slots.id"), nullable=False)
 
+    # Valorizzato SOLO per le prenotazioni da 2 ore che "uniscono" due slot
+    # da 1 ora adiacenti (vedi il commento su TABELLA_PREZZI e create_booking
+    # in backend/routers/booking.py per il perché: il calendario genera solo
+    # slot da 1h, una sessione da 2h ne consuma due di fila). Per una
+    # prenotazione da 1h resta None.
+    slot_id_secondario = Column(Integer, ForeignKey("slots.id"), nullable=True)
+
     duration_hours = Column(Integer, nullable=False, default=1)
     price_cents = Column(Integer, nullable=False)  # prezzo in centesimi (es. 3500 = €35)
     # Perché i centesimi e non gli euro con la virgola? Perché i numeri
@@ -70,5 +77,10 @@ class Booking(Base):
     # utente.bookings con la lista di tutte le sue prenotazioni, anche se
     # questo attributo non è scritto da nessuna parte nel model User.
     user = relationship("User", backref="bookings")
-    slot = relationship("Slot", backref="booking")
+    # foreign_keys esplicito su entrambe: da quando esiste slot_id_secondario,
+    # ci sono DUE colonne su Booking che puntano a "slots" — senza dirle
+    # esplicitamente quale colonna usa quale relationship, SQLAlchemy non
+    # saprebbe come distinguerle e solleverebbe un errore di ambiguità.
+    slot = relationship("Slot", foreign_keys=[slot_id], backref="booking")
+    slot_secondario = relationship("Slot", foreign_keys=[slot_id_secondario])
     package = relationship("Package", backref="bookings")
