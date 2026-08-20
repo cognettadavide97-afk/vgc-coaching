@@ -13,7 +13,7 @@ from typing import Optional, Literal
 # nel codice Python l'equivalente di un "enum" senza dover creare una
 # classe Enum a parte. Il valore effettivamente scelto arriva così già
 # garantito valido a tutto il resto del programma.
-ServiceType = Literal["vod_review", "team_building", "bo3_sparring", "mentality_prep"]
+ServiceType = Literal["vod_review", "team_building", "bo3_sparring", "tournament_prep"]
 
 
 class BookingCreate(BaseModel):
@@ -24,6 +24,12 @@ class BookingCreate(BaseModel):
     note_cliente: Optional[str] = None
     vod_link: Optional[str] = None
     replay_code: Optional[str] = None
+
+    # Se valorizzato, la sessione viene "pagata" scalando un credito da un
+    # pacchetto attivo del cliente (vedi backend/models/package.py) invece
+    # che con il prezzo normale — controllato e validato server-side in
+    # create_booking, mai fidandosi solo di questo campo.
+    package_id: Optional[int] = None
 
     # Nota una cosa che NON c'è qui: nessun campo "price". Il prezzo non lo
     # decide mai il client — viene sempre calcolato dal server (vedi
@@ -46,6 +52,7 @@ class BookingResponse(BaseModel):
     note_admin: Optional[str]
     vod_link: Optional[str]
     replay_code: Optional[str]
+    package_id: Optional[int]
     created_at: datetime
 
     class Config:

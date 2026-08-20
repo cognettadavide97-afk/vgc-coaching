@@ -17,7 +17,9 @@
 
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
+
+Categoria = Literal["junior", "senior", "master"]
 
 
 class UserCreate(BaseModel):
@@ -43,7 +45,7 @@ class UserCreate(BaseModel):
     # l'equivalente Pydantic di un parametro di funzione con valore di
     # default in Python normale (def f(x=None)).
     telefono: Optional[str] = None
-    showdown_username: Optional[str] = None
+    categoria: Optional[Categoria] = None
     discord_tag: Optional[str] = None
 
 
@@ -57,7 +59,7 @@ class UserResponse(BaseModel):
     nome: str
     email: str
     telefono: Optional[str]
-    showdown_username: Optional[str]
+    categoria: Optional[str]
     discord_tag: Optional[str]
     created_at: datetime
 

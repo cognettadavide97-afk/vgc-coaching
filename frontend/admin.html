@@ -26,7 +26,7 @@
     <!-- SCHERMATA DI LOGIN -->
     <div id="login-screen">
         <div class="login-box">
-            <h1>⚔️ VGC Coaching</h1>
+            <h1 class="brand"><span class="brand-badge">VGC</span> Coaching</h1>
             <h2>Pannello Admin</h2>
             <div class="form-group">
                 <label>Username</label>
@@ -55,7 +55,7 @@
         <!-- SIDEBAR -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h2>⚔️ Admin</h2>
+                <h2 class="brand"><span class="brand-badge">VGC</span> Admin</h2>
             </div>
             <nav>
                 <!--
@@ -76,6 +76,9 @@
                 </button>
                 <button class="nav-btn" onclick="showSection('slots')">
                     🕐 Slot
+                </button>
+                <button class="nav-btn" onclick="showSection('pacchetti')">
+                    🎁 Pacchetti
                 </button>
             </nav>
             <div class="sidebar-footer">
@@ -120,6 +123,10 @@
                     <div class="stat-card">
                         <div class="stat-number" id="stat-clienti-ricorrenti">—</div>
                         <div class="stat-label">Clienti ricorrenti</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="stat-voto-medio">—</div>
+                        <div class="stat-label">Voto medio recensioni</div>
                     </div>
                 </div>
 
@@ -198,7 +205,6 @@
                         <select id="nuovo-slot-durata">
                             <option value="1">1 ora</option>
                             <option value="2">2 ore</option>
-                            <option value="3">3 ore</option>
                         </select>
                         <button class="btn-primary" onclick="creaSlot()">
                             + Aggiungi
@@ -208,7 +214,7 @@
                 <div class="nuovo-slot-form">
                     <h3>Disponibilità ricorrente</h3>
                     <p style="font-size: 0.85rem; color: #888; margin-top: -0.5rem;">
-                        Genera automaticamente gli slot per le prossime 8 settimane. Orari in ora italiana.
+                        Genera automaticamente gli slot fino alla fine del mese corrente (si estende da sola quando inizia il mese successivo). Orari in ora italiana.
                     </p>
                     <div class="form-inline">
                         <!-- Il "value" di ogni <option> qui deve combaciare con la numerazione 0=lunedì...6=domenica usata dal backend (vedi AvailabilityRule) -->
@@ -227,7 +233,6 @@
                         <select id="regola-durata">
                             <option value="1">slot da 1 ora</option>
                             <option value="2">slot da 2 ore</option>
-                            <option value="3">slot da 3 ore</option>
                         </select>
                         <button class="btn-primary" onclick="creaRegolaDisponibilita()">
                             + Aggiungi regola
@@ -251,6 +256,15 @@
                 </div>
 
                 <div id="lista-slots"></div>
+            </section>
+
+            <!-- PACCHETTI -->
+            <section id="section-pacchetti" class="admin-section">
+                <h2>Pacchetti</h2>
+                <p style="font-size: 0.85rem; color: #888; margin-top: -0.5rem;">
+                    L'assegnazione va fatta SOLO dopo aver ricevuto il pagamento (concordato privatamente, come per le prenotazioni singole). Per assegnarne uno a un cliente, usa il bottone "🎁 Pacchetto" nella scheda Clienti.
+                </p>
+                <div id="lista-pacchetti"></div>
             </section>
 
         </main>

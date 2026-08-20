@@ -5,12 +5,66 @@
    nuove che non compaiono nel CSS pubblico.
 */
 
+/* Stessi font e variabili di brand di frontend/css/style.css — vedi i
+   commenti lì (font self-hosted invece del CDN Google per motivi di
+   privacy/GDPR, valori colore ESATTI presi dal materiale promozionale del
+   coach) per il perché sono duplicati invece che condivisi (niente build
+   step nel progetto, niente import CSS). */
+@font-face {
+    font-family: 'Anton';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/static/fonts/Anton-Regular.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'Archivo';
+    font-style: normal;
+    font-weight: 400 800;
+    font-display: swap;
+    src: url('/static/fonts/Archivo-Variable.woff2') format('woff2');
+}
+
+:root {
+    --color-navy: #0D0D59;
+    --color-sky-1: #4E8DE8;
+    --color-sky-2: #2B58BE;
+    --color-sky-3: #1D3E92;
+    --color-red: #C13727;
+    --color-red-dark: #9A2C1F;
+    --color-gold: #FFD23D;
+    --color-gold-dark: #D9B234;
+    --color-cream: #FFFDF6;
+    --color-cream-2: #F1EFE2;
+    --color-bg: var(--color-cream-2);
+    --color-text: #333;
+    --color-text-muted: #888;
+    --color-border: #eee;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-    font-family: 'Segoe UI', sans-serif;
-    background: #f5f5f5;
-    color: #333;
+    font-family: 'Archivo', 'Segoe UI', sans-serif;
+    background: var(--color-bg);
+    color: var(--color-text);
+}
+
+.brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: 'Anton', sans-serif;
+    letter-spacing: 0.02em;
+}
+
+.brand-badge {
+    background: var(--color-gold);
+    color: var(--color-navy);
+    padding: 0.15em 0.5em;
+    border-radius: 6px;
+    letter-spacing: 0.03em;
 }
 
 /* LOGIN */
@@ -19,7 +73,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    background: linear-gradient(168deg, var(--color-sky-1) 0%, var(--color-sky-2) 55%, var(--color-sky-3) 100%);
 }
 
 .login-box {
@@ -43,9 +97,9 @@ body {
     font-size: 0.95rem; outline: none;
     transition: border-color 0.2s;
 }
-.form-group input:focus { border-color: #e74c3c; }
+.form-group input:focus { border-color: var(--color-red); }
 
-.error-msg { color: #e74c3c; font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2rem; }
+.error-msg { color: var(--color-red); font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2rem; }
 /* min-height qui evita che il layout "salti" quando appare un messaggio
    d'errore: lo spazio è già riservato anche quando #login-error è vuoto. */
 
@@ -58,7 +112,7 @@ body {
 /* SIDEBAR */
 .sidebar {
     width: 220px;
-    background: #1a1a2e;
+    background: var(--color-navy);
     color: white;
     display: flex;
     flex-direction: column; /* dentro un flex container, dispone i figli in colonna invece che in riga */
@@ -95,7 +149,7 @@ nav { flex: 1; padding: 1rem 0; }
 .nav-btn.active {
     background: rgba(231,76,60,0.15);
     color: white;
-    border-left-color: #e74c3c; /* qui il bordo "invisibile" sopra diventa visibile, senza cambiare le dimensioni del bottone */
+    border-left-color: var(--color-red); /* qui il bordo "invisibile" sopra diventa visibile, senza cambiare le dimensioni del bottone */
 }
 
 .sidebar-footer { padding: 1rem 1.5rem; }
@@ -120,9 +174,12 @@ nav { flex: 1; padding: 1rem 0; }
 .admin-section.active { display: block; }
 
 .admin-section h2 {
-    font-size: 1.4rem;
+    font-family: 'Anton', sans-serif;
+    font-size: 1.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
     margin-bottom: 1.5rem;
-    color: #1a1a2e;
+    color: var(--color-navy);
 }
 
 .admin-section h3 {
@@ -151,7 +208,7 @@ nav { flex: 1; padding: 1rem 0; }
     box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
-.stat-number { font-size: 2rem; font-weight: 700; color: #e74c3c; }
+.stat-number { font-family: 'Anton', sans-serif; font-size: 2rem; color: var(--color-red); }
 .stat-label { font-size: 0.85rem; color: #888; margin-top: 0.25rem; }
 
 /* SECTION HEADER */
@@ -177,12 +234,12 @@ nav { flex: 1; padding: 1rem 0; }
 /* BOTTONI */
 .btn-primary {
     padding: 0.75rem 1.5rem;
-    background: #e74c3c; color: white;
+    background: var(--color-red); color: white;
     border: none; border-radius: 8px;
     font-size: 0.9rem; font-weight: 600;
     cursor: pointer; transition: background 0.2s;
 }
-.btn-primary:hover { background: #c0392b; }
+.btn-primary:hover { background: var(--color-red-dark); }
 
 .btn-secondary {
     padding: 0.75rem 1.5rem;
@@ -257,13 +314,13 @@ nav { flex: 1; padding: 1rem 0; }
 }
 
 .action-cancel { background: #f8d7da; color: #721c24; }
-.action-cancel:hover { background: #e74c3c; color: white; }
+.action-cancel:hover { background: var(--color-red); color: white; }
 .action-no-show { background: #e2e3e5; color: #383d41; }
 .action-no-show:hover { background: #6c757d; color: white; }
 .action-note { background: #e8f4fd; color: #0c5460; }
 .action-note:hover { background: #3498db; color: white; }
 .action-delete { background: #f8d7da; color: #721c24; }
-.action-delete:hover { background: #e74c3c; color: white; }
+.action-delete:hover { background: var(--color-red); color: white; }
 
 /* SLOT LIBERI DASHBOARD */
 .slot-list { display: flex; flex-direction: column; gap: 0.5rem; }
@@ -348,7 +405,7 @@ nav { flex: 1; padding: 1rem 0; }
     background: #f9f9f9;
     border-radius: 8px;
     padding: 0.75rem 1rem;
-    border-left: 3px solid #e74c3c;
+    border-left: 3px solid var(--color-red);
 }
 
 .nota-data { font-size: 0.75rem; color: #999; margin-bottom: 0.25rem; }
@@ -415,7 +472,7 @@ nav { flex: 1; padding: 1rem 0; }
 }
 
 .bar-fill {
-    background: linear-gradient(90deg, #e74c3c, #c0392b);
+    background: linear-gradient(90deg, var(--color-red), var(--color-red-dark));
     height: 100%;
     border-radius: 6px;
     /* Anima il cambiamento di "width" — questa è la proprietà che
@@ -427,7 +484,7 @@ nav { flex: 1; padding: 1rem 0; }
 }
 
 .bar-value { text-align: right; font-weight: 600; color: #333; }
-.form-inline input:focus, .form-inline select:focus { border-color: #e74c3c; }
+.form-inline input:focus, .form-inline select:focus { border-color: var(--color-red); }
 
 /* PAGINAZIONE */
 .paginazione {
@@ -443,4 +500,82 @@ nav { flex: 1; padding: 1rem 0; }
 .paginazione button:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+}
+
+/* Le tabelle admin non si restringono bene sotto una certa larghezza (molte
+   colonne) — invece di rompere il layout, il container scorre in
+   orizzontale mentre il resto della pagina resta fermo. Selettori per id
+   invece che per classe perché admin.js scrive l'HTML della tabella
+   direttamente dentro questi contenitori con innerHTML (vedi es.
+   caricaPrenotazioni), non c'è un wrapper dedicato da targetizzare via classe. */
+#lista-prenotazioni, #lista-clienti, #lista-slots,
+#lista-pacchetti, #lista-regole, #lista-blocchi {
+    overflow-x: auto;
+}
+
+/* RESPONSIVE — schermi stretti (telefono/tablet) */
+@media (max-width: 768px) {
+    /* La sidebar "fixed" a 220px (vedi .sidebar sopra) non ha senso su
+       schermi stretti: diventa una barra normale in cima alla pagina,
+       coi bottoni disposti in riga invece che in colonna. */
+    #admin-panel {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        position: static;
+        width: 100%;
+        height: auto;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .sidebar-header {
+        border-bottom: none;
+        padding: 1rem;
+    }
+
+    nav {
+        flex: 1;
+        display: flex;
+        flex-wrap: wrap;
+        padding: 0;
+    }
+
+    .nav-btn {
+        width: auto;
+        border-left: none;
+        border-bottom: 3px solid transparent;
+    }
+
+    .nav-btn.active {
+        border-left-color: transparent;
+        border-bottom-color: var(--color-red);
+    }
+
+    .sidebar-footer {
+        padding: 0.5rem 1rem;
+    }
+
+    .admin-main {
+        margin-left: 0;
+        padding: 1.25rem;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
 }

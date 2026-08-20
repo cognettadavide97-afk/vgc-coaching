@@ -16,10 +16,12 @@ from backend.database import get_db
 from backend.models.users import User
 from backend.models.booking import Booking
 from backend.models.slots import Slot
+from backend.models.package import Package
 from backend.schemas.users import UserCreate, UserResponse
 from backend.routers.admin import get_admin
 from backend.services.auth_service import verifica_token_studente
 from backend.services.timezone_service import utc_to_rome
+from backend.services.package_service import CATALOGO_PACCHETTI
 from backend.rate_limit import limiter
 from typing import List, Optional
 
@@ -68,7 +70,7 @@ def get_studente(studente: Optional[User] = Depends(get_studente_opzionale)) -> 
     invece di riscrivere tutta la logica di lettura del token da capo.
     """
     if not studente:
-        raise HTTPException(status_code=401, detail="Login richiesto")
+        raise HTTPException(status_code=401, detail="Login required")
     return studente
 
 
@@ -132,34 +134,25 @@ def get_prenotazioni_studente(
     ]
 
 
-@router.post("/", response_model=UserResponse)
-# @limiter.limit("5/minute") è un secondo decoratore sullo stesso endpoint:
-# applica la protezione anti-abuso vista in backend/rate_limit.py,
-# impedendo che lo stesso indirizzo IP chiami questo endpoint più di 5
-# volte al minuto — impedisce a un bot di creare migliaia di utenti falsi.
-@limiter.limit("5/minute")
-def create_user(request: Request, user: UserCreate, db: Session = Depends(get_db)):
-    # request: Request è un parametro che slowapi richiede per poter
-    # identificare da dove arriva la richiesta (il suo indirizzo IP) — non
-    # lo usiamo direttamente nel corpo della funzione, ma deve essere
-    # presente perché il decoratore @limiter.limit funzioni.
-
-    # controlla se l'email esiste già
+def get_or_create_user(db: Session, user: UserCreate) -> User:
+    """
+    Pattern "get or create" (prendi se esiste, altrimenti crea): dato che
+    email è unique nel database (vedi backend/models/users.py), non
+    possiamo comunque creare un secondo utente con la stessa email — invece
+    di far fallire la richiesta con un errore, la trasformiamo in un
+    comportamento utile: "se questo studente ha già prenotato in passato,
+    ritrovalo invece di dare errore". Riusata sia da POST /users/ sia dal
+    form di richiesta consulenza gratuita (backend/routers/consulenza.py).
+    """
     existing = db.query(User).filter(User.email == user.email).first()
     if existing:
-        return existing  # restituisce l'utente esistente invece di creare un duplicato
-        # Questo pattern si chiama "get or create" (prendi se esiste, altrimenti
-        # crea): dato che email è unique nel database (vedi backend/models/users.py),
-        # non possiamo comunque creare un secondo utente con la stessa email — invece
-        # di far fallire la richiesta con un errore, la trasformiamo in un
-        # comportamento utile: "se questo studente ha già prenotato in passato,
-        # ritrovalo invece di dare errore".
+        return existing
 
     db_user = User(
         nome=user.nome,
         email=user.email,
         telefono=user.telefono,
-        showdown_username=user.showdown_username,
+        categoria=user.categoria,
         discord_tag=user.discord_tag
     )
     # Queste tre righe sono il pattern standard di SQLAlchemy per salvare
@@ -173,3 +166,50 @@ def create_user(request: Request, user: UserCreate, db: Session = Depends(get_db
     db.commit()
     db.refresh(db_user)
     return db_user
+
+
+@router.post("/", response_model=UserResponse)
+# @limiter.limit("5/minute") è un secondo decoratore sullo stesso endpoint:
+# applica la protezione anti-abuso vista in backend/rate_limit.py,
+# impedendo che lo stesso indirizzo IP chiami questo endpoint più di 5
+# volte al minuto — impedisce a un bot di creare migliaia di utenti falsi.
+@limiter.limit("5/minute")
+def create_user(request: Request, user: UserCreate, db: Session = Depends(get_db)):
+    # request: Request è un parametro che slowapi richiede per poter
+    # identificare da dove arriva la richiesta (il suo indirizzo IP) — non
+    # lo usiamo direttamente nel corpo della funzione, ma deve essere
+    # presente perché il decoratore @limiter.limit funzioni.
+    return get_or_create_user(db, user)
+
+
+@router.get("/pacchetti-attivi")
+def get_pacchetti_attivi(email: str, db: Session = Depends(get_db)):
+    """
+    Pacchetti con crediti residui per un'email — pubblico e senza creare
+    nulla: usato dal form di prenotazione (frontend/js/app.js) per proporre
+    "usa una sessione dal pacchetto" PRIMA che l'utente venga effettivamente
+    creato nel database (oggi accade solo alla conferma finale, vedi
+    POST /bookings/). Se l'email non corrisponde a nessun utente esistente,
+    restituisce semplicemente una lista vuota, non un errore.
+    """
+    utente = db.query(User).filter(User.email == email).first()
+    if not utente:
+        return []
+
+    pacchetti = db.query(Package).filter(
+        Package.user_id == utente.id,
+        Package.sessioni_usate < Package.sessioni_totali
+    ).all()
+
+    return [
+        {
+            "id": p.id,
+            "user_id": p.user_id,
+            "nome": CATALOGO_PACCHETTI.get(p.tipo, {}).get("nome", p.tipo),
+            "sessioni_totali": p.sessioni_totali,
+            "sessioni_usate": p.sessioni_usate,
+            "sessioni_residue": p.sessioni_totali - p.sessioni_usate,
+            "durata_sessione_ore": p.durata_sessione_ore
+        }
+        for p in pacchetti
+    ]

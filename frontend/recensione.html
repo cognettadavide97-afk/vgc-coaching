@@ -1,0 +1,59 @@
+<!--
+    Pagina pubblica standalone, raggiunta dal link nell'email mandata dopo
+    la sessione (vedi controlla_e_invia_richieste_recensione in
+    backend/scheduler.py). Non fa parte del wizard di prenotazione: legge
+    booking_id e token dalla query string dell'URL, non richiede login —
+    l'autenticazione È il token, che solo chi ha ricevuto l'email conosce.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VGC Coaching — Leave a Review</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+    <header>
+        <div class="header-content">
+            <img src="/static/images/coach-avatar.png" alt="" class="header-avatar">
+            <div>
+                <h1 class="brand-hero">DesuVGC — Building the Player</h1>
+                <p class="brand-subtitle">VGC Coaching</p>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section class="step-content active">
+            <h2>Leave a review</h2>
+            <p class="subtitle">Your rating helps us improve — it only takes a minute.</p>
+
+            <div id="recensione-form-box">
+                <div class="duration-selector">
+                    <h3>Rating</h3>
+                    <div class="duration-buttons" id="voto-buttons">
+                        <button type="button" class="duration-btn" data-voto="1">1</button>
+                        <button type="button" class="duration-btn" data-voto="2">2</button>
+                        <button type="button" class="duration-btn" data-voto="3">3</button>
+                        <button type="button" class="duration-btn" data-voto="4">4</button>
+                        <button type="button" class="duration-btn" data-voto="5">5</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="commento">Comment (optional)</label>
+                    <textarea id="commento" rows="4" placeholder="Tell us how it went..."></textarea>
+                </div>
+
+                <button class="btn-primary" id="btn-invia-recensione">Submit review</button>
+            </div>
+
+            <p id="recensione-esito" class="subtitle"></p>
+        </section>
+    </main>
+
+    <script src="/static/js/recensione.js"></script>
+</body>
+</html>

@@ -102,26 +102,26 @@ def invia_conferma_cliente(
         </div>
 
         <div style="padding: 2rem; background: #f9f9f9;">
-            <h2 style="color: #1a1a2e;">Prenotazione confermata!</h2>
-            <p>Ciao <strong>{nome_cliente}</strong>,</p>
-            <p>La tua sessione di coaching VGC è confermata.</p>
+            <h2 style="color: #1a1a2e;">Booking confirmed!</h2>
+            <p>Hi <strong>{nome_cliente}</strong>,</p>
+            <p>Your VGC coaching session is confirmed.</p>
 
             <div style="background: white; border-radius: 8px; padding: 1.5rem; margin: 1.5rem 0; border-left: 4px solid #e74c3c;">
-                <h3 style="margin-top: 0; color: #555;">Dettagli sessione</h3>
-                <p><strong>Data:</strong> {data_slot}</p>
-                <p><strong>Orario:</strong> {ora_slot}</p>
-                <p><strong>Durata:</strong> {durata} ora{"e" if durata > 1 else ""}</p>
-                <p><strong>Totale:</strong> €{prezzo_euro:.2f}</p>
+                <h3 style="margin-top: 0; color: #555;">Session details</h3>
+                <p><strong>Date:</strong> {data_slot}</p>
+                <p><strong>Time:</strong> {ora_slot}</p>
+                <p><strong>Duration:</strong> {durata} hour{"s" if durata > 1 else ""}</p>
+                <p><strong>Total:</strong> €{prezzo_euro:.2f}</p>
             </div>
 
             <div style="background: white; border-radius: 8px; padding: 1.5rem; margin: 1.5rem 0; border-left: 4px solid #1a1a2e;">
-                <h3 style="margin-top: 0; color: #555;">Come contattarci</h3>
-                <p>Per coordinare la sessione o per qualsiasi domanda, scrivimi su:</p>
+                <h3 style="margin-top: 0; color: #555;">How to reach us</h3>
+                <p>To coordinate the session or for any question, message me on:</p>
                 <p><strong>Discord:</strong> {COACH_DISCORD_TAG}</p>
                 <p><strong>Telegram:</strong> {COACH_TELEGRAM_CONTACT}</p>
             </div>
 
-            <p>Per qualsiasi altra domanda rispondi a questa email.</p>
+            <p>For any other question, just reply to this email.</p>
         </div>
 
         <div style="background: #1a1a2e; padding: 1rem; text-align: center;">
@@ -142,7 +142,7 @@ def invia_conferma_cliente(
     # il resto dell'operazione vada comunque a buon fine. Ritrovi lo stesso
     # ragionamento in calendar_service.py e discord_service.py.
     try:
-        _invia_via_gmail(email_cliente, "Prenotazione confermata", corpo_email)
+        _invia_via_gmail(email_cliente, "Booking confirmed", corpo_email)
         print(f"Email inviata a {email_cliente}")
     except Exception as e:
         print(f"Errore invio email DETTAGLIO: {type(e).__name__}: {e}")
@@ -166,25 +166,25 @@ def invia_promemoria_cliente(
         </div>
 
         <div style="padding: 2rem; background: #f9f9f9;">
-            <h2 style="color: #1a1a2e;">Promemoria sessione</h2>
-            <p>Ciao <strong>{nome_cliente}</strong>,</p>
-            <p>Ti ricordiamo che hai una sessione di coaching VGC in programma.</p>
+            <h2 style="color: #1a1a2e;">Session reminder</h2>
+            <p>Hi <strong>{nome_cliente}</strong>,</p>
+            <p>Just a reminder that you have a VGC coaching session coming up.</p>
 
             <div style="background: white; border-radius: 8px; padding: 1.5rem; margin: 1.5rem 0; border-left: 4px solid #e74c3c;">
-                <h3 style="margin-top: 0; color: #555;">Dettagli sessione</h3>
-                <p><strong>Data:</strong> {data_slot}</p>
-                <p><strong>Orario:</strong> {ora_slot}</p>
-                <p><strong>Durata:</strong> {durata} ora{"e" if durata > 1 else ""}</p>
+                <h3 style="margin-top: 0; color: #555;">Session details</h3>
+                <p><strong>Date:</strong> {data_slot}</p>
+                <p><strong>Time:</strong> {ora_slot}</p>
+                <p><strong>Duration:</strong> {durata} hour{"s" if durata > 1 else ""}</p>
             </div>
 
             <div style="background: white; border-radius: 8px; padding: 1.5rem; margin: 1.5rem 0; border-left: 4px solid #1a1a2e;">
-                <h3 style="margin-top: 0; color: #555;">Come contattarci</h3>
-                <p>Per coordinare la sessione o per qualsiasi domanda, scrivimi su:</p>
+                <h3 style="margin-top: 0; color: #555;">How to reach us</h3>
+                <p>To coordinate the session or for any question, message me on:</p>
                 <p><strong>Discord:</strong> {COACH_DISCORD_TAG}</p>
                 <p><strong>Telegram:</strong> {COACH_TELEGRAM_CONTACT}</p>
             </div>
 
-            <p>Ci vediamo presto!</p>
+            <p>See you soon!</p>
         </div>
 
         <div style="background: #1a1a2e; padding: 1rem; text-align: center;">
@@ -195,7 +195,7 @@ def invia_promemoria_cliente(
     """
 
     try:
-        _invia_via_gmail(email_cliente, "Promemoria: la tua sessione di coaching VGC si avvicina", corpo_email)
+        _invia_via_gmail(email_cliente, "Reminder: your VGC coaching session is coming up", corpo_email)
         print(f"Promemoria inviato a {email_cliente}")
     except Exception as e:
         print(f"Errore invio promemoria DETTAGLIO: {type(e).__name__}: {e}")
@@ -236,3 +236,165 @@ def invia_notifica_admin(
         print("Notifica admin inviata")
     except Exception as e:
         print(f"Errore notifica admin DETTAGLIO: {type(e).__name__}: {e}")
+
+
+def invia_conferma_richiesta_consulenza(email_cliente: str, nome_cliente: str):
+    """
+    Conferma al cliente che la sua richiesta di call gratuita (20 minuti) è
+    arrivata — vedi backend/routers/consulenza.py. A differenza di
+    invia_conferma_cliente, qui NON c'è un orario da confermare: la call
+    va accordata privatamente, quindi il messaggio resta volutamente vago
+    su data/ora.
+    """
+    corpo_email = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+
+        <div style="background: #1a1a2e; padding: 2rem; text-align: center;">
+            <h1 style="color: white; margin: 0;">VGC Coaching</h1>
+        </div>
+
+        <div style="padding: 2rem; background: #f9f9f9;">
+            <h2 style="color: #1a1a2e;">Request received!</h2>
+            <p>Hi <strong>{nome_cliente}</strong>,</p>
+            <p>We've received your request for a free 20-minute call. We'll get in touch shortly to arrange a time.</p>
+        </div>
+
+        <div style="background: #1a1a2e; padding: 1rem; text-align: center;">
+            <p style="color: #888; font-size: 0.8rem; margin: 0;">VGC Coaching</p>
+        </div>
+
+    </div>
+    """
+
+    try:
+        _invia_via_gmail(email_cliente, "Free call request received", corpo_email)
+        print(f"Conferma richiesta consulenza inviata a {email_cliente}")
+    except Exception as e:
+        print(f"Errore invio conferma richiesta consulenza DETTAGLIO: {type(e).__name__}: {e}")
+
+
+def invia_notifica_richiesta_consulenza_admin(
+    nome_cliente: str,
+    email_cliente: str,
+    discord_tag: str,
+    messaggio: str
+):
+    """Avvisa il coach (EMAIL_ADMIN) di una nuova richiesta di call gratuita."""
+    corpo_email = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 2rem;">
+        <h2 style="color: #e74c3c;">Nuova richiesta di call gratuita (20 min)</h2>
+        <div style="background: #f9f9f9; border-radius: 8px; padding: 1.5rem;">
+            <p><strong>Cliente:</strong> {nome_cliente}</p>
+            <p><strong>Email:</strong> {email_cliente}</p>
+            <p><strong>Discord:</strong> {discord_tag or "non specificato"}</p>
+            <p><strong>Messaggio:</strong> {messaggio or "nessuno"}</p>
+        </div>
+    </div>
+    """
+
+    try:
+        _invia_via_gmail(EMAIL_ADMIN, f"Richiesta call gratuita — {nome_cliente}", corpo_email)
+        print("Notifica admin richiesta consulenza inviata")
+    except Exception as e:
+        print(f"Errore notifica admin richiesta consulenza DETTAGLIO: {type(e).__name__}: {e}")
+
+
+def invia_conferma_richiesta_pacchetto(email_cliente: str, nome_cliente: str, nome_pacchetto: str):
+    """
+    Conferma al cliente che la sua richiesta di attivazione pacchetto è
+    arrivata — vedi backend/routers/pacchetti_richieste.py. Come per la
+    consulenza gratuita, nessun pagamento avviene qui: il coach ricontatta
+    per accordare il pagamento e solo dopo assegna il pacchetto vero da
+    /admin/pacchetti.
+    """
+    corpo_email = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+
+        <div style="background: #1a1a2e; padding: 2rem; text-align: center;">
+            <h1 style="color: white; margin: 0;">VGC Coaching</h1>
+        </div>
+
+        <div style="padding: 2rem; background: #f9f9f9;">
+            <h2 style="color: #1a1a2e;">Request received!</h2>
+            <p>Hi <strong>{nome_cliente}</strong>,</p>
+            <p>We've received your request to activate the <strong>{nome_pacchetto}</strong> package. We'll get in touch shortly to arrange payment and get it set up.</p>
+        </div>
+
+        <div style="background: #1a1a2e; padding: 1rem; text-align: center;">
+            <p style="color: #888; font-size: 0.8rem; margin: 0;">VGC Coaching</p>
+        </div>
+
+    </div>
+    """
+
+    try:
+        _invia_via_gmail(email_cliente, "Package request received", corpo_email)
+        print(f"Conferma richiesta pacchetto inviata a {email_cliente}")
+    except Exception as e:
+        print(f"Errore invio conferma richiesta pacchetto DETTAGLIO: {type(e).__name__}: {e}")
+
+
+def invia_notifica_richiesta_pacchetto_admin(
+    nome_cliente: str,
+    email_cliente: str,
+    discord_tag: str,
+    nome_pacchetto: str,
+    messaggio: str
+):
+    """Avvisa il coach (EMAIL_ADMIN) di una nuova richiesta di attivazione pacchetto."""
+    corpo_email = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 2rem;">
+        <h2 style="color: #e74c3c;">Nuova richiesta pacchetto — {nome_pacchetto}</h2>
+        <div style="background: #f9f9f9; border-radius: 8px; padding: 1.5rem;">
+            <p><strong>Cliente:</strong> {nome_cliente}</p>
+            <p><strong>Email:</strong> {email_cliente}</p>
+            <p><strong>Discord:</strong> {discord_tag or "non specificato"}</p>
+            <p><strong>Messaggio:</strong> {messaggio or "nessuno"}</p>
+        </div>
+    </div>
+    """
+
+    try:
+        _invia_via_gmail(EMAIL_ADMIN, f"Richiesta pacchetto {nome_pacchetto} — {nome_cliente}", corpo_email)
+        print("Notifica admin richiesta pacchetto inviata")
+    except Exception as e:
+        print(f"Errore notifica admin richiesta pacchetto DETTAGLIO: {type(e).__name__}: {e}")
+
+
+def invia_richiesta_recensione(email_cliente: str, nome_cliente: str, link_recensione: str):
+    """
+    Mandata una volta sola dopo che la sessione è passata (vedi il job
+    controlla_e_invia_richieste_recensione in backend/scheduler.py), con un
+    link univoco che porta alla pagina pubblica frontend/recensione.html.
+    """
+    corpo_email = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+
+        <div style="background: #1a1a2e; padding: 2rem; text-align: center;">
+            <h1 style="color: white; margin: 0;">VGC Coaching</h1>
+        </div>
+
+        <div style="padding: 2rem; background: #f9f9f9;">
+            <h2 style="color: #1a1a2e;">How did it go?</h2>
+            <p>Hi <strong>{nome_cliente}</strong>,</p>
+            <p>I hope the session was useful! If you have a minute, leave me a rating and a comment — it really helps me improve.</p>
+
+            <div style="text-align: center; margin: 1.5rem 0;">
+                <a href="{link_recensione}" style="display: inline-block; padding: 0.9rem 1.5rem; background: #e74c3c; color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">
+                    Leave a review
+                </a>
+            </div>
+        </div>
+
+        <div style="background: #1a1a2e; padding: 1rem; text-align: center;">
+            <p style="color: #888; font-size: 0.8rem; margin: 0;">VGC Coaching</p>
+        </div>
+
+    </div>
+    """
+
+    try:
+        _invia_via_gmail(email_cliente, "How did your session go?", corpo_email)
+        print(f"Richiesta recensione inviata a {email_cliente}")
+    except Exception as e:
+        print(f"Errore invio richiesta recensione DETTAGLIO: {type(e).__name__}: {e}")

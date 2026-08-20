@@ -1,0 +1,106 @@
+<!--
+    Pagina "About the coach" — bio, palmarès agonistico e (in futuro)
+    recensioni dei clienti. File statico separato da index.html: niente
+    routing lato client in questo progetto (vedi il commento in
+    frontend/index.html sul perché), quindi ogni pagina "vera" del sito è
+    un proprio file HTML con la propria voce in backend/main.py
+    (@app.get("/about")).
+
+    Multilingua IT/EN: stesso meccanismo di index.html (data-i18n +
+    frontend/js/i18n.js) — vedi i commenti lì per i dettagli. I commenti
+    restano in italiano per chi sviluppa il progetto.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VGC Coaching — Meet the Coach</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+    <!-- INTESTAZIONE (stessa struttura di index.html, per coerenza visiva) -->
+    <header>
+        <div class="header-content">
+            <img src="/static/images/coach-avatar.png" alt="" class="header-avatar">
+            <div>
+                <h1 class="brand-hero">DesuVGC — Building the Player</h1>
+                <p class="brand-subtitle">VGC Coaching</p>
+            </div>
+        </div>
+        <div class="lang-switcher">
+            <button type="button" class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+            <button type="button" class="lang-btn" data-lang="it" onclick="setLang('it')">IT</button>
+        </div>
+    </header>
+
+    <nav class="site-nav">
+        <a href="/" class="site-nav-link" data-i18n="nav_book">Book a Session</a>
+        <a href="/about" class="site-nav-link active" data-i18n="nav_about">Meet the Coach</a>
+    </nav>
+
+    <!--
+        Bio + palmarès agonistico reali del coach, stesso contenuto/layout
+        del materiale promozionale (Desktop\Grafiche Coaching\
+        VGC_Coaching_X_Post_ENG.png), con l'aggiunta di un breve paragrafo
+        di presentazione (about_bio in i18n.js) che nel flyer non c'era.
+    -->
+    <section class="about-section">
+        <div class="about-grid">
+            <div class="about-profile">
+                <img src="/static/images/coach-photo.jpg" alt="Nico Davide &quot;DesuVGC&quot; Cognetta" class="about-photo">
+                <h2 class="about-name">Nico Davide<br>"DesuVGC" Cognetta</h2>
+                <p class="about-tagline" data-i18n="about_tagline">VGC competitor &amp; coach</p>
+                <div class="about-socials">
+                    <a href="https://x.com/DesuVGC" target="_blank" rel="noopener noreferrer">𝕏 @DesuVGC</a>
+                    <span>Discord: desuvgc</span>
+                </div>
+            </div>
+            <div class="about-results">
+                <span class="about-results-tag" data-i18n="about_results_tag">RESULTS</span>
+                <ul class="about-results-highlight">
+                    <li>2017 EUIC — <strong data-i18n="result_finalist">Finalist</strong></li>
+                    <li>2017 OCIC — <strong data-i18n="result_finalist">Finalist</strong></li>
+                    <li>2023 Special Torino — <strong data-i18n="result_champion">Champion</strong></li>
+                </ul>
+                <ul class="about-results-list">
+                    <li>2020 Player's Cup I — <span data-i18n="result_3rd">3rd</span></li>
+                    <li>2018 &amp; 2023 Worlds — Top 32</li>
+                    <li>2018 OCIC — Top 8</li>
+                    <li>2018 LAIC — Top 8</li>
+                    <li>2024 Reg. Liverpool — Top 8</li>
+                    <li>2025 Reg. Dortmund — Top 8</li>
+                </ul>
+            </div>
+        </div>
+
+        <!--
+            Breve presentazione: chi è il coach, cosa fa oggi — testo
+            aggiuntivo rispetto al materiale promozionale originale, con
+            un tono più "prima persona" adatto a una pagina "chi sono" sul
+            sito (a differenza del flyer, pensato per un post social).
+        -->
+        <p class="about-bio" data-i18n="about_bio">
+            I've been competing in the Pokémon VGC scene since 2017, with results ranging from regional Top 8s to a national title. Today I split my time between tournament play and coaching — helping players of every level build better teams, sharpen their in-game decisions, and prepare with a clear plan for their next event.
+        </p>
+    </section>
+
+    <!--
+        Placeholder per le recensioni clienti — solo la struttura, non la
+        funzionalità: oggi il backend salva le recensioni (vedi
+        backend/models/review.py) ma non espone ancora un endpoint
+        pubblico per elencarle qui. Da collegare quando quella parte verrà
+        costruita.
+    -->
+    <section class="reviews-section">
+        <h2 data-i18n="reviews_title">Client Reviews</h2>
+        <p class="subtitle" data-i18n="reviews_subtitle">Reviews from past students will appear here soon.</p>
+        <div class="reviews-placeholder" data-i18n="reviews_placeholder">
+            No reviews to show yet.
+        </div>
+    </section>
+
+    <script src="/static/js/i18n.js"></script>
+</body>
+</html>

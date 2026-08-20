@@ -35,6 +35,69 @@
    questa opzione, padding e bordo sono INCLUSI nella larghezza dichiarata
    (invece che aggiunti sopra), il che rende molto più semplice prevedere
    quanto spazio occuperà davvero un elemento. */
+/*
+   Font reali del brand, presi dal materiale promozionale del coach
+   (Desktop\Grafiche Coaching — i file .html dentro gli zip usano
+   'Anton' per i titoli e 'Archivo' per il corpo testo). Self-hosted
+   invece di caricarli dal CDN di Google Fonts: un sito rivolto a un
+   pubblico europeo che punta a fonts.gstatic.com manda l'indirizzo IP di
+   ogni visitatore a Google a ogni caricamento pagina — motivo per cui
+   diversi siti UE hanno ricevuto diffide GDPR per questo. I due file
+   .woff2 vivono in frontend/fonts/ e sono serviti come qualunque altro
+   asset statico (vedi app.mount("/static", ...) in backend/main.py).
+   Solo il sottoinsieme "latin" (copre anche gli accenti italiani, tutti
+   sotto U+00FF) per tenere i file piccoli.
+*/
+@font-face {
+    font-family: 'Anton';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/static/fonts/Anton-Regular.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'Archivo';
+    font-style: normal;
+    /* "400 800" (due numeri, non uno) dichiara un font VARIABILE: questo
+       unico file copre con continuità ogni peso da 400 (regular) a 800
+       (extra-bold) — il browser sceglie il peso giusto in base al
+       font-weight richiesto dalla regola CSS, senza bisogno di un file
+       diverso per ogni peso (come si dovrebbe fare con un font statico). */
+    font-weight: 400 800;
+    font-display: swap;
+    src: url('/static/fonts/Archivo-Variable.woff2') format('woff2');
+}
+
+/*
+   Variabili di brand condivise concettualmente tra questo file e
+   frontend/css/admin.css (nessuna build step nel progetto — vedi README —
+   quindi niente import CSS condiviso: gli stessi valori sono duplicati in
+   entrambi i file, da tenere in sync a mano se cambiano). Valori ESATTI
+   presi dal CSS del materiale promozionale del coach (non un'approssimazione
+   "a occhio"), così il sito di prenotazione è visivamente lo stesso brand
+   che i clienti già vedono su Discord/X.
+*/
+:root {
+    --color-navy: #0D0D59;
+    /* Le tre tonalità di blu del gradiente di sfondo usato nei flyer
+       promozionali (da chiaro a scuro) — vedi la regola su "header" più
+       sotto per come vengono combinate. */
+    --color-sky-1: #4E8DE8;
+    --color-sky-2: #2B58BE;
+    --color-sky-3: #1D3E92;
+    --color-red: #C13727;
+    --color-red-dark: #9A2C1F;
+    --color-gold: #FFD23D;
+    --color-gold-dark: #D9B234;
+    --color-cream: #FFFDF6;
+    --color-cream-2: #F1EFE2;
+    --color-bg: var(--color-cream-2);
+    --color-text: #333;
+    --color-text-muted: #888;
+    --color-border: #eee;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -42,36 +105,174 @@
 }
 
 body {
-    font-family: 'Segoe UI', sans-serif;
-    background: #f5f5f5;
-    color: #333;
+    font-family: 'Archivo', 'Segoe UI', sans-serif;
+    background: var(--color-bg);
+    color: var(--color-text);
     min-height: 100vh; /* "100vh" = 100% dell'altezza della finestra del browser (viewport height) */
 }
 
 /* HEADER */
 header {
-    /* Un "gradiente lineare": una transizione fluida di colore invece di un
-       colore singolo, qui da un blu scuro a un altro leggermente diverso,
-       diagonale ("135deg" è l'angolo). */
-    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    /* Stesso gradiente e stessa angolazione (168°, quasi verticale) usati
+       nel materiale promozionale — tre tonalità invece di due, per una
+       transizione più morbida dall'azzurro chiaro in alto al blu scuro
+       in basso. */
+    background: linear-gradient(168deg, var(--color-sky-1) 0%, var(--color-sky-2) 55%, var(--color-sky-3) 100%);
+    /*
+       Pattern a griglia sovrapposto allo sfondo: due gradienti lineari
+       "sottilissimi" (2px di banda bianca quasi trasparente, poi
+       trasparente) ripetuti ogni 60px, uno orizzontale e uno verticale —
+       lo stesso trucco usato nei flyer per dare "texture" a un gradiente
+       altrimenti piatto, senza dover caricare nessuna immagine.
+    */
+    background-image:
+        linear-gradient(rgba(255,255,255,.085) 2px, transparent 2px),
+        linear-gradient(90deg, rgba(255,255,255,.085) 2px, transparent 2px),
+        linear-gradient(168deg, var(--color-sky-1) 0%, var(--color-sky-2) 55%, var(--color-sky-3) 100%);
+    background-size: 60px 60px, 60px 60px, 100% 100%;
     color: white;
-    padding: 2rem;
+    padding: 2.5rem 2rem;
     text-align: center;
+    /* position:relative rende questo l'elemento di riferimento per
+       .lang-switcher qui sotto (position:absolute) — così l'interruttore
+       lingua sta in un angolo fisso invece di far parte del flusso
+       centrato di .header-content. */
+    position: relative;
 }
-/* "rem" (usato ovunque in questo file) è un'unità di misura relativa alla
-   dimensione del font base della pagina — a differenza dei "px" (pixel
-   assoluti), usare "rem" fa sì che l'intero sito si ridimensioni in modo
-   coerente se l'utente cambia le impostazioni di accessibilità del testo
-   del browser. */
 
-header h1 {
-    font-size: 2rem;
-    margin-bottom: 0.5rem;
+.header-content {
+    /* Riga orizzontale centrata sulla pagina: avatar accanto al blocco
+       titolo+sottotitolo (non sopra), i due insieme centrati come gruppo
+       rispetto alla larghezza dell'header. */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+}
+
+/* Avatar illustrato del coach (frontend/images/coach-avatar.png) —
+   nessuna cornice/riquadro (niente bordo, niente sfondo): l'immagine
+   fluttua libera accanto al titolo. Il suo stesso sfondo giallo pieno la
+   fa comunque risaltare bene sul gradiente blu sottostante. */
+.header-avatar {
+    width: 175px;
+    height: 175px;
+    object-fit: contain;
+    flex-shrink: 0; /* non si schiaccia se il testo accanto ha bisogno di più spazio */
+    /* position:relative + left negativo: un piccolo "nudge" verso
+       sinistra rispetto alla sua posizione naturale nella riga, senza
+       influenzare lo spazio occupato dagli elementi accanto (a differenza
+       di un margine negativo, che li avrebbe spinti a seguirlo). */
+    position: relative;
+    left: -14px;
 }
 
 header p {
-    opacity: 0.8;
+    opacity: 0.85;
     font-size: 1rem;
+    margin-top: 0.4rem;
+}
+
+/* Sottotitolo "VGC Coaching" sotto il wordmark — stesso testo su ogni
+   pagina, non tradotto (come i nomi dei servizi/pacchetti, resta un
+   nome proprio anche nella versione italiana). */
+.brand-subtitle {
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    opacity: 0.9;
+}
+
+/*
+   Wordmark "hero": lo stesso trattamento del titolo nei flyer promozionali
+   — testo bianco pieno con un contorno spesso blu navy (-webkit-text-stroke),
+   in Anton, il font condensato/bold usato ovunque nel materiale del coach.
+   Va sempre su uno sfondo colorato (qui il gradiente di header), mai su
+   sfondo chiaro: senza contrasto lo stroke sparirebbe.
+*/
+.brand-hero {
+    font-family: 'Anton', sans-serif;
+    font-size: 2.5rem;
+    line-height: 1.15;
+    max-width: 720px;
+    color: var(--color-cream);
+    -webkit-text-stroke: 1px var(--color-navy);
+    /* text-stroke "semplice" (non prefissata) non è ancora supportata da
+       tutti i browser, ma non costa nulla dichiararla: dove funziona,
+       funziona; dove non funziona, resta comunque leggibile grazie al
+       -webkit-text-stroke sopra (supportato da tutti i browser moderni,
+       Chrome/Edge/Safari — l'unica eccezione storica è Firefox). */
+    text-stroke: 1px var(--color-navy);
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+}
+
+/* NAVIGAZIONE TRA LE DUE PAGINE DEL SITO (index.html / about.html) */
+.site-nav {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    padding: 1rem;
+    background: white;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.site-nav-link {
+    color: var(--color-text-muted);
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 0.95rem;
+    padding: 0.4rem 0.1rem;
+    /* Bordo "invisibile" già riservato (stesso trucco di .nav-btn in
+       admin.css): evita che il link "salti" di un paio di pixel quando
+       diventa quello attivo e il bordo sotto compare davvero. */
+    border-bottom: 3px solid transparent;
+    transition: all 0.2s;
+}
+
+.site-nav-link:hover {
+    color: var(--color-navy);
+}
+
+.site-nav-link.active {
+    color: var(--color-navy);
+    border-bottom-color: var(--color-red);
+}
+
+/* INTERRUTTORE LINGUA (EN/IT) — vedi setLang() in frontend/js/i18n.js.
+   position:absolute rispetto a "header" (position:relative, vedi sopra):
+   così sta fisso in un angolo invece di far parte della colonna centrata
+   di .header-content, che ora contiene solo avatar + wordmark. */
+.lang-switcher {
+    display: flex;
+    gap: 0.35rem;
+    position: absolute;
+    top: 1.25rem;
+    right: 1.25rem;
+}
+
+.lang-btn {
+    background: rgba(255,255,255,0.15);
+    border: 1.5px solid rgba(255,255,255,0.4);
+    color: white;
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.lang-btn:hover {
+    background: rgba(255,255,255,0.25);
+}
+
+.lang-btn.active {
+    background: var(--color-gold);
+    border-color: var(--color-gold);
+    color: var(--color-navy);
 }
 
 /* STEPS BAR */
@@ -131,7 +332,7 @@ header p {
    diverso da ".step.active" (senza spazio) visto sopra, che invece cerca
    un singolo elemento con entrambe le classi. */
 .step.active .step-number {
-    background: #e74c3c;
+    background: var(--color-red);
     color: white;
 }
 
@@ -177,9 +378,12 @@ main {
 }
 
 .step-content h2 {
-    font-size: 1.4rem;
+    font-family: 'Anton', sans-serif;
+    font-size: 1.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
     margin-bottom: 0.25rem;
-    color: #1a1a2e;
+    color: var(--color-navy);
 }
 
 .subtitle {
@@ -216,12 +420,12 @@ main {
 }
 
 .slot-card:hover {
-    border-color: #e74c3c;
+    border-color: var(--color-red);
     background: #fff5f5;
 }
 
 .slot-card.selected {
-    border-color: #e74c3c;
+    border-color: var(--color-red);
     background: #fff5f5;
 }
 
@@ -234,7 +438,7 @@ main {
 .slot-card .slot-time {
     font-size: 1.1rem;
     font-weight: 600;
-    color: #1a1a2e;
+    color: var(--color-navy);
 }
 
 .loading {
@@ -279,13 +483,13 @@ main {
 }
 
 .duration-btn:hover, .service-btn:hover {
-    border-color: #e74c3c;
+    border-color: var(--color-red);
 }
 
 .duration-btn.active, .service-btn.active {
-    border-color: #e74c3c;
+    border-color: var(--color-red);
     background: #fff5f5;
-    color: #e74c3c;
+    color: var(--color-red);
 }
 
 /* FORM */
@@ -319,7 +523,7 @@ main {
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
-    border-color: #e74c3c;
+    border-color: var(--color-red);
 }
 
 /* RIEPILOGO */
@@ -361,7 +565,7 @@ main {
 .btn-primary {
     width: 100%;
     padding: 0.9rem;
-    background: #e74c3c;
+    background: var(--color-red);
     color: white;
     border: none;
     border-radius: 8px;
@@ -372,7 +576,7 @@ main {
 }
 
 .btn-primary:hover {
-    background: #c0392b;
+    background: var(--color-red-dark);
 }
 
 /* :disabled si applica solo quando l'elemento ha l'attributo HTML
@@ -468,7 +672,7 @@ main {
 .link-btn {
     background: none;
     border: none;
-    color: #e74c3c;
+    color: var(--color-red);
     font-size: 0.85rem;
     font-weight: 600;
     cursor: pointer;
@@ -515,4 +719,390 @@ main {
     color: #888;
     margin-bottom: 1.5rem;
     line-height: 1.6; /* spaziatura verticale tra le righe di testo, per una lettura più ariosa */
+}
+
+/* CONSULENZA GRATUITA (form di richiesta, indipendente dal wizard) */
+.consulenza-box {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 0 1rem;
+    text-align: center;
+}
+
+.consulenza-box .link-btn {
+    margin: 1rem 0;
+    font-size: 0.9rem;
+}
+
+.consulenza-box form {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    text-align: left;
+}
+
+/* PACCHETTO ATTIVO (checkbox nel riepilogo prenotazione) */
+.pacchetto-box {
+    background: #fffbea; /* tinta calda coerente col --color-gold, tenue per non competere col resto del riepilogo */
+    border: 1.5px solid var(--color-gold);
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.pacchetto-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.pacchetto-checkbox input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--color-gold); /* colora la spunta nativa del checkbox senza doverla ricostruire da zero in CSS */
+}
+
+/* VETRINA PACCHETTI */
+.pacchetti-section {
+    max-width: 960px;
+    margin: 3rem auto;
+    padding: 0 1rem;
+    text-align: center;
+}
+
+.pacchetti-section h2 {
+    font-family: 'Anton', sans-serif;
+    font-size: 1.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    color: var(--color-navy);
+    margin-bottom: 0.25rem;
+}
+
+.pacchetti-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+    text-align: left;
+}
+
+.pacchetto-card {
+    background: var(--color-navy);
+    color: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+}
+
+.pacchetto-tag {
+    display: inline-block;
+    background: var(--color-gold);
+    color: var(--color-navy);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    margin-bottom: 0.75rem;
+}
+
+.pacchetto-card h3 {
+    font-family: 'Anton', sans-serif;
+    font-size: 1.3rem;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    margin-bottom: 0.25rem;
+}
+
+.pacchetto-dettagli {
+    color: rgba(255,255,255,0.7);
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+}
+
+.pacchetto-prezzo {
+    font-family: 'Anton', sans-serif;
+    font-size: 1.5rem;
+    color: var(--color-gold);
+    margin-bottom: 0.75rem;
+}
+
+.pacchetto-prezzo s {
+    color: rgba(255,255,255,0.5);
+    font-size: 0.9rem;
+    font-weight: 400;
+    margin-right: 0.4rem;
+}
+
+.pacchetto-card ul {
+    list-style: none;
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.85);
+}
+
+.pacchetto-card li {
+    padding: 0.2rem 0;
+}
+
+.pacchetti-footer {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+}
+
+/* Bottone "Select this package" dentro ogni .pacchetto-card — riusa
+   .btn-primary come base (vedi HTML) ma su sfondo navy serve un accento
+   oro invece del rosso, altrimenti sparirebbe nel contrasto. */
+.pacchetto-select-btn {
+    width: 100%;
+    margin-top: 1rem;
+    background: var(--color-gold);
+    color: var(--color-navy);
+}
+
+.pacchetto-select-btn:hover {
+    background: var(--color-gold-dark);
+}
+
+/* Form di richiesta pacchetto, condiviso dai tre bottoni sopra — stesso
+   trattamento visivo di .consulenza-box form. */
+.pacchetto-request-form {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-top: 1.5rem;
+    text-align: left;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+
+.pacchetto-request-form > p {
+    margin-bottom: 1rem;
+    font-size: 0.95rem;
+}
+
+/* ABOUT THE COACH (bio + palmarès agonistico) */
+.about-section {
+    max-width: 960px;
+    margin: 3rem auto;
+    padding: 0 1rem;
+}
+
+.about-grid {
+    display: grid;
+    grid-template-columns: minmax(220px, 320px) 1fr;
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.about-profile {
+    text-align: center;
+}
+
+.about-photo {
+    width: 100%;
+    max-width: 260px;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    border-radius: 16px;
+    border: 4px solid var(--color-gold);
+    box-shadow: 0 8px 24px rgba(13,13,89,0.2);
+}
+
+.about-name {
+    font-family: 'Anton', sans-serif;
+    font-size: 1.4rem;
+    text-transform: uppercase;
+    color: var(--color-navy);
+    margin-top: 1rem;
+    line-height: 1.2;
+}
+
+.about-tagline {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+}
+
+.about-socials {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.75rem;
+    font-size: 0.9rem;
+}
+
+.about-socials a {
+    color: var(--color-navy);
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.about-socials a:hover {
+    color: var(--color-red);
+}
+
+.about-socials span {
+    color: var(--color-text-muted);
+}
+
+/* Stesso trattamento "card navy + tag oro" del riquadro RISULTATI nel
+   materiale promozionale del coach — vedi anche .pacchetto-card, che
+   condivide lo stesso linguaggio visivo. */
+.about-results {
+    background: var(--color-navy);
+    color: white;
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 8px 24px rgba(13,13,89,0.2);
+}
+
+.about-results-tag {
+    display: inline-block;
+    background: var(--color-gold);
+    color: var(--color-navy);
+    font-family: 'Anton', sans-serif;
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+    padding: 0.3rem 0.75rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.about-results-highlight {
+    list-style: none;
+    margin-bottom: 1rem;
+}
+
+.about-results-highlight li {
+    font-family: 'Anton', sans-serif;
+    font-size: 1.05rem;
+    text-transform: uppercase;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+}
+
+/* I risultati più importanti (Campione/Finalista) spiccano in oro dentro
+   la riga, esattamente come nel flyer originale — <strong> qui non
+   significa "grassetto" in senso stretto (Anton è già un font pesante di
+   suo), è usato solo come gancio per applicare questo colore. */
+.about-results-highlight strong {
+    color: var(--color-gold);
+    font-weight: inherit;
+}
+
+.about-results-list {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.4rem 1rem;
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.85);
+}
+
+.about-results-list li::before {
+    content: "▪";
+    color: var(--color-red);
+    margin-right: 0.4rem;
+}
+
+.about-bio {
+    max-width: 720px;
+    margin: 2rem auto 0;
+    text-align: center;
+    color: var(--color-text);
+    font-size: 1rem;
+    line-height: 1.7;
+}
+
+/* RECENSIONI CLIENTI (about.html) — oggi solo un placeholder: la lista
+   vera verrà aggiunta in futuro con un endpoint pubblico dedicato. */
+.reviews-section {
+    max-width: 960px;
+    margin: 3rem auto;
+    padding: 0 1rem;
+    text-align: center;
+}
+
+.reviews-section h2 {
+    font-family: 'Anton', sans-serif;
+    font-size: 1.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    color: var(--color-navy);
+    margin-bottom: 0.25rem;
+}
+
+.reviews-placeholder {
+    background: white;
+    border: 1.5px dashed var(--color-border);
+    border-radius: 12px;
+    padding: 2rem;
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
+/* RESPONSIVE — schermi stretti (telefono) */
+@media (max-width: 600px) {
+    header {
+        padding: 1.5rem 1rem;
+    }
+
+    .brand-hero {
+        font-size: 1.7rem;
+    }
+
+    .header-avatar {
+        width: 120px;
+        height: 120px;
+        left: -8px;
+    }
+
+    .lang-switcher {
+        top: 0.75rem;
+        right: 0.75rem;
+    }
+
+    main, .pacchetti-section, .consulenza-box, .about-section {
+        padding: 0 0.75rem;
+    }
+
+    .about-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .step-content {
+        padding: 1.25rem;
+        border-radius: 8px;
+    }
+
+    /* Sotto i 600px le etichette testuali della barra step ("Scegli slot",
+       "I tuoi dati"...) occupano troppo spazio orizzontale insieme ai
+       divisori — restano solo i cerchi numerati, più compatti. */
+    .step-label {
+        display: none;
+    }
+
+    .step-divider {
+        width: 20px;
+    }
+
+    .duration-btn, .service-btn {
+        min-width: 100px;
+        font-size: 0.85rem;
+    }
+
+    .btn-row {
+        flex-direction: column;
+    }
+
+    .pacchetti-grid {
+        grid-template-columns: 1fr;
+    }
 }

@@ -48,7 +48,7 @@ def get_slot(slot_id: int, db: Session = Depends(get_db)):
         # detail è il messaggio che il client riceverà nel corpo della
         # risposta. Sollevarla (raise) interrompe subito l'esecuzione della
         # funzione, la riga "return slot" più sotto non verrebbe mai raggiunta.
-        raise HTTPException(status_code=404, detail="Slot non trovato")
+        raise HTTPException(status_code=404, detail="Slot not found")
     return slot
 
 

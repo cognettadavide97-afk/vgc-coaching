@@ -22,7 +22,7 @@ SERVICE_LABELS = {
     "vod_review": "VOD Review",
     "team_building": "Team Building",
     "bo3_sparring": "Bo3 Sparring",
-    "mentality_prep": "Mentality Prep"
+    "tournament_prep": "Tournament Prep"
 }
 
 
@@ -124,3 +124,74 @@ def invia_promemoria_discord(
         print("Promemoria Discord inviato")
     except Exception as e:
         print(f"Errore invio promemoria Discord: {e}")
+
+
+def invia_richiesta_consulenza_discord(
+    nome_cliente: str,
+    email_cliente: str,
+    discord_tag: str,
+    messaggio: str = None
+):
+    """
+    Avvisa il coach sul suo canale Discord di una richiesta di call
+    conoscitiva gratuita (20 minuti) — vedi backend/routers/consulenza.py.
+    A differenza di invia_notifica_discord, qui non c'è nessuno slot/data:
+    l'orario va accordato privatamente col cliente dopo questo avviso.
+    """
+    if not DISCORD_WEBHOOK_URL:
+        print("DISCORD_WEBHOOK_URL non configurato — salto notifica Discord")
+        return
+
+    embed = {
+        "title": "🎁 Richiesta call gratuita (20 min)",
+        "color": 0xF5C518,
+        "fields": [
+            {"name": "Cliente", "value": nome_cliente, "inline": True},
+            {"name": "Email", "value": email_cliente, "inline": True},
+            {"name": "Discord", "value": discord_tag or "non specificato", "inline": True},
+            {"name": "Messaggio", "value": messaggio or "nessuno", "inline": False},
+        ]
+    }
+
+    try:
+        response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
+        response.raise_for_status()
+        print("Notifica Discord richiesta consulenza inviata")
+    except Exception as e:
+        print(f"Errore invio notifica Discord richiesta consulenza: {e}")
+
+
+def invia_richiesta_pacchetto_discord(
+    nome_cliente: str,
+    email_cliente: str,
+    discord_tag: str,
+    nome_pacchetto: str,
+    messaggio: str = None
+):
+    """
+    Avvisa il coach sul suo canale Discord di una richiesta di attivazione
+    pacchetto — vedi backend/routers/pacchetti_richieste.py. Nessun
+    pagamento avviene qui: il pacchetto vero va assegnato a mano da
+    /admin/pacchetti dopo aver ricevuto il pagamento.
+    """
+    if not DISCORD_WEBHOOK_URL:
+        print("DISCORD_WEBHOOK_URL non configurato — salto notifica Discord")
+        return
+
+    embed = {
+        "title": f"📦 Richiesta pacchetto — {nome_pacchetto}",
+        "color": 0xF5C518,
+        "fields": [
+            {"name": "Cliente", "value": nome_cliente, "inline": True},
+            {"name": "Email", "value": email_cliente, "inline": True},
+            {"name": "Discord", "value": discord_tag or "non specificato", "inline": True},
+            {"name": "Messaggio", "value": messaggio or "nessuno", "inline": False},
+        ]
+    }
+
+    try:
+        response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
+        response.raise_for_status()
+        print("Notifica Discord richiesta pacchetto inviata")
+    except Exception as e:
+        print(f"Errore invio notifica Discord richiesta pacchetto: {e}")

@@ -1,22 +1,17 @@
 # Questo è probabilmente il file con la logica più "matematica" del
 # progetto: genera gli slot concreti a partire da una regola ricorrente
-# (es. "ogni martedì 18-22, slot da 1 ora" → 4 slot per ogni martedì delle
-# prossime settimane), e applica i blocchi eccezionali (ferie). Vale la
-# pena leggerlo con calma perché mischia più concetti insieme: cicli,
-# aritmetica sulle date, e conversioni di fuso orario.
+# (es. "ogni martedì 18-22, slot da 1 ora" → 4 slot per ogni martedì fino
+# alla fine del mese corrente), e applica i blocchi eccezionali (ferie).
+# Vale la pena leggerlo con calma perché mischia più concetti insieme:
+# cicli, aritmetica sulle date, e conversioni di fuso orario.
 
+import calendar
 from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy.orm import Session
 from backend.models.slots import Slot
 from backend.models.availability_rule import AvailabilityRule
 from backend.models.availability_exception import AvailabilityException
 from backend.services.timezone_service import ROME_TZ
-
-# Quante settimane "in avanti" generare gli slot quando si crea una regola.
-# È una costante scritta in maiuscolo per convenzione Python: un valore che
-# non cambia mai durante l'esecuzione, tenuto in cima al file per essere
-# facile da trovare e modificare.
-SETTIMANE_GENERAZIONE = 8
 
 
 def slot_si_sovrappone(db: Session, start_time: datetime, duration_hours: int, escludi_id: int = None) -> bool:
@@ -68,13 +63,26 @@ def slot_si_sovrappone(db: Session, start_time: datetime, duration_hours: int, e
 def genera_slot_da_regola(regola: AvailabilityRule, db: Session) -> int:
     """
     Genera gli slot concreti corrispondenti a una regola di disponibilità
-    ricorrente, per le prossime SETTIMANE_GENERAZIONE settimane. Salta gli
-    orari già passati, gli slot già esistenti allo stesso orario (idempotente)
-    e le occorrenze che si sovrapporrebbero a uno slot già esistente.
-    Restituisce il numero di slot effettivamente creati.
+    ricorrente, dalla prossima occorrenza fino alla FINE DEL MESE CORRENTE
+    (non un numero fisso di settimane) — il calendario pubblico mostra
+    quindi solo le settimane del mese in corso, mai il mese successivo in
+    anticipo. Il job automatico genera_slot_giornaliero (vedi
+    backend/scheduler.py) richiama questa stessa funzione ogni notte:
+    appena inizia un nuovo mese, la finestra "fine mese" si allarga da
+    sola e vengono generati anche i giorni del mese nuovo, senza bisogno
+    di ricreare la regola a mano. Salta gli orari già passati, gli slot
+    già esistenti allo stesso orario (idempotente) e le occorrenze che si
+    sovrapporrebbero a uno slot già esistente. Restituisce il numero di
+    slot effettivamente creati.
     """
     oggi = date.today()
     ora_utc_adesso = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # calendar.monthrange(anno, mese) restituisce una coppia (giorno della
+    # settimana del 1°, numero di giorni nel mese) — ci serve solo il
+    # secondo valore, per costruire "l'ultimo giorno di questo mese" senza
+    # dover gestire a mano casi come "aprile ha 30 giorni, dicembre 31".
+    ultimo_giorno_mese = date(oggi.year, oggi.month, calendar.monthrange(oggi.year, oggi.month)[1])
 
     # Questa riga calcola "quanti giorni mancano da oggi al prossimo giorno
     # della settimana della regola" (es. se oggi è giovedì e la regola è
@@ -90,11 +98,16 @@ def genera_slot_da_regola(regola: AvailabilityRule, db: Session) -> int:
 
     creati = 0
 
-    # range(SETTIMANE_GENERAZIONE) produce i numeri 0, 1, 2... fino a 7 (8
-    # numeri in tutto): per ognuno, calcoliamo la data di quella settimana
-    # aggiungendo "settimana" settimane a prima_data.
-    for settimana in range(SETTIMANE_GENERAZIONE):
+    # "while True" con un "break" dentro invece di un range(...) fisso:
+    # non sappiamo in anticipo quante settimane restano nel mese corrente
+    # (dipende da che giorno è oggi), quindi il ciclo continua finché la
+    # data calcolata non supera la fine del mese, poi si ferma da solo.
+    settimana = 0
+    while True:
         giorno = prima_data + timedelta(weeks=settimana)
+        if giorno > ultimo_giorno_mese:
+            break
+        settimana += 1
 
         # datetime.combine(data, ora) unisce una "data pura" (senza orario)
         # e un "orario puro" (senza data) in un datetime completo — utile

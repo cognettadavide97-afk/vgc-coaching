@@ -16,18 +16,22 @@ from backend.models.slots import Slot
 from backend.models.client_note import ClientNote
 from backend.models.availability_rule import AvailabilityRule
 from backend.models.availability_exception import AvailabilityException
+from backend.models.package import Package
+from backend.models.review import Review
 from backend.schemas.client_note import ClientNoteCreate, ClientNoteResponse
 from backend.schemas.availability import (
     AvailabilityRuleCreate, AvailabilityRuleResponse,
     AvailabilityExceptionCreate, AvailabilityExceptionResponse
 )
+from backend.schemas.package import PackageCreate, PackageResponse
+from backend.services.package_service import CATALOGO_PACCHETTI
 from backend.services.auth_service import verifica_credenziali, crea_token, verifica_token
 from typing import List, Optional
 import csv
 import io
 from fastapi.responses import StreamingResponse
 from datetime import datetime, timedelta, timezone
-from backend.services.calendar_service import elimina_evento_calendario, leggi_eventi_calendario
+from backend.services.calendar_service import elimina_evento_calendario, leggi_eventi_calendario, sincronizza_slot_con_calendario
 from backend.services.timezone_service import utc_to_rome, ROME_TZ
 from backend.services.availability_service import genera_slot_da_regola, applica_blocco_eccezionale
 
@@ -125,10 +129,13 @@ def dashboard(
         Slot.start_time >= datetime.now(timezone.utc).replace(tzinfo=None)
     ).order_by(Slot.start_time).limit(5).all()
 
+    media_voto = db.query(func.avg(Review.voto)).scalar()
+
     return {
         "totale_prenotazioni": totale_prenotazioni,
         "prenotazioni_oggi": prenotazioni_oggi,
         "totale_incassato_euro": totale_incassato / 100,
+        "media_voto_recensioni": round(media_voto, 1) if media_voto is not None else None,
         "prossimi_slot_liberi": [
             {
                 "id": s.id,
@@ -318,7 +325,7 @@ def get_prenotazioni(
                 "id": p.user.id,
                 "nome": p.user.nome,
                 "email": p.user.email,
-                "showdown": p.user.showdown_username,
+                "categoria": p.user.categoria,
                 "discord": p.user.discord_tag
             },
             "slot": {
@@ -332,6 +339,10 @@ def get_prenotazioni(
             "replay_code": p.replay_code,
             "note_cliente": p.note_cliente,
             "note_admin": p.note_admin,
+            # p.review è disponibile "gratis" grazie a backref="review" su
+            # Review.booking (vedi backend/models/review.py) — None se il
+            # cliente non ha ancora recensito questa sessione.
+            "voto": p.review.voto if p.review else None,
             "creata_il": p.created_at.strftime("%d/%m/%Y %H:%M")
         })
 
@@ -485,7 +496,7 @@ def get_clienti(
             "id": c.id,
             "nome": c.nome,
             "email": c.email,
-            "showdown": c.showdown_username,
+            "categoria": c.categoria,
             "discord": c.discord_tag,
             "telefono": c.telefono,
             # .get(c.id, 0): se questo cliente non compare nel dizionario
@@ -603,43 +614,13 @@ def sincronizza_calendario(
     Legge il calendario Google del coach e blocca automaticamente
     (is_available=False, blocked_external=True) gli slot liberi che si
     sovrappongono a un evento esterno (torneo, stream, altro impegno).
+    La logica vera vive in sincronizza_slot_con_calendario
+    (backend/services/calendar_service.py), riusata anche dal job
+    automatico periodico in backend/scheduler.py — questo endpoint resta
+    per il bottone manuale nel pannello admin, comportamento identico a
+    prima.
     """
-    ora = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    slot_liberi = db.query(Slot).filter(
-        Slot.is_available == True,
-        Slot.start_time >= ora
-    ).all()
-
-    if not slot_liberi:
-        return {"slot_bloccati": 0}
-
-    # Calcoliamo fino a quando serve leggere il calendario Google: fino
-    # alla fine dello slot libero più lontano nel tempo. max(...) qui
-    # riceve una "generator expression" (come una list comprehension, ma
-    # senza parentesi quadre) che calcola l'orario di fine per ogni slot, e
-    # ne prende il massimo.
-    fine_intervallo = max(
-        s.start_time + timedelta(hours=s.duration_hours) for s in slot_liberi
-    )
-    eventi = leggi_eventi_calendario(ora, fine_intervallo)
-
-    bloccati = 0
-    for slot in slot_liberi:
-        slot_inizio = slot.start_time
-        slot_fine = slot.start_time + timedelta(hours=slot.duration_hours)
-        for evento_inizio, evento_fine in eventi:
-            # Stessa formula di sovrapposizione già vista in
-            # backend/services/availability_service.py (slot_si_sovrappone):
-            # due intervalli si sovrappongono se ognuno inizia prima che
-            # l'altro finisca.
-            if slot_inizio < evento_fine and evento_inizio < slot_fine:
-                slot.is_available = False
-                slot.blocked_external = True
-                bloccati += 1
-                break  # basta un solo evento sovrapposto per bloccare lo slot, non serve controllare gli altri
-
-    db.commit()
+    bloccati = sincronizza_slot_con_calendario(db)
     return {"slot_bloccati": bloccati}
 
 # ─── DISPONIBILITÀ RICORRENTE ─────────────────────────────────
@@ -661,8 +642,8 @@ def crea_regola_disponibilita(
 ):
     """
     Crea una regola di disponibilità ricorrente (es. "ogni martedì 18-22,
-    slot da 1h") e genera subito gli slot corrispondenti per le prossime
-    settimane, saltando quelli già esistenti allo stesso orario.
+    slot da 1h") e genera subito gli slot corrispondenti fino alla fine
+    del mese corrente, saltando quelli già esistenti allo stesso orario.
     """
     if regola.ora_fine <= regola.ora_inizio:
         raise HTTPException(status_code=400, detail="L'ora di fine deve essere successiva all'ora di inizio")
@@ -809,6 +790,51 @@ def elimina_slot(
     db.commit()
     return {"message": "Slot eliminato"}
 
+# ─── PACCHETTI SESSIONI ────────────────────────────────────────
+# Il pagamento di un pacchetto avviene fuori dall'app (come per le
+# prenotazioni singole): l'admin lo assegna qui SOLO dopo aver ricevuto il
+# pagamento privatamente (es. su Discord), scegliendo uno dei 3 tipi fissi
+# del catalogo (backend/services/package_service.py). Da quel momento il
+# cliente vede il pacchetto attivo sul form pubblico (GET /pacchetti/attivi
+# in backend/routers/users.py) e può spenderne le sessioni prenotando slot.
+@router.get("/pacchetti", response_model=List[PackageResponse])
+def lista_pacchetti(
+    admin: str = Depends(get_admin),
+    db: Session = Depends(get_db)
+):
+    """Tutti i pacchetti assegnati, più recenti prima."""
+    return db.query(Package).order_by(Package.created_at.desc()).all()
+
+@router.post("/pacchetti", response_model=PackageResponse)
+def crea_pacchetto(
+    pacchetto: PackageCreate,
+    admin: str = Depends(get_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Assegna a un cliente esistente un pacchetto del catalogo fisso.
+    Sessioni totali, durata e prezzo NON arrivano dal client: vengono presi
+    dal catalogo in base a "tipo", esattamente come TABELLA_PREZZI in
+    backend/routers/booking.py per le prenotazioni singole.
+    """
+    utente = db.query(User).filter(User.id == pacchetto.user_id).first()
+    if not utente:
+        raise HTTPException(status_code=404, detail="Cliente non trovato")
+
+    dati_catalogo = CATALOGO_PACCHETTI[pacchetto.tipo]
+
+    db_pacchetto = Package(
+        user_id=pacchetto.user_id,
+        tipo=pacchetto.tipo,
+        sessioni_totali=dati_catalogo["sessioni_totali"],
+        durata_sessione_ore=dati_catalogo["durata_sessione_ore"],
+        prezzo_cents=dati_catalogo["prezzo_cents"]
+    )
+    db.add(db_pacchetto)
+    db.commit()
+    db.refresh(db_pacchetto)
+    return db_pacchetto
+
 # ─── EXPORT CSV ──────────────────────────────────────────────
 @router.get("/export/csv")
 def export_csv(
@@ -833,7 +859,7 @@ def export_csv(
     # intestazione colonne
     writer.writerow([
         "ID", "Stato", "Nome Cliente", "Email",
-        "Showdown Username", "Servizio", "Data", "Ora",
+        "Categoria", "Servizio", "Data", "Ora",
         "Durata (ore)", "Prezzo (€)",
         "Note Cliente", "Note Admin", "Creata il"
     ])
@@ -845,7 +871,7 @@ def export_csv(
             p.status,
             p.user.nome,
             p.user.email,
-            p.user.showdown_username or "",
+            p.user.categoria or "",
             p.service_type,
             utc_to_rome(p.slot.start_time).strftime("%d/%m/%Y"),
             utc_to_rome(p.slot.start_time).strftime("%H:%M"),

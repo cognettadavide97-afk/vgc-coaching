@@ -22,3 +22,5 @@ from backend.models.booking import Booking
 from backend.models.client_note import ClientNote
 from backend.models.availability_rule import AvailabilityRule
 from backend.models.availability_exception import AvailabilityException
+from backend.models.package import Package
+from backend.models.review import Review

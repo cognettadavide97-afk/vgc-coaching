@@ -230,6 +230,9 @@ uvicorn backend.main:app --reload --port 8000
 | `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_PRIVATE_KEY` / `GOOGLE_CALENDAR_ID` | No (per Google Calendar) | Credenziali del service account Google. |
 | `REMINDER_HOURS_BEFORE` | No | Quante ore prima della sessione inviare il promemoria (default `24`). |
 | `REMINDER_CHECK_INTERVAL_MINUTES` | No | Ogni quanti minuti lo scheduler controlla i promemoria da inviare (default `5`). |
+| `PUBLIC_BASE_URL` | No | Dominio pubblico usato per costruire link assoluti nelle email (es. il link di recensione post-sessione). Se assente, si usa la prima origine di `FRONTEND_ORIGINS`. |
+| `REVIEW_CHECK_INTERVAL_MINUTES` | No | Ogni quanti minuti lo scheduler controlla se ci sono richieste di recensione da inviare (default `60`). |
+| `CALENDAR_SYNC_INTERVAL_MINUTES` | No | Ogni quanti minuti lo scheduler sincronizza automaticamente gli slot col calendario Google, oltre al bottone manuale in admin (default `60`). |
 
 ## Comandi disponibili
 

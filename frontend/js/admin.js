@@ -136,6 +136,7 @@ function showSection(nome) {
         caricaRegole();
         caricaBlocchi();
     }
+    if (nome === 'pacchetti') caricaPacchetti();
 }
 
 const GIORNI_SETTIMANA = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
@@ -149,7 +150,17 @@ const SERVICE_LABELS = {
     vod_review: 'VOD Review',
     team_building: 'Team Building',
     bo3_sparring: 'Bo3 Sparring',
-    mentality_prep: 'Mentality Prep'
+    tournament_prep: 'Tournament Prep'
+};
+
+// Duplicato minimale del catalogo fisso in
+// backend/services/package_service.py — solo i campi che servono per
+// mostrare le opzioni nel modale di assegnazione (backend resta l'unica
+// fonte autoritativa per prezzi/sessioni reali, vedi POST /admin/pacchetti).
+const CATALOGO_PACCHETTI = {
+    intro: { nome: 'Competitive Intro', sessioni: 2, prezzo: 70 },
+    team: { nome: 'Team Building Session', sessioni: 4, prezzo: 130 },
+    tour: { nome: 'Tournament Prep', sessioni: 6, prezzo: 190 }
 };
 
 // sfugge caratteri HTML per evitare che testo inserito dallo studente
@@ -217,6 +228,8 @@ async function caricaDashboard() {
         // (es. 35 diventa "35.00") — utile qui perché stiamo mostrando un
         // importo in euro, che vogliamo sempre con i centesimi visibili.
         document.getElementById('stat-incassato').textContent = `€${data.totale_incassato_euro.toFixed(2)}`;
+        document.getElementById('stat-voto-medio').textContent =
+            data.media_voto_recensioni !== null ? `⭐ ${data.media_voto_recensioni}` : '—';
 
         const container = document.getElementById('prossimi-slot');
         if (data.prossimi_slot_liberi.length === 0) {
@@ -355,6 +368,7 @@ async function caricaPrenotazioni(pagina = 1) {
                         <th>Durata</th>
                         <th>Prezzo</th>
                         <th>Risorse</th>
+                        <th>Voto</th>
                         <th>Stato</th>
                         <th>Azioni</th>
                     </tr>
@@ -378,6 +392,7 @@ async function caricaPrenotazioni(pagina = 1) {
                                 ${p.replay_code ? escapeHtml(p.replay_code) : ''}
                                 ${!p.vod_link && !p.replay_code ? '—' : ''}
                             </td>
+                            <td>${p.voto ? `⭐ ${p.voto}` : '—'}</td>
                             <td>${badgeStato(p.stato)}</td>
                             <td>
                                 ${p.stato === 'confirmed' ? `
@@ -472,7 +487,7 @@ async function caricaClienti(pagina = 1) {
                     <tr>
                         <th>Nome</th>
                         <th>Email</th>
-                        <th>Showdown</th>
+                        <th>Categoria</th>
                         <th>Discord</th>
                         <th>Sessioni</th>
                         <th>Totale speso</th>
@@ -485,7 +500,7 @@ async function caricaClienti(pagina = 1) {
                         <tr>
                             <td><strong>${escapeHtml(c.nome)}</strong></td>
                             <td>${escapeHtml(c.email)}</td>
-                            <td>${escapeHtml(c.showdown) || '—'}</td>
+                            <td>${escapeHtml(c.categoria) || '—'}</td>
                             <td>${escapeHtml(c.discord) || '—'}</td>
                             <td>${c.sessioni_totali}</td>
                             <td>€${c.totale_speso_euro.toFixed(2)}</td>
@@ -494,6 +509,10 @@ async function caricaClienti(pagina = 1) {
                                 <button class="action-btn action-note"
                                     onclick="apriNoteCliente(${c.id}, '${escapeHtml(c.nome).replace(/'/g, "\\'")}')">
                                     📋 Note (${c.note_totali})
+                                </button>
+                                <button class="action-btn action-note"
+                                    onclick="apriAssegnaPacchetto(${c.id}, '${escapeHtml(c.nome).replace(/'/g, "\\'")}')">
+                                    🎁 Pacchetto
                                 </button>
                             </td>
                         </tr>
@@ -596,6 +615,104 @@ async function aggiungiNotaCliente(userId) {
 function chiudiNoteCliente() {
     const overlay = document.getElementById('note-modal-overlay');
     if (overlay) overlay.style.display = 'none';
+}
+
+// ─── PACCHETTI ───────────────────────────────────────────────
+// Stesso pattern del modale note tecniche sopra (apriNoteCliente):
+// un overlay creato una sola volta con document.createElement e poi
+// riusato, riempito ogni volta con contenuto fresco.
+function apriAssegnaPacchetto(userId, nomeCliente) {
+    let overlay = document.getElementById('pacchetto-modal-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'pacchetto-modal-overlay';
+        overlay.className = 'modal-overlay';
+        document.body.appendChild(overlay);
+    }
+
+    overlay.innerHTML = `
+        <div class="modal-card">
+            <h3>🎁 Assegna pacchetto — ${nomeCliente}</h3>
+            <p style="font-size: 0.85rem; color: #888;">
+                Assegna SOLO dopo aver ricevuto il pagamento (concordato privatamente). Sessioni, durata e prezzo sono fissi dal catalogo, non modificabili qui.
+            </p>
+            ${Object.entries(CATALOGO_PACCHETTI).map(([chiave, p]) => `
+                <button class="action-btn action-note" style="width:100%; margin-bottom:0.5rem; text-align:left;"
+                    onclick="assegnaPacchetto(${userId}, '${chiave}', '${nomeCliente.replace(/'/g, "\\'")}')">
+                    ${p.nome} — ${p.sessioni} sessioni — €${p.prezzo}
+                </button>
+            `).join('')}
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="chiudiAssegnaPacchetto()">Chiudi</button>
+            </div>
+        </div>
+    `;
+    overlay.style.display = 'flex';
+}
+
+async function assegnaPacchetto(userId, tipo, nomeCliente) {
+    if (!confirm(`Confermi di aver già ricevuto il pagamento e vuoi assegnare "${CATALOGO_PACCHETTI[tipo].nome}" a ${nomeCliente}?`)) return;
+
+    try {
+        const res = await fetch('/admin/pacchetti', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ user_id: userId, tipo })
+        });
+        if (!res.ok) {
+            alert('Errore durante l\'assegnazione del pacchetto.');
+            return;
+        }
+        chiudiAssegnaPacchetto();
+        alert('Pacchetto assegnato.');
+    } catch (error) {
+        alert('Errore di connessione durante l\'assegnazione.');
+    }
+}
+
+function chiudiAssegnaPacchetto() {
+    const overlay = document.getElementById('pacchetto-modal-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+async function caricaPacchetti() {
+    const container = document.getElementById('lista-pacchetti');
+    try {
+        const res = await fetch('/admin/pacchetti', { headers: authHeaders() });
+        const pacchetti = await res.json();
+
+        if (pacchetti.length === 0) {
+            container.innerHTML = '<p style="color:#aaa; padding:1rem">Nessun pacchetto assegnato ancora.</p>';
+            return;
+        }
+
+        container.innerHTML = `
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>ID Cliente</th>
+                        <th>Tipo</th>
+                        <th>Sessioni</th>
+                        <th>Prezzo</th>
+                        <th>Assegnato il</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${pacchetti.map(p => `
+                        <tr>
+                            <td>#${p.user_id}</td>
+                            <td>${CATALOGO_PACCHETTI[p.tipo]?.nome || p.tipo}</td>
+                            <td>${p.sessioni_usate}/${p.sessioni_totali}</td>
+                            <td>€${(p.prezzo_cents / 100).toFixed(2)}</td>
+                            <td>${p.created_at.replace('T', ' ').slice(0, 16)}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        console.error('Errore pacchetti:', error);
+    }
 }
 
 // ─── SLOTS ───────────────────────────────────────────────────
@@ -761,7 +878,7 @@ async function creaRegolaDisponibilita() {
         }
 
         const data = await res.json();
-        alert(`Regola creata: ${data.slot_creati} slot generati per le prossime settimane.`);
+        alert(`Regola creata: ${data.slot_creati} slot generati fino a fine mese.`);
         caricaRegole();
         caricaSlots(paginaCorrente.slots);
     } catch (error) {

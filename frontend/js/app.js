@@ -14,15 +14,23 @@
 // (const = non verrà mai riassegnata, let = può cambiare — non esiste un
 // vero equivalente di "var pigro" come in Python, dove basta scrivere
 // nome = valore).
+//
+// Multilingua: le funzioni t("chiave") e tf("chiave", {...}) usate in
+// tutto questo file sono definite in frontend/js/i18n.js, caricato PRIMA
+// di questo script in index.html — leggi quel file per il dizionario
+// completo e per come funziona il cambio lingua.
 
 // ─── STATO GLOBALE ───────────────────────────────────────────
 // Qui salviamo tutto quello che l'utente sceglie durante il flusso
 const state = {
     selectedSlot: null,      // slot scelto
     selectedHours: 1,        // durata scelta
-    selectedPrice: 35,       // prezzo calcolato
+    selectedPrice: 20,       // prezzo calcolato
     selectedService: 'vod_review', // tipo di servizio scelto
-    userId: null              // id utente creato nel DB
+    userId: null,              // id utente creato nel DB
+    pacchettoAttivo: null,      // { id, nome, sessioni_residue, durata_sessione_ore } se trovato per l'email inserita
+    pacchettoRichiestaTipo: null, // "intro"/"team"/"tour" scelto nella vetrina pacchetti
+    pacchettoRichiestaNome: null  // nome leggibile dello stesso pacchetto, per il messaggio di riepilogo
 };
 // "state" è un oggetto letterale — l'equivalente JavaScript di un
 // dizionario Python ({}). Essendo dichiarato con "const" non lo si può
@@ -31,12 +39,16 @@ const state = {
 // = ..."), esattamente come un dizionario Python passato come parametro
 // resta modificabile anche se la variabile che lo referenzia non cambia.
 
-const SERVICE_LABELS = {
-    vod_review: 'VOD Review',
-    team_building: 'Team Building',
-    bo3_sparring: 'Bo3 Sparring',
-    mentality_prep: 'Mentality Prep'
-};
+// Etichette leggibili per servizio/stato prenotazione, prese dal
+// dizionario multilingua invece che scritte qui a mano — così cambiano
+// da sole quando l'utente cambia lingua (vedi setLang in i18n.js).
+function getServiceLabel(servizio) {
+    return t(`service_${servizio}`);
+}
+
+function getStatusLabel(stato) {
+    return t(`status_${stato}`);
+}
 
 // ─── LOGIN DISCORD (opzionale, non blocca mai il guest checkout) ──
 
@@ -95,7 +107,7 @@ async function initDiscordLogin() {
         window.history.replaceState({}, '', window.location.pathname);
     } else if (erroreDiscord) {
         window.history.replaceState({}, '', window.location.pathname);
-        alert('Accesso con Discord non riuscito. Riprova, oppure prenota come ospite senza login.');
+        alert(t('discord_login_failed'));
     }
 
     if (studentToken) {
@@ -114,7 +126,7 @@ function showLoginButton() {
     // giusto (l'equivalente JavaScript delle f-string di Python).
     document.getElementById('discord-login-bar').innerHTML = `
         <a href="/auth/discord/login" class="discord-login-btn">
-            Accedi con Discord (opzionale)
+            ${t('discord_login_btn')}
         </a>
     `;
 }
@@ -157,7 +169,7 @@ async function loadStudentProfile() {
         // precompila i campi del form step 2, se presenti
         const campoNome = document.getElementById('nome');
         const campoEmail = document.getElementById('email');
-        const campoShowdown = document.getElementById('showdown');
+        const campoCategoria = document.getElementById('categoria');
         const campoDiscord = document.getElementById('discord');
         // "campoNome ||" non c'entra qui — invece "profilo.nome || ''" (poco
         // sotto) vuol dire "usa profilo.nome se non è vuoto/null/undefined,
@@ -165,20 +177,20 @@ async function loadStudentProfile() {
         // Python (note_cliente or "Nessuna nota") visto nel backend.
         if (campoNome) campoNome.value = profilo.nome || '';
         if (campoEmail) campoEmail.value = profilo.email || '';
-        if (campoShowdown) campoShowdown.value = profilo.showdown_username || '';
+        if (campoCategoria && profilo.categoria) campoCategoria.value = profilo.categoria;
         if (campoDiscord) campoDiscord.value = profilo.discord_tag || '';
 
         const prenotazioni = await loadBookingHistory();
 
         document.getElementById('discord-login-bar').innerHTML = `
             <div class="login-bar-content">
-                <span>👋 Bentornato, <strong>${escapeHtmlPublic(profilo.nome)}</strong>!</span>
+                <span>👋 ${t('welcome_back')} <strong>${escapeHtmlPublic(profilo.nome)}</strong>!</span>
                 ${prenotazioni.length > 0 ? `
                     <button class="link-btn" onclick="toggleBookingHistory()">
-                        Le tue prenotazioni (${prenotazioni.length})
+                        ${t('your_bookings')} (${prenotazioni.length})
                     </button>
                 ` : ''}
-                <button class="link-btn" onclick="logoutStudent()">Esci</button>
+                <button class="link-btn" onclick="logoutStudent()">${t('log_out')}</button>
             </div>
             <div id="storico-prenotazioni" style="display:none"></div>
         `;
@@ -221,8 +233,8 @@ function renderBookingHistory(prenotazioni) {
         <ul class="storico-lista">
             ${prenotazioni.map(p => `
                 <li>
-                    ${SERVICE_LABELS[p.servizio] || p.servizio} — ${p.data} alle ${p.ora}
-                    <span class="storico-stato storico-stato-${p.stato}">${p.stato}</span>
+                    ${getServiceLabel(p.servizio)} — ${p.data} ${t('at_time_connector')} ${p.ora}
+                    <span class="storico-stato storico-stato-${p.stato}">${getStatusLabel(p.stato)}</span>
                 </li>
             `).join('')}
         </ul>
@@ -256,7 +268,7 @@ function logoutStudent() {
 }
 
 // ─── UTILITÀ ─────────────────────────────────────────────────
-// Formatta una data ISO in formato leggibile italiano
+// Formatta una data ISO in formato leggibile, nella lingua corrente
 function formatDate(isoString) {
     // new Date(...) crea un oggetto Date di JavaScript a partire da una
     // stringa. Il punto CRUCIALE (collegato ai fusi orari, vedi i commenti
@@ -269,8 +281,13 @@ function formatDate(isoString) {
     // nessun fuso orario esplicito, il browser usa AUTOMATICAMENTE il fuso
     // orario del dispositivo di chi sta guardando la pagina — è così che
     // uno studente in un altro paese vede l'orario corretto per lui, senza
-    // che il nostro codice debba sapere dove si trova.
-    return date.toLocaleDateString('it-IT', {
+    // che il nostro codice debba sapere dove si trova. Il "locale" (primo
+    // parametro) invece cambia solo la LINGUA con cui la data viene
+    // scritta (nomi dei giorni/mesi, ordine giorno/mese...) — lo
+    // agganciamo a currentLang (definita in i18n.js) così cambia insieme
+    // al resto della pagina.
+    const locale = currentLang === 'it' ? 'it-IT' : 'en-GB';
+    return date.toLocaleDateString(locale, {
         weekday: 'long',
         day: 'numeric',
         month: 'long',
@@ -280,7 +297,8 @@ function formatDate(isoString) {
 
 function formatTime(isoString) {
     const date = new Date(isoString);
-    return date.toLocaleTimeString('it-IT', {
+    const locale = currentLang === 'it' ? 'it-IT' : 'en-GB';
+    return date.toLocaleTimeString(locale, {
         hour: '2-digit',
         minute: '2-digit'
     });
@@ -340,7 +358,7 @@ async function loadSlots() {
         renderSlots();
     } catch (error) {
         document.getElementById('slots-container').innerHTML =
-            '<p class="loading">Errore nel caricamento degli slot.</p>';
+            `<p class="loading">${t('error_loading_slots')}</p>`;
     }
 }
 
@@ -359,7 +377,7 @@ function renderSlots() {
     // già come il "===" di JavaScript.
 
     if (slotsFiltrati.length === 0) {
-        container.innerHTML = '<p class="loading">Nessuno slot disponibile per questa durata. Prova un\'altra durata.</p>';
+        container.innerHTML = `<p class="loading">${t('no_slots')}</p>`;
         return;
     }
 
@@ -441,7 +459,68 @@ document.getElementById('btn-back-1').addEventListener('click', () => {
     showStep('step-1');
 });
 
-document.getElementById('btn-to-step3').addEventListener('click', () => {
+// Aggiorna la riga del totale nel riepilogo, tenendo conto del checkbox
+// "usa pacchetto" (se presente e selezionato, la sessione è gratis).
+function aggiornaPrezzoRiepilogo() {
+    const checkbox = document.getElementById('usa-pacchetto');
+    const usaPacchetto = checkbox && checkbox.checked;
+    document.getElementById('summary-price').textContent = usaPacchetto ? t('free_package') : `€${state.selectedPrice}`;
+}
+
+// Cerca un pacchetto attivo per l'email inserita, compatibile con la
+// durata scelta allo step 1 (i pacchetti del catalogo sono tutti da 2 ore,
+// vedi backend/services/package_service.py) — se lo trova, mostra il
+// checkbox "usa pacchetto" allo step 3, altrimenti lo tiene nascosto.
+async function controllaPacchettoAttivo(email) {
+    const box = document.getElementById('pacchetto-attivo-box');
+    const testo = document.getElementById('pacchetto-attivo-testo');
+    const checkbox = document.getElementById('usa-pacchetto');
+    state.pacchettoAttivo = null;
+    checkbox.checked = false;
+    box.style.display = 'none';
+
+    try {
+        const res = await fetch(`/users/pacchetti-attivi?email=${encodeURIComponent(email)}`);
+        if (!res.ok) return;
+        const pacchetti = await res.json();
+        const compatibile = pacchetti.find(p => p.durata_sessione_ore === state.selectedHours);
+        if (!compatibile) return;
+
+        state.pacchettoAttivo = compatibile;
+        testo.textContent = tf('use_package_session', {
+            name: compatibile.nome,
+            used: compatibile.sessioni_residue,
+            total: compatibile.sessioni_totali
+        });
+        box.style.display = 'block';
+    } catch (error) {
+        // Nessun pacchetto disponibile o email non ancora nota: non è un
+        // errore da segnalare all'utente, il form funziona comunque a
+        // prezzo pieno.
+    }
+}
+
+document.getElementById('usa-pacchetto').addEventListener('change', aggiornaPrezzoRiepilogo);
+
+// Estratta a parte (non solo dentro il click di "Continue") perché va
+// richiamata anche quando l'utente cambia lingua mentre è già allo step 3
+// — vedi il listener "langchange" più in fondo al file.
+function aggiornaRiepilogo() {
+    if (!state.selectedSlot) return;
+    const nome = document.getElementById('nome').value.trim();
+    const email = document.getElementById('email').value.trim();
+
+    document.getElementById('summary-slot').textContent =
+        `${formatDate(state.selectedSlot.start_time)} ${t('at_time_connector')} ${formatTime(state.selectedSlot.start_time)}`;
+    document.getElementById('summary-service').textContent = getServiceLabel(state.selectedService);
+    document.getElementById('summary-duration').textContent =
+        `${state.selectedHours} ${state.selectedHours > 1 ? t('unit_hours') : t('unit_hour')}`;
+    document.getElementById('summary-nome').textContent = nome;
+    document.getElementById('summary-email').textContent = email;
+    aggiornaPrezzoRiepilogo();
+}
+
+document.getElementById('btn-to-step3').addEventListener('click', async () => {
     // validazione base
     // .value legge il testo digitato in un <input>. .trim() rimuove spazi
     // bianchi a inizio/fine — stesso metodo, stesso nome, di Python.
@@ -449,24 +528,12 @@ document.getElementById('btn-to-step3').addEventListener('click', () => {
     const email = document.getElementById('email').value.trim();
 
     if (!nome || !email) {
-        alert('Nome e email sono obbligatori.');
+        alert(t('name_email_required'));
         return;
     }
 
-    // aggiorna il riepilogo
-    // .textContent imposta il testo "puro" dentro un elemento (a
-    // differenza di .innerHTML, non interpreta il valore come HTML — più
-    // sicuro quando, come qui, il testo potrebbe contenere caratteri
-    // speciali digitati dall'utente).
-    document.getElementById('summary-slot').textContent =
-        `${formatDate(state.selectedSlot.start_time)} alle ${formatTime(state.selectedSlot.start_time)}`;
-    document.getElementById('summary-service').textContent =
-        SERVICE_LABELS[state.selectedService] || state.selectedService;
-    document.getElementById('summary-duration').textContent =
-        `${state.selectedHours} ora${state.selectedHours > 1 ? 'e' : ''}`;
-    document.getElementById('summary-nome').textContent = nome;
-    document.getElementById('summary-email').textContent = email;
-    document.getElementById('summary-price').textContent = `€${state.selectedPrice}`;
+    await controllaPacchettoAttivo(email);
+    aggiornaRiepilogo();
 
     showStep('step-3');
 });
@@ -479,7 +546,7 @@ document.getElementById('btn-back-2').addEventListener('click', () => {
 document.getElementById('btn-confirm').addEventListener('click', async () => {
     const btn = document.getElementById('btn-confirm');
     btn.disabled = true;
-    btn.textContent = 'Invio in corso...';
+    btn.textContent = t('sending');
     // Disabilitare subito il bottone e cambiargli testo evita che
     // l'utente clicchi due volte per impazienza mentre la richiesta è
     // ancora in corso, creando magari due prenotazioni per errore.
@@ -497,18 +564,26 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
             body: JSON.stringify({
                 nome: document.getElementById('nome').value.trim(),
                 email: document.getElementById('email').value.trim(),
-                showdown_username: document.getElementById('showdown').value.trim(),
+                categoria: document.getElementById('categoria').value,
                 discord_tag: document.getElementById('discord').value.trim(),
                 telefono: null
             })
         });
 
-        if (!userResponse.ok) throw new Error('Errore creazione utente');
+        if (!userResponse.ok) throw new Error('Error creating user');
         // "throw new Error(...)" solleva un errore manualmente — l'equivalente
         // di "raise Exception(...)" in Python. Verrà catturato dal blocco
         // catch più sotto, che mostra un messaggio generico all'utente.
         const user = await userResponse.json();
         state.userId = user.id;
+
+        // Se il checkbox "usa pacchetto" è selezionato, la sessione viene
+        // scalata dal pacchetto invece di essere pagata — il backend
+        // ricontrolla comunque tutto server-side (vedi create_booking in
+        // backend/routers/booking.py), questo è solo quello che l'utente
+        // ha scelto in UI.
+        const checkboxPacchetto = document.getElementById('usa-pacchetto');
+        const packageId = (checkboxPacchetto.checked && state.pacchettoAttivo) ? state.pacchettoAttivo.id : null;
 
         // 2 — crea la prenotazione
         const bookingResponse = await fetch('/bookings/', {
@@ -521,11 +596,12 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
                 service_type: state.selectedService,
                 note_cliente: document.getElementById('note').value.trim(),
                 vod_link: document.getElementById('vod-link').value.trim(),
-                replay_code: document.getElementById('replay-code').value.trim()
+                replay_code: document.getElementById('replay-code').value.trim(),
+                package_id: packageId
             })
         });
 
-        if (!bookingResponse.ok) throw new Error('Errore creazione prenotazione');
+        if (!bookingResponse.ok) throw new Error('Error creating booking');
 
         // successo
         showStep('step-success');
@@ -536,9 +612,136 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
         // qualcun altro...), finiamo qui: riabilitiamo il bottone e
         // mostriamo un messaggio, invece di lasciare l'utente bloccato su
         // "Invio in corso..." per sempre.
-        alert('Si è verificato un errore. Riprova.');
+        alert(t('generic_error'));
         btn.disabled = false;
-        btn.textContent = '✓ Conferma prenotazione';
+        btn.textContent = t('confirm_booking');
+    }
+});
+
+// ─── CONSULENZA GRATUITA (20 minuti) ──────────────────────────
+// Completamente indipendente dal wizard sopra: non tocca slot/prenotazioni,
+// manda solo i contatti al coach (POST /consulenze/) — vedi
+// backend/routers/consulenza.py.
+document.getElementById('btn-mostra-consulenza').addEventListener('click', () => {
+    const form = document.getElementById('consulenza-form');
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('btn-invia-consulenza').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-invia-consulenza');
+    const esito = document.getElementById('consulenza-esito');
+    const nome = document.getElementById('consulenza-nome').value.trim();
+    const email = document.getElementById('consulenza-email').value.trim();
+
+    if (!nome || !email) {
+        alert(t('name_email_required'));
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = t('sending');
+
+    try {
+        const res = await fetch('/consulenze/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                nome,
+                email,
+                discord_tag: document.getElementById('consulenza-discord').value.trim(),
+                messaggio: document.getElementById('consulenza-messaggio').value.trim()
+            })
+        });
+
+        if (!res.ok) throw new Error('Error sending request');
+
+        esito.textContent = t('request_sent');
+        document.getElementById('consulenza-form').querySelectorAll('input, textarea').forEach(el => el.value = '');
+    } catch (error) {
+        esito.textContent = t('generic_error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = t('consulenza_submit');
+    }
+});
+
+// ─── SELEZIONE PACCHETTO ───────────────────────────────────────
+// Ogni card pacchetto ha un bottone "Select this package" (vedi
+// index.html, classe .pacchetto-select-btn) — click su uno qualsiasi apre
+// lo stesso form condiviso più sotto, ricordando quale pacchetto è stato
+// scelto. Come la consulenza gratuita, questo NON attiva davvero il
+// pacchetto (nessun pagamento in-app): manda solo la richiesta al coach
+// (POST /pacchetti-richieste/), che poi lo assegna per davvero da
+// /admin/pacchetti dopo il pagamento.
+document.querySelectorAll('.pacchetto-select-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        state.pacchettoRichiestaTipo = btn.dataset.tipo;
+        state.pacchettoRichiestaNome = btn.dataset.nome;
+
+        document.getElementById('pacchetto-selezionato-nome').textContent = btn.dataset.nome;
+        const form = document.getElementById('pacchetto-form');
+        form.style.display = 'block';
+        document.getElementById('pacchetto-esito').textContent = '';
+        form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+});
+
+document.getElementById('btn-invia-pacchetto').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-invia-pacchetto');
+    const esito = document.getElementById('pacchetto-esito');
+    const nome = document.getElementById('pacchetto-nome').value.trim();
+    const email = document.getElementById('pacchetto-email').value.trim();
+
+    if (!nome || !email) {
+        alert(t('name_email_required'));
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = t('sending');
+
+    try {
+        const res = await fetch('/pacchetti-richieste/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                nome,
+                email,
+                discord_tag: document.getElementById('pacchetto-discord').value.trim(),
+                tipo: state.pacchettoRichiestaTipo,
+                messaggio: document.getElementById('pacchetto-messaggio').value.trim()
+            })
+        });
+
+        if (!res.ok) throw new Error('Error sending request');
+
+        esito.textContent = t('request_sent');
+        document.getElementById('pacchetto-form').querySelectorAll('input, textarea').forEach(el => el.value = '');
+    } catch (error) {
+        esito.textContent = t('generic_error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = t('pkg_request_submit');
+    }
+});
+
+// ─── CAMBIO LINGUA ─────────────────────────────────────────────
+// i18n.js (caricato prima di questo file) si occupa da solo di ritradurre
+// ogni elemento con data-i18n quando la lingua cambia — qui reagiamo solo
+// ai pezzi che app.js ha scritto "a mano" in precedenza (con innerHTML o
+// textContent), che quindi non hanno un data-i18n da rileggere.
+document.addEventListener('langchange', () => {
+    renderSlots();
+    aggiornaRiepilogo();
+    // La barra di login Discord è scritta interamente da JS (vedi
+    // showLoginButton/loadStudentProfile sopra), quindi non ha data-i18n
+    // da ritradurre da sola — va ricostruita a mano in entrambi i casi
+    // (loggato o no), altrimenti resterebbe nella lingua con cui era
+    // stata disegnata la prima volta.
+    if (studentToken) {
+        loadStudentProfile();
+    } else {
+        showLoginButton();
     }
 });
 

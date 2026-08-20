@@ -11,13 +11,23 @@
     (con document.getElementById("qualcosa")) e leggerlo o modificarlo.
     Se rinomini un id qui, devi aggiornare anche app.js, altrimenti quel
     collegamento si rompe silenziosamente.
+
+    Multilingua IT/EN: ogni testo visibile ha un attributo
+    data-i18n="chiave" (o data-i18n-placeholder per i placeholder dei
+    campi) — è frontend/js/i18n.js a leggerlo e sostituire il testo giusto
+    in base alla lingua scelta. Il testo scritto qui dentro l'elemento
+    (es. "Book a personalized coaching session") è solo il valore di
+    default mostrato finché i18n.js non è ancora partito, e serve anche
+    come "fallback" leggibile per chi guarda il file HTML puro. Vedi
+    i18n.js per il dizionario completo — i commenti restano in italiano
+    per chi sviluppa il progetto, stessa convenzione del resto del file.
 -->
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VGC Coaching — Prenota la tua sessione</title>
+    <title>VGC Coaching — Book Your Session</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -25,10 +35,36 @@
     <!-- INTESTAZIONE -->
     <header>
         <div class="header-content">
-            <h1>⚔️ VGC Coaching</h1>
-            <p>Prenota una sessione di coaching personalizzata</p>
+            <!-- Avatar illustrato del coach, stesso stile "cartoon" usato nel
+                 resto del materiale promozionale (Desktop\Grafiche Coaching).
+                 Nessuna cornice, accanto al blocco titolo (vedi
+                 .header-avatar/.header-content in style.css). -->
+            <img src="/static/images/coach-avatar.png" alt="" class="header-avatar">
+            <div>
+                <h1 class="brand-hero">DesuVGC — Building the Player</h1>
+                <p class="brand-subtitle">VGC Coaching</p>
+            </div>
+        </div>
+        <!-- Interruttore di lingua — posizionato in un angolo dell'header
+             (position:absolute, vedi style.css), fuori dal blocco centrato
+             sopra. Vedi setLang() in frontend/js/i18n.js -->
+        <div class="lang-switcher">
+            <button type="button" class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+            <button type="button" class="lang-btn" data-lang="it" onclick="setLang('it')">IT</button>
         </div>
     </header>
+
+    <!--
+        Navigazione tra le due pagine del sito: questa (prenotazione) e
+        /about (bio del coach + in futuro le recensioni clienti, vedi
+        frontend/about.html). "active" è scritto a mano qui perché ogni
+        pagina è un file HTML statico separato — niente routing lato
+        client che lo farebbe al posto nostro.
+    -->
+    <nav class="site-nav">
+        <a href="/" class="site-nav-link active" data-i18n="nav_book">Book a Session</a>
+        <a href="/about" class="site-nav-link" data-i18n="nav_about">Meet the Coach</a>
+    </nav>
 
     <!--
         Questo div è vuoto qui — il suo contenuto (il bottone "Accedi con
@@ -42,6 +78,38 @@
     <div id="discord-login-bar" class="login-bar"></div>
 
     <!--
+        Richiesta di call gratuita di 20 minuti — completamente separata dal
+        wizard di prenotazione: non passa da slot/orari, invia solo i
+        contatti (POST /consulenze/) e il coach ricontatta privatamente per
+        accordare l'orario. Il form è nascosto finché non si clicca il link.
+    -->
+    <section class="consulenza-box">
+        <button type="button" class="link-btn" id="btn-mostra-consulenza" data-i18n="consulenza_link">
+            🎁 Not sure? Ask for a free consultation!
+        </button>
+        <form id="consulenza-form" style="display:none">
+            <div class="form-group">
+                <label for="consulenza-nome" data-i18n="label_name">Name *</label>
+                <input type="text" id="consulenza-nome" placeholder="Ash Ketchum" required>
+            </div>
+            <div class="form-group">
+                <label for="consulenza-email" data-i18n="label_email_required">Email *</label>
+                <input type="email" id="consulenza-email" placeholder="ash@pokemon.com" required>
+            </div>
+            <div class="form-group">
+                <label for="consulenza-discord" data-i18n="label_discord_tag">Discord Tag</label>
+                <input type="text" id="consulenza-discord" placeholder="ash_ketchum">
+            </div>
+            <div class="form-group">
+                <label for="consulenza-messaggio" data-i18n="label_message_optional">Message (optional)</label>
+                <textarea id="consulenza-messaggio" rows="2" data-i18n-placeholder="consulenza_message_placeholder" placeholder="E.g.: I'd like to know where to start..."></textarea>
+            </div>
+            <button type="button" class="btn-primary" id="btn-invia-consulenza" data-i18n="consulenza_submit">Request the free call</button>
+            <p id="consulenza-esito" class="subtitle"></p>
+        </form>
+    </section>
+
+    <!--
         La barra che mostra "a che punto sei" nel flusso di prenotazione a
         3 step. Le classi "active"/"completed" su questi div (aggiunte e
         rimosse da app.js con classList.add/remove) sono quello che il CSS
@@ -52,17 +120,17 @@
     <div class="steps-bar">
         <div class="step active" id="step-indicator-1">
             <span class="step-number">1</span>
-            <span class="step-label">Scegli slot</span>
+            <span class="step-label" data-i18n="step_choose_slot">Choose slot</span>
         </div>
         <div class="step-divider"></div>
         <div class="step" id="step-indicator-2">
             <span class="step-number">2</span>
-            <span class="step-label">I tuoi dati</span>
+            <span class="step-label" data-i18n="step_your_details">Your details</span>
         </div>
         <div class="step-divider"></div>
         <div class="step" id="step-indicator-3">
             <span class="step-number">3</span>
-            <span class="step-label">Conferma</span>
+            <span class="step-label" data-i18n="step_confirm">Confirm</span>
         </div>
     </div>
 
@@ -80,16 +148,16 @@
 
         <!-- STEP 1: SCELTA SLOT -->
         <section id="step-1" class="step-content active">
-            <h2>Scegli data e orario</h2>
-            <p class="subtitle">Seleziona uno slot disponibile per la tua sessione</p>
+            <h2 data-i18n="step1_title">Choose date and time</h2>
+            <p class="subtitle" data-i18n="step1_subtitle">Select an available slot for your session</p>
 
             <!-- Riempito da app.js (funzione renderSlots) con una card per ogni slot disponibile -->
             <div id="slots-container">
-                <p class="loading">Caricamento slot disponibili...</p>
+                <p class="loading" data-i18n="loading_slots">Loading available slots...</p>
             </div>
 
             <div class="duration-selector">
-                <h3>Tipo di sessione</h3>
+                <h3 data-i18n="session_type">Session type</h3>
                 <div class="duration-buttons">
                     <!--
                         data-service="..." è un "data attribute": un modo
@@ -98,47 +166,44 @@
                         JavaScript, non alla pagina in sé. app.js legge
                         questi valori con btn.dataset.service.
                     -->
-                    <button class="service-btn active" data-service="vod_review">
+                    <button class="service-btn active" data-service="vod_review" data-i18n="service_vod_review">
                         VOD Review
                     </button>
-                    <button class="service-btn" data-service="team_building">
+                    <button class="service-btn" data-service="team_building" data-i18n="service_team_building">
                         Team Building
                     </button>
-                    <button class="service-btn" data-service="bo3_sparring">
+                    <button class="service-btn" data-service="bo3_sparring" data-i18n="service_bo3_sparring">
                         Bo3 Sparring
                     </button>
-                    <button class="service-btn" data-service="mentality_prep">
-                        Mentality Prep
+                    <button class="service-btn" data-service="tournament_prep" data-i18n="service_tournament_prep">
+                        Tournament Prep
                     </button>
                 </div>
             </div>
 
             <div class="duration-selector">
-                <h3>Durata sessione</h3>
+                <h3 data-i18n="session_duration">Session duration</h3>
                 <div class="duration-buttons">
                     <!-- data-hours/data-price: stesso concetto di data-service sopra, letti da app.js per calcolare il prezzo -->
-                    <button class="duration-btn active" data-hours="1" data-price="35">
-                        1 ora — €35
+                    <button class="duration-btn active" data-hours="1" data-price="20" data-i18n="duration_1h">
+                        1 hour — €20
                     </button>
-                    <button class="duration-btn" data-hours="2" data-price="60">
-                        2 ore — €60
-                    </button>
-                    <button class="duration-btn" data-hours="3" data-price="80">
-                        3 ore — €80
+                    <button class="duration-btn" data-hours="2" data-price="40" data-i18n="duration_2h">
+                        2 hours — €40
                     </button>
                 </div>
             </div>
 
             <!-- "disabled" all'inizio: il bottone si attiva (via JS) solo quando è stato scelto uno slot -->
-            <button class="btn-primary" id="btn-to-step2" disabled>
-                Continua →
+            <button class="btn-primary" id="btn-to-step2" disabled data-i18n="continue_btn">
+                Continue →
             </button>
         </section>
 
         <!-- STEP 2: DATI CLIENTE -->
         <section id="step-2" class="step-content">
-            <h2>I tuoi dati</h2>
-            <p class="subtitle">Inserisci le tue informazioni per completare la prenotazione</p>
+            <h2 data-i18n="step2_title">Your details</h2>
+            <p class="subtitle" data-i18n="step2_subtitle">Enter your information to complete the booking</p>
 
             <!--
                 Questo <form> non ha un attributo "action" né "method":
@@ -150,86 +215,103 @@
             -->
             <form id="booking-form">
                 <div class="form-group">
-                    <label for="nome">Nome completo *</label>
+                    <label for="nome" data-i18n="label_full_name">Full name *</label>
                     <input type="text" id="nome" placeholder="Ash Ketchum" required>
                 </div>
 
                 <div class="form-group">
-                    <label for="email">Email *</label>
+                    <label for="email" data-i18n="label_email_required">Email *</label>
                     <input type="email" id="email" placeholder="ash@pokemon.com" required>
                 </div>
 
                 <div class="form-group">
-                    <label for="showdown">Username Pokémon Showdown</label>
-                    <input type="text" id="showdown" placeholder="Ash_VGC2026">
+                    <label for="categoria" data-i18n="label_category">Category</label>
+                    <select id="categoria">
+                        <option value="junior">Junior</option>
+                        <option value="senior">Senior</option>
+                        <option value="master">Master</option>
+                    </select>
                 </div>
 
                 <div class="form-group">
-                    <label for="discord">Discord Tag</label>
+                    <label for="discord" data-i18n="label_discord_tag">Discord Tag</label>
                     <input type="text" id="discord" placeholder="ash_ketchum">
                 </div>
 
                 <div class="form-group">
-                    <label for="note">Note (team attuale, obiettivi...)</label>
-                    <textarea id="note" rows="4"
-                        placeholder="Es: uso un team Trick Room con Indeedee-F, ho problemi con la gestione dei turni veloci...">
+                    <label for="note" data-i18n="label_notes">Notes (current team, goals...)</label>
+                    <textarea id="note" rows="4" data-i18n-placeholder="notes_placeholder"
+                        placeholder="E.g.: I use a Trick Room team with Indeedee-F, I struggle handling fast turns...">
                     </textarea>
                 </div>
 
                 <div class="form-group">
-                    <label for="vod-link">Link VOD (opzionale)</label>
+                    <label for="vod-link" data-i18n="label_vod_link">VOD link (optional)</label>
                     <input type="text" id="vod-link" placeholder="https://youtube.com/...">
                 </div>
 
                 <div class="form-group">
-                    <label for="replay-code">Codice replay Showdown (opzionale)</label>
+                    <label for="replay-code" data-i18n="label_replay_code">Showdown replay code (optional)</label>
                     <input type="text" id="replay-code" placeholder="gen9vgc2026regh-1234567890">
                 </div>
             </form>
 
             <div class="btn-row">
-                <button class="btn-secondary" id="btn-back-1">← Indietro</button>
-                <button class="btn-primary" id="btn-to-step3">Continua →</button>
+                <button class="btn-secondary" id="btn-back-1" data-i18n="back_btn">← Back</button>
+                <button class="btn-primary" id="btn-to-step3" data-i18n="continue_btn">Continue →</button>
             </div>
         </section>
 
         <!-- STEP 3: RIEPILOGO E CONFERMA -->
         <section id="step-3" class="step-content">
-            <h2>Riepilogo prenotazione</h2>
-            <p class="subtitle">Controlla i dati prima di confermare</p>
+            <h2 data-i18n="step3_title">Booking summary</h2>
+            <p class="subtitle" data-i18n="step3_subtitle">Review your details before confirming</p>
 
             <!-- Ogni <strong> qui dentro viene riempito da app.js con i dati scelti nei passi precedenti, prima di mostrare questo step -->
             <div class="summary-card">
                 <div class="summary-row">
-                    <span>Data e orario</span>
+                    <span data-i18n="summary_date">Date and time</span>
                     <strong id="summary-slot">—</strong>
                 </div>
                 <div class="summary-row">
-                    <span>Servizio</span>
+                    <span data-i18n="summary_service">Service</span>
                     <strong id="summary-service">—</strong>
                 </div>
                 <div class="summary-row">
-                    <span>Durata</span>
+                    <span data-i18n="summary_duration">Duration</span>
                     <strong id="summary-duration">—</strong>
                 </div>
                 <div class="summary-row">
-                    <span>Nome</span>
+                    <span data-i18n="summary_name">Name</span>
                     <strong id="summary-nome">—</strong>
                 </div>
                 <div class="summary-row">
-                    <span>Email</span>
+                    <span data-i18n="summary_email">Email</span>
                     <strong id="summary-email">—</strong>
                 </div>
                 <div class="summary-row total">
-                    <span>Totale</span>
+                    <span data-i18n="summary_total">Total</span>
                     <strong id="summary-price">—</strong>
                 </div>
             </div>
 
+            <!--
+                Riempito da app.js (funzione controllaPacchettoAttivo) solo se
+                l'email inserita allo step 2 ha un pacchetto attivo compatibile
+                con la durata scelta — vedi GET /users/pacchetti-attivi.
+                Nascosto (niente "active") finché non c'è nulla da mostrare.
+            -->
+            <div id="pacchetto-attivo-box" class="pacchetto-box" style="display:none">
+                <label class="pacchetto-checkbox">
+                    <input type="checkbox" id="usa-pacchetto">
+                    <span id="pacchetto-attivo-testo"></span>
+                </label>
+            </div>
+
             <div class="btn-row">
-                <button class="btn-secondary" id="btn-back-2">← Indietro</button>
-                <button class="btn-primary" id="btn-confirm">
-                    ✓ Conferma prenotazione
+                <button class="btn-secondary" id="btn-back-2" data-i18n="back_btn">← Back</button>
+                <button class="btn-primary" id="btn-confirm" data-i18n="confirm_booking">
+                    ✓ Confirm booking
                 </button>
             </div>
         </section>
@@ -238,8 +320,8 @@
 <section id="step-success" class="step-content">
     <div class="success-box">
         <div class="success-icon">✓</div>
-        <h2>Prenotazione confermata!</h2>
-        <p>Ti abbiamo inviato una email di conferma con tutti i dettagli della sessione.</p>
+        <h2 data-i18n="success_title">Booking confirmed!</h2>
+        <p data-i18n="success_text">We've sent you a confirmation email with all the session details.</p>
 
         <!--
             onclick="location.reload()" è JavaScript scritto DIRETTAMENTE
@@ -248,11 +330,94 @@
             addEventListener in app.js come si fa per gli altri bottoni.
             location.reload() ricarica semplicemente la pagina da capo.
         -->
-        <button class="btn-primary" onclick="location.reload()">
-            Prenota un'altra sessione
+        <button class="btn-primary" onclick="location.reload()" data-i18n="book_another">
+            Book another session
         </button>
     </div>
 </section>
+
+    </main>
+
+    <!--
+        Vetrina pacchetti — ogni card ha un bottone "Select this package"
+        che apre un mini-form di richiesta (nome/email/Discord/messaggio,
+        POST /pacchetti-richieste/): il progetto non gestisce pagamenti
+        in-app, quindi questo NON attiva davvero il pacchetto — manda solo
+        i contatti al coach, che lo assegna per davvero da
+        /admin/pacchetti dopo aver ricevuto il pagamento concordato
+        privatamente. Vedi selezionaPacchetto() in app.js.
+    -->
+    <section class="pacchetti-section">
+        <h2 data-i18n="packages_title">Packages</h2>
+        <p class="subtitle" data-i18n="packages_subtitle">More sessions, discounted price — select one below or message me on Discord</p>
+        <div class="pacchetti-grid">
+            <div class="pacchetto-card">
+                <span class="pacchetto-tag">INTRO</span>
+                <h3>Competitive Intro</h3>
+                <p class="pacchetto-dettagli" data-i18n="pkg_intro_details">2 sessions, 2 hours each</p>
+                <p class="pacchetto-prezzo"><s>€80</s> €70</p>
+                <ul>
+                    <li data-i18n="pkg_intro_li1">Game fundamentals</li>
+                    <li data-i18n="pkg_intro_li2">Replay analysis: mistakes and reads</li>
+                    <li data-i18n="pkg_intro_li3">Dynamic ladder sessions</li>
+                </ul>
+                <button type="button" class="btn-primary pacchetto-select-btn" data-tipo="intro" data-nome="Competitive Intro" data-i18n="pkg_select_btn">Select this package</button>
+            </div>
+            <div class="pacchetto-card">
+                <span class="pacchetto-tag">TEAM</span>
+                <h3>Team Building Session</h3>
+                <p class="pacchetto-dettagli" data-i18n="pkg_team_details">4 sessions, 2 hours each</p>
+                <p class="pacchetto-prezzo"><s>€160</s> €130</p>
+                <ul>
+                    <li data-i18n="pkg_team_li1">From concept to a finished team</li>
+                    <li data-i18n="pkg_team_li2">Testing sessions</li>
+                    <li data-i18n="pkg_team_li3">Final review and optimisation</li>
+                </ul>
+                <button type="button" class="btn-primary pacchetto-select-btn" data-tipo="team" data-nome="Team Building Session" data-i18n="pkg_select_btn">Select this package</button>
+            </div>
+            <div class="pacchetto-card">
+                <span class="pacchetto-tag">TOUR</span>
+                <h3>Tournament Prep</h3>
+                <p class="pacchetto-dettagli" data-i18n="pkg_tour_details">6 sessions, 2 hours each</p>
+                <p class="pacchetto-prezzo"><s>€240</s> €190</p>
+                <ul>
+                    <li data-i18n="pkg_tour_li1">Current meta analysis and team study</li>
+                    <li data-i18n="pkg_tour_li2">Flowcharts and working documents</li>
+                    <li data-i18n="pkg_tour_li3">Final check and review before the event</li>
+                </ul>
+                <button type="button" class="btn-primary pacchetto-select-btn" data-tipo="tour" data-nome="Tournament Prep" data-i18n="pkg_select_btn">Select this package</button>
+            </div>
+        </div>
+        <p class="pacchetti-footer" data-i18n="pkg_footer">Every session includes a written recap — on Discord, ENG/ITA</p>
+
+        <!--
+            Form di richiesta, condiviso dai tre bottoni "Select this
+            package" sopra — nascosto finché non se ne clicca uno. Quale
+            pacchetto sia stato scelto è mostrato in #pacchetto-selezionato-nome
+            e mandato al backend tramite state.pacchettoRichiestaTipo (vedi app.js).
+        -->
+        <form id="pacchetto-form" class="pacchetto-request-form" style="display:none">
+            <p><strong data-i18n="pkg_selected_label">Selected package:</strong> <span id="pacchetto-selezionato-nome"></span></p>
+            <div class="form-group">
+                <label for="pacchetto-nome" data-i18n="label_name">Name *</label>
+                <input type="text" id="pacchetto-nome" placeholder="Ash Ketchum" required>
+            </div>
+            <div class="form-group">
+                <label for="pacchetto-email" data-i18n="label_email_required">Email *</label>
+                <input type="email" id="pacchetto-email" placeholder="ash@pokemon.com" required>
+            </div>
+            <div class="form-group">
+                <label for="pacchetto-discord" data-i18n="label_discord_tag">Discord Tag</label>
+                <input type="text" id="pacchetto-discord" placeholder="ash_ketchum">
+            </div>
+            <div class="form-group">
+                <label for="pacchetto-messaggio" data-i18n="label_message_optional">Message (optional)</label>
+                <textarea id="pacchetto-messaggio" rows="2"></textarea>
+            </div>
+            <button type="button" class="btn-primary" id="btn-invia-pacchetto" data-i18n="pkg_request_submit">Request this package</button>
+            <p id="pacchetto-esito" class="subtitle"></p>
+        </form>
+    </section>
 
     <!--
         Questo script va messo alla FINE del <body> (non nel <head>) per un
@@ -261,7 +426,12 @@
         e provasse a fare document.getElementById("nome") prima che quel
         tag <input> esistesse ancora, otterrebbe "null" — un errore
         classico per chi inizia con JavaScript nel browser.
+
+        i18n.js va PRIMA di app.js: app.js usa la funzione t() definita
+        lì (es. per gli alert()) — se l'ordine fosse invertito, t() non
+        esisterebbe ancora quando app.js viene letto.
     -->
+    <script src="/static/js/i18n.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

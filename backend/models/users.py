@@ -54,7 +54,10 @@ class User(Base):
     # nullable=True (il default, ma qui esplicito) vuol dire "questo campo è
     # opzionale" — un utente può non avere il telefono, va bene lo stesso.
     telefono = Column(String(20), nullable=True)
-    showdown_username = Column(String(100), nullable=True)
+    # junior / senior / master — sostituisce il vecchio campo showdown_username:
+    # per la valutazione del percorso di coaching conta di più la fascia di
+    # esperienza del cliente che il suo username sulla piattaforma di gioco.
+    categoria = Column(String(20), nullable=True)
     discord_tag = Column(String(100), nullable=True)
 
     # discord_id è diverso da discord_tag: è l'identificativo numerico

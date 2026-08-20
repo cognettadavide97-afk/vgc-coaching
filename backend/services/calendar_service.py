@@ -8,6 +8,7 @@
 
 import os
 from datetime import datetime, timedelta, timezone
+from sqlalchemy.orm import Session
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
@@ -59,7 +60,7 @@ def get_calendar_service():
 def crea_evento_calendario(
     nome_cliente: str,
     email_cliente: str,
-    showdown_username: str,
+    categoria: str,
     data_slot: str,
     ora_slot: str,
     durata_ore: int,
@@ -98,7 +99,7 @@ def crea_evento_calendario(
             "description": (
                 f"Cliente: {nome_cliente}\n"
                 f"Email: {email_cliente}\n"
-                f"Showdown: {showdown_username or 'non specificato'}\n"
+                f"Categoria: {categoria or 'non specificata'}\n"
                 f"Durata: {durata_ore} ora{'e' if durata_ore > 1 else ''}\n"
                 f"Note: {note_cliente or 'nessuna'}"
             ),
@@ -209,6 +210,51 @@ def leggi_eventi_calendario(time_min: datetime, time_max: datetime):
     except Exception as e:
         print(f"Errore lettura calendario: {e}")
         return []  # in caso di errore, meglio "nessun evento trovato" che bloccare la sincronizzazione
+
+
+def sincronizza_slot_con_calendario(db: Session) -> int:
+    """
+    Legge il calendario Google del coach e blocca (is_available=False,
+    blocked_external=True) gli slot liberi che si sovrappongono a un
+    evento esterno (torneo, stream, altro impegno). Estratta qui da
+    backend/routers/admin.py per essere richiamabile sia dal bottone
+    manuale in admin (POST /admin/slots/sync-calendario) sia dal job
+    automatico periodico in backend/scheduler.py — stessa identica
+    logica, un solo posto da mantenere.
+    """
+    # Import locale (non in cima al file) per evitare un import circolare:
+    # backend.models.slots non serve alle altre funzioni di questo modulo,
+    # e admin.py importa già da qui.
+    from backend.models.slots import Slot
+
+    ora = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    slot_liberi = db.query(Slot).filter(
+        Slot.is_available == True,
+        Slot.start_time >= ora
+    ).all()
+
+    if not slot_liberi:
+        return 0
+
+    fine_intervallo = max(
+        s.start_time + timedelta(hours=s.duration_hours) for s in slot_liberi
+    )
+    eventi = leggi_eventi_calendario(ora, fine_intervallo)
+
+    bloccati = 0
+    for slot in slot_liberi:
+        slot_inizio = slot.start_time
+        slot_fine = slot.start_time + timedelta(hours=slot.duration_hours)
+        for evento_inizio, evento_fine in eventi:
+            if slot_inizio < evento_fine and evento_inizio < slot_fine:
+                slot.is_available = False
+                slot.blocked_external = True
+                bloccati += 1
+                break
+
+    db.commit()
+    return bloccati
 
 
 def elimina_evento_calendario(event_id: str):

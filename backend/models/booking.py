@@ -32,7 +32,7 @@ class Booking(Base):
     # piccola possibile (i centesimi), e si divide per 100 solo quando si
     # deve MOSTRARE il prezzo a un umano.
 
-    service_type = Column(String(30), nullable=False)  # vod_review, team_building, bo3_sparring, mentality_prep
+    service_type = Column(String(30), nullable=False)  # vod_review, team_building, bo3_sparring, tournament_prep
     status = Column(String(20), default="confirmed")  # confirmed, cancelled, no_show
 
     note_cliente = Column(Text, nullable=True)
@@ -45,6 +45,17 @@ class Booking(Base):
     replay_code = Column(String(200), nullable=True)
     calendar_event_id = Column(String(200), nullable=True)  # id dell'evento creato su Google Calendar
     reminder_sent = Column(Boolean, default=False, nullable=False)  # promemoria pre-sessione già inviato
+
+    # Valorizzato solo se la sessione è stata pagata scalando un credito da
+    # un pacchetto (vedi backend/models/package.py) invece che al prezzo
+    # normale.
+    package_id = Column(Integer, ForeignKey("packages.id"), nullable=True)
+
+    # Token monouso generato alla creazione della prenotazione (vedi
+    # backend/routers/booking.py), usato per autenticare il link pubblico
+    # di recensione post-sessione senza richiedere un vero login cliente.
+    review_token = Column(String(64), nullable=True, unique=True)
+    review_email_sent = Column(Boolean, default=False, nullable=False)
 
     created_at = Column(DateTime, default=func.now())
 
@@ -60,3 +71,4 @@ class Booking(Base):
     # questo attributo non è scritto da nessuna parte nel model User.
     user = relationship("User", backref="bookings")
     slot = relationship("Slot", backref="booking")
+    package = relationship("Package", backref="bookings")

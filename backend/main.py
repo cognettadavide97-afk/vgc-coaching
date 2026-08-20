@@ -29,6 +29,8 @@ import backend.routers.booking as bookings
 import backend.routers.users as users
 import backend.routers.admin as admin
 import backend.routers.discord_auth as discord_auth
+import backend.routers.consulenza as consulenza
+import backend.routers.pacchetti_richieste as pacchetti_richieste
 
 import os
 from alembic.config import Config
@@ -115,6 +117,8 @@ app.include_router(bookings.router)
 app.include_router(users.router)
 app.include_router(admin.router)
 app.include_router(discord_auth.router)
+app.include_router(consulenza.router)
+app.include_router(pacchetti_richieste.router)
 
 # Avvia il job in background che controlla periodicamente se ci sono
 # promemoria da inviare (vedi backend/scheduler.py). Da qui in poi gira per
@@ -128,13 +132,17 @@ avvia_scheduler()
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 
-# Queste due funzioni sono normali endpoint FastAPI (esattamente come quelli
+# Queste funzioni sono normali endpoint FastAPI (esattamente come quelli
 # nei router), ma invece di restituire dati JSON restituiscono un intero
 # file HTML: FileResponse legge il file dal disco e lo manda al browser così
-# com'è. Sono gli "indirizzi di ingresso" delle due pagine web dell'app.
+# com'è. Sono gli "indirizzi di ingresso" delle pagine web dell'app.
 @app.get("/")
 def root():
     return FileResponse("frontend/index.html")
+
+@app.get("/about")
+def about():
+    return FileResponse("frontend/about.html")
 
 @app.get("/admin-panel")
 def admin_panel():
