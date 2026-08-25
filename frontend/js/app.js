@@ -52,14 +52,22 @@ function getStatusLabel(stato) {
 
 // ─── LOGIN DISCORD (opzionale, non blocca mai il guest checkout) ──
 
-// localStorage è uno "spazio di archiviazione" che il browser mette a
-// disposizione di ogni sito: quello che ci salvi resta lì anche se chiudi
-// la scheda o il browser, finché non lo cancelli esplicitamente (a
-// differenza delle variabili JavaScript normali, che si azzerano appena
-// ricarichi la pagina). Lo usiamo per "ricordare" che lo studente è
-// loggato anche tra una visita e l'altra, senza dover rifare il login con
-// Discord ogni volta.
-let studentToken = localStorage.getItem('student_token');
+// Il token che prova l'identità dello studente NON passa più da qui: dal
+// login Discord in poi vive in un cookie httpOnly (impostato dal server,
+// vedi backend/routers/discord_auth.py) — invisibile e non manipolabile da
+// JavaScript, mandato AUTOMATICAMENTE dal browser ad ogni richiesta verso
+// questo stesso sito, senza che questo file debba mai leggerlo o
+// allegarlo a mano in un header. Prima (quando viveva in localStorage)
+// un eventuale bug XSS altrove nella pagina avrebbe potuto rubarlo con una
+// singola riga di JavaScript; un cookie httpOnly non è leggibile da
+// nessuno script, nemmeno il nostro.
+//
+// studentLoggedIn è quindi tutto quello che resta lato JS: un semplice
+// SI/NO per decidere cosa mostrare in pagina (bottone di login o profilo,
+// checkbox "usa pacchetto"...), aggiornato in base all'esito delle
+// richieste sotto — non è più il token stesso, solo lo stato "sono
+// loggato?" dedotto da esse.
+let studentLoggedIn = false;
 
 function escapeHtmlPublic(str) {
     // Questa funzione protegge da un problema di sicurezza chiamato XSS
@@ -86,35 +94,23 @@ async function initDiscordLogin() {
     // suo interno — vedi la spiegazione completa più sotto, sulla prima
     // vera chiamata fetch(), su cosa vogliano dire "async"/"await".
 
-    // window.location.search è la parte dell'URL della pagina che inizia
-    // con "?" (es. "?student_token=abc123"). URLSearchParams è un'utility
-    // del browser che la legge e la trasforma in qualcosa di comodo da
-    // interrogare con .get("nome_parametro").
+    // Il caso "sto tornando da Discord dopo il login" non passa più da un
+    // parametro nell'URL (il server ha già impostato il cookie prima di
+    // rimandarci qui, vedi backend/routers/discord_auth.py) — resta solo
+    // da controllare l'eventuale errore.
     const urlParams = new URLSearchParams(window.location.search);
-    const tokenDaUrl = urlParams.get('student_token');
     const erroreDiscord = urlParams.get('discord_error');
 
-    if (tokenDaUrl) {
-        // Questo è il caso "sto tornando da Discord dopo il login": il
-        // backend (backend/routers/discord_auth.py) ci ha rimandati qui
-        // con il token nell'URL. Lo salviamo per il futuro...
-        studentToken = tokenDaUrl;
-        localStorage.setItem('student_token', studentToken);
-        // ...e poi "puliamo" l'URL (togliendo "?student_token=..." dalla
-        // barra degli indirizzi) senza ricaricare la pagina — altrimenti
-        // il token resterebbe visibile lì e potrebbe essere ricondiviso
-        // per sbaglio (es. copiando il link).
-        window.history.replaceState({}, '', window.location.pathname);
-    } else if (erroreDiscord) {
+    if (erroreDiscord) {
         window.history.replaceState({}, '', window.location.pathname);
         alert(t('discord_login_failed'));
     }
 
-    if (studentToken) {
-        await loadStudentProfile();
-    } else {
-        showLoginButton();
-    }
+    // Non c'è più un token da controllare lato JS per sapere "sono
+    // loggato?" (il cookie non è leggibile da qui) — proviamo sempre a
+    // caricare il profilo: se non esiste nessun cookie valido, il server
+    // risponde 401 e loadStudentProfile mostra da sola il bottone di login.
+    await loadStudentProfile();
 }
 
 function showLoginButton() {
@@ -143,21 +139,24 @@ async function loadStudentProfile() {
         // esplicitamente (e la funzione che lo contiene deve essere
         // "async"), perché JavaScript di norma preferisce non bloccare mai
         // l'esecuzione in attesa di operazioni lente come la rete.
-        const res = await fetch('/users/me', {
-            headers: { 'Authorization': `Bearer ${studentToken}` }
-        });
+        // Nessun header da allegare qui: se esiste un cookie di sessione
+        // valido, il browser lo manda da solo (stessa origine della
+        // pagina) — vedi il commento su studentLoggedIn in cima al file.
+        const res = await fetch('/users/me');
 
         // res.ok è true se il codice di stato HTTP della risposta è nella
         // fascia "successo" (200-299) — un modo rapido per controllare se
         // la richiesta è andata a buon fine, senza dover confrontare
         // manualmente res.status con dei numeri.
         if (!res.ok) {
-            // token scaduto o non valido: torna al bottone di login
-            localStorage.removeItem('student_token');
-            studentToken = null;
+            // nessun cookie valido (mai loggato, oppure token scaduto):
+            // torna al bottone di login
+            studentLoggedIn = false;
             showLoginButton();
             return;
         }
+
+        studentLoggedIn = true;
 
         // res.json() legge il corpo della risposta e lo trasforma da testo
         // JSON a un vero oggetto JavaScript — anche questa è un'operazione
@@ -209,15 +208,14 @@ async function loadStudentProfile() {
         // salta direttamente al blocco catch invece di far "esplodere"
         // tutta la pagina.
         console.error('Errore caricamento profilo Discord:', error);
+        studentLoggedIn = false;
         showLoginButton();
     }
 }
 
 async function loadBookingHistory() {
     try {
-        const res = await fetch('/users/me/prenotazioni', {
-            headers: { 'Authorization': `Bearer ${studentToken}` }
-        });
+        const res = await fetch('/users/me/prenotazioni');
         if (!res.ok) return [];
         return await res.json();
     } catch (error) {
@@ -274,8 +272,7 @@ async function cancellaPrenotazione(bookingId) {
 
     try {
         const res = await fetch(`/bookings/${bookingId}/cancella`, {
-            method: 'PATCH',
-            headers: { 'Authorization': `Bearer ${studentToken}` }
+            method: 'PATCH'
         });
         if (!res.ok) {
             const errore = await res.json().catch(() => ({}));
@@ -302,9 +299,18 @@ function toggleBookingHistory() {
     }
 }
 
-function logoutStudent() {
-    localStorage.removeItem('student_token');
-    studentToken = null;
+async function logoutStudent() {
+    // Un cookie httpOnly non è cancellabile da JavaScript (è invisibile
+    // anche a questo script, non solo agli script malevoli) — va chiesto
+    // al server di farlo, con una richiesta dedicata (vedi
+    // backend/routers/discord_auth.py). Prima, con il token in
+    // localStorage, bastava una riga locale; ora serve un giro di rete.
+    try {
+        await fetch('/auth/discord/logout', { method: 'POST' });
+    } catch (error) {
+        console.error('Errore durante il logout:', error);
+    }
+    studentLoggedIn = false;
     showLoginButton();
 }
 
@@ -547,9 +553,10 @@ function aggiornaPrezzoRiepilogo() {
 // vedi backend/services/package_service.py) — se lo trova, mostra il
 // checkbox "usa pacchetto" allo step 3, altrimenti lo tiene nascosto.
 // Nessun parametro email: da quando GET /users/pacchetti-attivi identifica
-// l'utente dal token invece che da un'email nell'URL (fix di sicurezza,
-// vedi backend/routers/users.py), questa funzione va chiamata solo se
-// studentToken esiste — vedi il chiamante, il click su "btn-to-step3".
+// l'utente dal cookie di sessione invece che da un'email nell'URL (fix di
+// sicurezza, vedi backend/routers/users.py), questa funzione va chiamata
+// solo se studentLoggedIn è vero — vedi il chiamante, il click su
+// "btn-to-step3".
 async function controllaPacchettoAttivo() {
     const box = document.getElementById('pacchetto-attivo-box');
     const testo = document.getElementById('pacchetto-attivo-testo');
@@ -559,9 +566,7 @@ async function controllaPacchettoAttivo() {
     box.style.display = 'none';
 
     try {
-        const res = await fetch('/users/pacchetti-attivi', {
-            headers: { 'Authorization': `Bearer ${studentToken}` }
-        });
+        const res = await fetch('/users/pacchetti-attivi');
         if (!res.ok) return;
         const pacchetti = await res.json();
         const compatibile = pacchetti.find(p => p.durata_sessione_ore === state.selectedHours);
@@ -620,7 +625,7 @@ document.getElementById('btn-to-step3').addEventListener('click', async () => {
     // pagato. Per un ospite non loggato, saltiamo del tutto la ricerca —
     // GET /users/pacchetti-attivi ora richiede comunque login, quindi non
     // troverebbe nulla di utile.
-    if (studentToken) {
+    if (studentLoggedIn) {
         await controllaPacchettoAttivo();
     }
     aggiornaRiepilogo();
@@ -676,18 +681,14 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
         const packageId = (checkboxPacchetto.checked && state.pacchettoAttivo) ? state.pacchettoAttivo.id : null;
 
         // 2 — crea la prenotazione
-        // L'header Authorization va mandato solo se lo studente è loggato
-        // (studentToken esiste) — è quello che il server controlla per
+        // Nessun header di autenticazione da costruire a mano: se lo
+        // studente è loggato, il cookie di sessione viaggia da solo con la
+        // richiesta (stessa origine) — è quello che il server legge per
         // verificare la proprietà del pacchetto quando packageId non è
         // null (vedi il commento sopra su controllaPacchettoAttivo).
-        const bookingHeaders = { 'Content-Type': 'application/json' };
-        if (studentToken) {
-            bookingHeaders['Authorization'] = `Bearer ${studentToken}`;
-        }
-
         const bookingResponse = await fetch('/bookings/', {
             method: 'POST',
-            headers: bookingHeaders,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 user_id: state.userId,
                 slot_id: state.selectedSlot.id,
@@ -837,7 +838,7 @@ document.addEventListener('langchange', () => {
     // da ritradurre da sola — va ricostruita a mano in entrambi i casi
     // (loggato o no), altrimenti resterebbe nella lingua con cui era
     // stata disegnata la prima volta.
-    if (studentToken) {
+    if (studentLoggedIn) {
         loadStudentProfile();
     } else {
         showLoginButton();

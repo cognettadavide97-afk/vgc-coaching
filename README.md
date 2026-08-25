@@ -298,7 +298,8 @@ Configurato per Railway con builder Nixpacks (`nixpacks.toml`, unica fonte di ve
 3. Imposta tutte le variabili d'ambiente della tabella sopra.
 4. Aggiorna `FRONTEND_ORIGINS` e `DISCORD_OAUTH_REDIRECT_URI` con il dominio reale.
 5. Aggiungi lo stesso redirect URI di produzione anche sul Discord Developer Portal.
-6. Le migrazioni Alembic vengono eseguite automaticamente all'avvio.
+6. Le migrazioni Alembic vengono eseguite automaticamente all'avvio (con backup di sicurezza automatico se ce ne sono in sospeso — vedi sopra).
+7. Collega un servizio di monitoraggio esterno gratuito (es. [UptimeRobot](https://uptimerobot.com), [Better Uptime](https://betteruptime.com)) all'endpoint `GET /health` del dominio di produzione, a intervalli di qualche minuto — senza, un sito che va giù si scopre solo quando un cliente si lamenta. L'endpoint controlla anche che il database risponda, non solo che il processo sia vivo.
 
 ## Backup e ripristino
 

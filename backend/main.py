@@ -41,10 +41,12 @@ LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 # posto, basta chiamare questa configurazione una volta sola, qui.
 logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 # slowapi è la libreria che implementa il "rate limiting": impedisce che
 # qualcuno mandi troppe richieste di fila allo stesso indirizzo (protezione
@@ -69,10 +71,31 @@ import backend.routers.pacchetti_richieste as pacchetti_richieste
 
 from alembic.config import Config
 from alembic import command
+from alembic.script import ScriptDirectory
+from alembic.runtime.migration import MigrationContext
+from backend.database import engine, get_db
 from backend.services.discord_service import invia_alert_sistema
+from backend.services.backup_service import esegui_backup_database
 
 # logger di questo modulo — vedi il commento sopra su logging.getLogger.
 logger = logging.getLogger(__name__)
+
+
+def _migrazioni_in_sospeso(alembic_cfg) -> bool:
+    """
+    True se il database è indietro rispetto all'ultima migrazione scritta
+    nel codice (alembic/versions/) — confronta la revisione salvata nel
+    database (tabella alembic_version) con quella più recente conosciuta
+    da Alembic. Serve per decidere SE vale la pena fare un backup: farlo
+    ad ogni riavvio, anche quando non c'è nessuna migrazione da applicare
+    (il caso più comune — un riavvio non cambia lo schema), riempirebbe
+    Drive di backup identici senza nessun beneficio.
+    """
+    script = ScriptDirectory.from_config(alembic_cfg)
+    with engine.connect() as connessione:
+        contesto = MigrationContext.configure(connessione)
+        revisione_attuale = contesto.get_current_revision()
+    return revisione_attuale != script.get_current_head()
 
 
 def run_migrations():
@@ -84,6 +107,16 @@ def run_migrations():
     deploy. command.upgrade(alembic_cfg, "head") vuol dire letteralmente
     "porta il database alla versione più recente" ("head" = la punta della
     cronologia delle migrazioni, come l'ultimo commit in un ramo Git).
+
+    Se ci sono migrazioni da applicare, PRIMA tentiamo un backup di
+    sicurezza (vedi backend/services/backup_service.py) — una migrazione
+    scritta male è esattamente il tipo di errore da cui un backup dovrebbe
+    proteggere, e il momento in cui serve di più è proprio un attimo prima
+    che quella migrazione giri sul database reale. Un backup fallito o non
+    ancora configurato (vedi il "if not" sotto) non blocca comunque la
+    migrazione: bloccare per sempre ogni futura migrazione finché qualcuno
+    non sistema Drive sarebbe un problema peggiore di procedere senza un
+    backup fresco.
 
     Il blocco try/except è deliberato: se le migrazioni falliscono, l'app
     continua comunque ad avviarsi (registra solo un errore nei log) invece
@@ -100,6 +133,12 @@ def run_migrations():
         if database_url:
             alembic_cfg = Config("alembic.ini")
             alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+
+            if _migrazioni_in_sospeso(alembic_cfg):
+                logger.info("Migrazioni in sospeso: eseguo un backup di sicurezza prima di applicarle")
+                if not esegui_backup_database(engine):
+                    logger.warning("Backup pre-migrazione non riuscito (o non configurato) — procedo comunque")
+
             command.upgrade(alembic_cfg, "head")
             logger.info("Migrazioni eseguite con successo")
         else:
@@ -190,6 +229,24 @@ app.mount("/static", StaticFiles(directory="frontend"), name="static")
 # nei router), ma invece di restituire dati JSON restituiscono un intero
 # file HTML: FileResponse legge il file dal disco e lo manda al browser così
 # com'è. Sono gli "indirizzi di ingresso" delle pagine web dell'app.
+@app.get("/health")
+def health(db: Session = Depends(get_db)):
+    """
+    Endpoint pensato per un servizio di monitoraggio esterno (es.
+    UptimeRobot, Better Uptime — gratuiti, bastano pochi minuti di setup):
+    fanno una richiesta periodica a questo indirizzo e avvisano il coach
+    se smette di rispondere con 200. "SELECT 1" è la query più semplice
+    possibile: non legge nessuna tabella vera, serve solo a controllare che
+    la connessione al database risponda ancora — un processo "vivo" ma con
+    il database irraggiungibile è comunque un sito rotto per chi lo visita,
+    e senza questo controllo qui il monitoraggio esterno non se ne
+    accorgerebbe (l'app risponderebbe comunque a una richiesta che non
+    tocca il database).
+    """
+    db.execute(text("SELECT 1"))
+    return {"status": "ok"}
+
+
 @app.get("/")
 def root():
     return FileResponse("frontend/index.html")

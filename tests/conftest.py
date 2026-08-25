@@ -27,7 +27,7 @@ import backend.models  # registra tutti i model su Base.metadata (vedi backend/m
 from backend.main import app
 from backend.rate_limit import limiter
 from backend.models.slots import Slot
-from backend.services.auth_service import crea_token
+from backend.services.auth_service import crea_token, crea_token_studente
 
 TEST_ENGINE = create_engine(
     "sqlite:///:memory:",
@@ -124,6 +124,18 @@ def db():
 def admin_headers():
     """Header Authorization con un token admin valido, per chiamare endpoint protetti da Depends(get_admin)."""
     return {"Authorization": f"Bearer {crea_token('admin')}"}
+
+
+def studente_cookies(user_id, email):
+    """
+    Cookie di sessione studente valido, per chiamare endpoint protetti da
+    Depends(get_studente)/get_studente_opzionale — dopo il passaggio a
+    cookie httpOnly (vedi backend/routers/users.py), il token non si manda
+    più come header Authorization ma come cookie "student_token", quindi
+    va passato con cookies=studente_cookies(...) invece di
+    headers={"Authorization": ...} nelle chiamate di TestClient.
+    """
+    return {"student_token": crea_token_studente(user_id, email)}
 
 
 def crea_slot(db, start_time, duration_hours=1, is_available=True):

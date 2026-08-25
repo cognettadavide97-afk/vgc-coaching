@@ -86,7 +86,12 @@ def test_callback_con_state_corretto_completa_il_login(client, db, monkeypatch):
     res = client.get(f"/auth/discord/callback?code=abc&state={state}", follow_redirects=False)
 
     assert res.status_code in (302, 307)
-    assert "student_token=" in res.headers["location"]
+    # Il token non passa più nell'URL di redirect: è impostato come cookie
+    # httpOnly (vedi backend/routers/discord_auth.py) — invisibile a
+    # JavaScript, ma il test può comunque leggerlo da res.cookies per
+    # verificare che sia stato impostato davvero.
+    assert res.headers["location"] == "/"
+    assert "student_token" in res.cookies
 
     utente = db.query(User).filter(User.email == "nuovo@example.com").first()
     assert utente is not None

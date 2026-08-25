@@ -10,7 +10,6 @@
 # solo non fa nulla di per sé, definisce solo del codice Python.
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from datetime import timezone
 from backend.database import get_db
@@ -32,28 +31,32 @@ from typing import List, Optional
 # "/users/me", non solo "/me".
 router = APIRouter(prefix="/users", tags=["Users"])
 
-# OAuth2PasswordBearer è la stessa classe che vedrai usata in admin.py per
-# il login del coach, ma qui con auto_error=False: normalmente, se manca il
-# token nell'header Authorization, FastAPI blocca subito la richiesta con
-# errore. Con auto_error=False invece "lascia correre", restituendo
-# semplicemente None — necessario qui perché il login studente è SEMPRE
-# opzionale: una richiesta senza token non è un errore, vuol dire solo "chi
-# prenota non è loggato" (guest checkout).
-oauth2_scheme_studente = OAuth2PasswordBearer(tokenUrl="/auth/discord/login", auto_error=False)
+# Nome del cookie httpOnly che porta il token studente — impostato dal
+# server al login riuscito (vedi backend/routers/discord_auth.py), mai
+# scritto né letto da JavaScript. Prima il token viaggiava nell'header
+# "Authorization" (letto con OAuth2PasswordBearer, la stessa classe ancora
+# usata per l'admin in admin.py) e il frontend lo teneva in localStorage —
+# un bersaglio comodo per un eventuale script malevolo iniettato nella
+# pagina (XSS): con un cookie httpOnly, nessuno script (nemmeno il nostro)
+# può leggerlo, solo il browser lo allega da solo alle richieste verso
+# questo stesso sito.
+STUDENT_TOKEN_COOKIE = "student_token"
 
 
 def get_studente_opzionale(
-    token: Optional[str] = Depends(oauth2_scheme_studente),
+    request: Request,
     db: Session = Depends(get_db)
 ) -> Optional[User]:
     """
     Questa funzione è una "dependency" — non è un endpoint, è un pezzo di
     logica riutilizzabile che altri endpoint richiedono con Depends(...).
-    Nota come le dependency possono incatenarsi: questa funzione stessa usa
-    Depends(oauth2_scheme_studente) per farsi passare il token, e a sua
-    volta viene usata da get_studente() qui sotto — FastAPI risolve tutta
-    la catena da solo, in ordine, prima di eseguire l'endpoint finale.
+    Nota come le dependency possono incatenarsi: questa funzione legge il
+    cookie da sola (niente Depends aggiuntivo per farselo passare, a
+    differenza di prima con OAuth2PasswordBearer), e a sua volta viene
+    usata da get_studente() qui sotto — FastAPI risolve tutta la catena da
+    solo, in ordine, prima di eseguire l'endpoint finale.
     """
+    token = request.cookies.get(STUDENT_TOKEN_COOKIE)
     if not token:
         return None
     payload = verifica_token_studente(token)

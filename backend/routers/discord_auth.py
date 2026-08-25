@@ -12,11 +12,12 @@ import logging
 import requests
 from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models.users import User
-from backend.services.auth_service import crea_token_studente
+from backend.services.auth_service import crea_token_studente, EXPIRE_MINUTES
+from backend.routers.users import STUDENT_TOKEN_COOKIE
 
 # Nome del cookie usato per la protezione CSRF del login (vedi il
 # commento su STATE in discord_login qui sotto).
@@ -28,6 +29,18 @@ logger = logging.getLogger(__name__)
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
 DISCORD_OAUTH_REDIRECT_URI = os.getenv("DISCORD_OAUTH_REDIRECT_URI")
+
+# Decide se i cookie che impostiamo (stato OAuth e sessione studente) vanno
+# marcati Secure (mandati solo su HTTPS). Non possiamo dedurlo da
+# request.url.scheme: Railway termina l'HTTPS a un proxy davanti all'app,
+# quindi dentro il processo la richiesta arriva sempre come HTTP semplice,
+# a meno di configurare esplicitamente uvicorn per fidarsi degli header
+# X-Forwarded-Proto (non fatto — vedi nixpacks.toml). Usiamo invece
+# DISCORD_OAUTH_REDIRECT_URI, che il README impone già di aggiornare con
+# il dominio reale in produzione (sempre https) mentre in locale resta
+# "http://127.0.0.1:8000/..." — un segnale d'ambiente già corretto senza
+# bisogno di una variabile in più.
+_IS_PRODUZIONE = (DISCORD_OAUTH_REDIRECT_URI or "").startswith("https://")
 
 # Questi tre indirizzi appartengono a Discord, non a noi — sono documentati
 # sul loro sito per sviluppatori. Il nostro programma li chiama, non li
@@ -87,7 +100,7 @@ def discord_login():
     # Discord è sempre molto meno — dopo, il cookie scade da solo.
     response.set_cookie(
         STATE_COOKIE, state,
-        httponly=True, samesite="lax", max_age=600
+        httponly=True, secure=_IS_PRODUZIONE, samesite="lax", max_age=600
     )
     return response
 
@@ -205,12 +218,36 @@ def discord_callback(request: Request, code: str = None, error: str = None, stat
     # STEP 4, finale: creiamo il NOSTRO token JWT (vedi
     # backend/services/auth_service.py) — da qui in poi Discord non c'entra
     # più nulla, lo studente userà questo token per parlare con la nostra
-    # API. Lo passiamo al frontend come parametro nell'URL di redirect: sarà
-    # frontend/js/app.js a leggerlo dalla barra degli indirizzi e a salvarlo
-    # (vedi initDiscordLogin in quel file).
+    # API. A differenza di prima, non lo passiamo più al frontend nell'URL
+    # di redirect: lo impostiamo direttamente come cookie httpOnly, quindi
+    # invisibile e non manipolabile da JavaScript (vedi il commento su
+    # STUDENT_TOKEN_COOKIE in backend/routers/users.py sul perché è più
+    # sicuro di localStorage). Il browser lo allegherà da solo ad ogni
+    # richiesta successiva verso questo stesso sito.
     token = crea_token_studente(user.id, user.email)
-    response = RedirectResponse(f"/?student_token={token}")
+    response = RedirectResponse("/")
     # Il cookie di stato ha fatto il suo lavoro (già verificato sopra) — lo
     # rimuoviamo, non serve tenerlo dopo un login riuscito.
     response.delete_cookie(STATE_COOKIE)
+    response.set_cookie(
+        STUDENT_TOKEN_COOKIE, token,
+        httponly=True, secure=_IS_PRODUZIONE, samesite="lax",
+        # Stessa durata del token JWT stesso (vedi EXPIRE_MINUTES in
+        # auth_service.py): non ha senso tenere il cookie più a lungo di
+        # quanto il token al suo interno resti valido.
+        max_age=EXPIRE_MINUTES * 60
+    )
+    return response
+
+
+@router.post("/logout")
+def logout():
+    """
+    Cancella il cookie di sessione dello studente. Un cookie httpOnly non
+    è cancellabile da JavaScript (vedi frontend/js/app.js, logoutStudent)
+    — serve chiedere esplicitamente al server di farlo, con una richiesta
+    dedicata come questa.
+    """
+    response = JSONResponse({"message": "Logged out"})
+    response.delete_cookie(STUDENT_TOKEN_COOKIE)
     return response

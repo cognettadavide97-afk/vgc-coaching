@@ -7,8 +7,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from backend.models.package import Package
-from backend.services.auth_service import crea_token_studente
-from conftest import crea_slot
+from conftest import crea_slot, studente_cookies
 
 ROME_TZ = ZoneInfo("Europe/Rome")
 
@@ -35,7 +34,7 @@ def crea_utente(client, email="cliente@example.com"):
     # rivelare il profilo di un cliente esistente a chi ne indovina l'email,
     # vedi backend/schemas/users.py) — i test però conoscono già l'email
     # (l'hanno appena mandata), gliela riattacchiamo qui per comodità invece
-    # di ripeterla ovunque serve crea_token_studente(id, email).
+    # di ripeterla ovunque serve studente_cookies(id, email).
     return {**res.json(), "email": email}
 
 
@@ -215,10 +214,9 @@ def test_redenzione_pacchetto_azzera_prezzo_e_scala_credito(client, db):
     # studente" su POST /bookings/ in backend/routers/booking.py): senza,
     # chiunque conoscesse user_id/package_id di un cliente vero avrebbe
     # potuto scalargli una sessione senza il suo consenso.
-    token = crea_token_studente(utente["id"], utente["email"])
     res = client.post(
         "/bookings/",
-        headers={"Authorization": f"Bearer {token}"},
+        cookies=studente_cookies(utente["id"], utente["email"]),
         json={
             "user_id": utente["id"],
             "slot_id": slot_a.id,
@@ -280,10 +278,9 @@ def test_redenzione_pacchetto_esaurito_viene_rifiutata(client, db):
     db.commit()
     db.refresh(pacchetto)
 
-    token = crea_token_studente(utente["id"], utente["email"])
     res = client.post(
         "/bookings/",
-        headers={"Authorization": f"Bearer {token}"},
+        cookies=studente_cookies(utente["id"], utente["email"]),
         json={
             "user_id": utente["id"],
             "slot_id": slot_a.id,
@@ -317,10 +314,9 @@ def test_redenzione_pacchetto_di_un_altro_utente_viene_rifiutata(client, db):
     db.commit()
     db.refresh(pacchetto_vittima)
 
-    token_attaccante = crea_token_studente(attaccante["id"], attaccante["email"])
     res = client.post(
         "/bookings/",
-        headers={"Authorization": f"Bearer {token_attaccante}"},
+        cookies=studente_cookies(attaccante["id"], attaccante["email"]),
         json={
             "user_id": vittima["id"],  # l'attaccante dichiara la vittima come user_id...
             "slot_id": slot_a.id,
@@ -355,18 +351,16 @@ def test_pacchetti_attivi_richiede_login_e_mostra_solo_i_propri(client, db):
     res_senza_login = client.get("/users/pacchetti-attivi")
     assert res_senza_login.status_code == 401
 
-    token_attaccante = crea_token_studente(attaccante["id"], attaccante["email"])
     res_attaccante = client.get(
         "/users/pacchetti-attivi",
-        headers={"Authorization": f"Bearer {token_attaccante}"}
+        cookies=studente_cookies(attaccante["id"], attaccante["email"])
     )
     assert res_attaccante.status_code == 200
     assert res_attaccante.json() == []  # l'attaccante non vede i pacchetti della vittima
 
-    token_vittima = crea_token_studente(vittima["id"], vittima["email"])
     res_vittima = client.get(
         "/users/pacchetti-attivi",
-        headers={"Authorization": f"Bearer {token_vittima}"}
+        cookies=studente_cookies(vittima["id"], vittima["email"])
     )
     assert res_vittima.status_code == 200
     assert len(res_vittima.json()) == 1
@@ -384,10 +378,9 @@ def test_cancellazione_self_service_libera_entrambi_gli_slot(client, db):
         "service_type": "vod_review"
     }).json()
 
-    token = crea_token_studente(utente["id"], utente["email"])
     res = client.patch(
         f"/bookings/{prenotazione['id']}/cancella",
-        headers={"Authorization": f"Bearer {token}"}
+        cookies=studente_cookies(utente["id"], utente["email"])
     )
 
     assert res.status_code == 200, res.text
@@ -411,10 +404,9 @@ def test_cancellazione_rifiutata_per_prenotazione_di_un_altro(client, db):
         "service_type": "vod_review"
     }).json()
 
-    token_altro = crea_token_studente(altro["id"], altro["email"])
     res = client.patch(
         f"/bookings/{prenotazione['id']}/cancella",
-        headers={"Authorization": f"Bearer {token_altro}"}
+        cookies=studente_cookies(altro["id"], altro["email"])
     )
 
     assert res.status_code == 403
@@ -445,11 +437,10 @@ def test_doppia_cancellazione_rifiutata(client, db):
         "service_type": "vod_review"
     }).json()
 
-    token = crea_token_studente(utente["id"], utente["email"])
-    headers = {"Authorization": f"Bearer {token}"}
+    cookies = studente_cookies(utente["id"], utente["email"])
 
-    primo_tentativo = client.patch(f"/bookings/{prenotazione['id']}/cancella", headers=headers)
-    secondo_tentativo = client.patch(f"/bookings/{prenotazione['id']}/cancella", headers=headers)
+    primo_tentativo = client.patch(f"/bookings/{prenotazione['id']}/cancella", cookies=cookies)
+    secondo_tentativo = client.patch(f"/bookings/{prenotazione['id']}/cancella", cookies=cookies)
 
     assert primo_tentativo.status_code == 200
     assert secondo_tentativo.status_code == 400

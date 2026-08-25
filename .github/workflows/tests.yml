@@ -1,0 +1,33 @@
+# Esegue automaticamente la suite di test (pytest) ad ogni push e ad ogni
+# pull request — la rete di sicurezza che prima mancava: senza questo,
+# nulla impediva a un commit con un test rotto (o senza aver girato i test
+# affatto) di arrivare dritto in produzione via l'auto-deploy di Railway.
+#
+# Non serve un vero database MySQL qui: i test usano SQLite in-memory e
+# integrazioni esterne finte (vedi tests/conftest.py), pensati apposta per
+# girare ovunque, CI compresa, senza servizi esterni da configurare.
+name: Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Imposta Python
+        uses: actions/setup-python@v5
+        with:
+          # Stessa versione dichiarata in nixpacks.toml (l'ambiente di
+          # produzione reale su Railway) — la CI deve testare contro la
+          # stessa versione che gira davvero, non un'altra a caso.
+          python-version: "3.11"
+
+      - name: Installa le dipendenze
+        run: pip install -r requirements-dev.txt
+
+      - name: Esegui i test
+        run: pytest
