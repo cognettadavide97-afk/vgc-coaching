@@ -9,7 +9,7 @@ from datetime import datetime
 class ClientNoteCreate(BaseModel):
     # Un solo campo obbligatorio: il testo della nota. user_id NON è qui
     # perché non arriva dal corpo della richiesta — arriva dall'URL stesso
-    # (es. POST /admin/clienti/5/note), come vedrai nel router admin.py.
+    # (es. POST /admin/clienti/5/note), come vedrai in backend/routers/admin/clients.py.
     nota: str
 
 

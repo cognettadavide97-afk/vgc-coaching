@@ -25,7 +25,7 @@ def get_slots(db: Session = Depends(get_db)):
     # già occupato o bloccato. Il secondo filtro esclude anche gli slot
     # liberi ma il cui orario è già passato (mai prenotati, quindi ancora
     # "disponibili" per il database, ma non ha senso proporli): stesso
-    # confronto naive-UTC usato in booking.py e admin.py.
+    # confronto naive-UTC usato in booking.py e nel package admin/.
     ora_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     slots = db.query(Slot).filter(
         Slot.is_available == True,

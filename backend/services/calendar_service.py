@@ -220,14 +220,14 @@ def sincronizza_slot_con_calendario(db: Session) -> int:
     Legge il calendario Google del coach e blocca (is_available=False,
     blocked_external=True) gli slot liberi che si sovrappongono a un
     evento esterno (torneo, stream, altro impegno). Estratta qui da
-    backend/routers/admin.py per essere richiamabile sia dal bottone
-    manuale in admin (POST /admin/slots/sync-calendario) sia dal job
+    backend/routers/admin/availability.py per essere richiamabile sia dal
+    bottone manuale in admin (POST /admin/slots/sync-calendario) sia dal job
     automatico periodico in backend/scheduler.py — stessa identica
     logica, un solo posto da mantenere.
     """
     # Import locale (non in cima al file) per evitare un import circolare:
     # backend.models.slots non serve alle altre funzioni di questo modulo,
-    # e admin.py importa già da qui.
+    # e admin/availability.py importa già da qui.
     from backend.models.slots import Slot
 
     ora = datetime.now(timezone.utc).replace(tzinfo=None)

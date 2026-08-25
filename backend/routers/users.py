@@ -35,7 +35,8 @@ router = APIRouter(prefix="/users", tags=["Users"])
 # server al login riuscito (vedi backend/routers/discord_auth.py), mai
 # scritto né letto da JavaScript. Prima il token viaggiava nell'header
 # "Authorization" (letto con OAuth2PasswordBearer, la stessa classe ancora
-# usata per l'admin in admin.py) e il frontend lo teneva in localStorage —
+# usata per l'admin in backend/routers/admin/__init__.py) e il frontend lo
+# teneva in localStorage —
 # un bersaglio comodo per un eventuale script malevolo iniettato nella
 # pagina (XSS): con un cookie httpOnly, nessuno script (nemmeno il nostro)
 # può leggerlo, solo il browser lo allega da solo alle richieste verso
@@ -85,7 +86,7 @@ def get_studente(studente: Optional[User] = Depends(get_studente_opzionale)) -> 
 # automaticamente l'output e per generare la documentazione su /docs.
 #
 # admin: str = Depends(get_admin) è quello che protegge questo endpoint:
-# get_admin (definita in admin.py) controlla che ci sia un token JWT admin
+# get_admin (definita in backend/routers/admin/__init__.py) controlla che ci sia un token JWT admin
 # valido nell'header della richiesta, e se manca o non è valido blocca
 # tutto PRIMA che il corpo della funzione venga eseguito. È così che il
 # progetto protegge gli endpoint riservati, senza ripetere il controllo

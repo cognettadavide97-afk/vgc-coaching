@@ -347,7 +347,7 @@ def recensioni_pubbliche(db: Session = Depends(get_db)):
     """
     Vetrina pubblica delle recensioni (pagina About, frontend/about.html):
     solo quelle che il coach ha approvato (vedi PATCH /admin/recensioni/{id}
-    in backend/routers/admin.py), più recenti prima. Nessun dato interno
+    in backend/routers/admin/reviews.py), più recenti prima. Nessun dato interno
     esposto (niente email, niente booking_id) — solo il nome di battesimo
     del cliente, così una recensione resta riconoscibile come "vera" senza
     rivelare il cognome o il contatto di chi l'ha scritta.

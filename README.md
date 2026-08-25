@@ -107,7 +107,7 @@ Ogni file definisce un gruppo di indirizzi web (endpoint) collegati tra loro da 
 - `users.py` → indirizzi che iniziano con `/users` (creare un utente, vedere il proprio profilo se loggato...).
 - `slots.py` → indirizzi che iniziano con `/slots` (vedere gli slot liberi, crearne uno nuovo da admin).
 - `booking.py` → indirizzi che iniziano con `/bookings` (creare una prenotazione — il cuore dell'app).
-- `admin.py` → indirizzi che iniziano con `/admin` (login admin, dashboard, gestione prenotazioni/clienti/slot/regole/blocchi — il file più grande del progetto, perché il pannello admin fa molte cose).
+- `admin/` → indirizzi che iniziano con `/admin` (login, dashboard, gestione prenotazioni/clienti/slot/regole/blocchi/recensioni/pacchetti). È un package, non un singolo file: `__init__.py` gestisce l'autenticazione (`get_admin`, `/login`) e assembla i sotto-router (`dashboard.py`, `bookings.py`, `clients.py`, `availability.py`, `packages.py`, `reviews.py`), separati per area così nessun file diventa enorme.
 - `discord_auth.py` → indirizzi che iniziano con `/auth/discord` (il flusso di login opzionale via Discord).
 
 ### `alembic/` — la "cronologia" del database
@@ -207,7 +207,7 @@ uvicorn backend.main:app --reload --port 8000
 ```
 
 - Form pubblico: `http://127.0.0.1:8000/`
-- Pannello admin: `http://127.0.0.1:8000/admin-panel` (credenziali da `ADMIN_USERNAME`/`ADMIN_PASSWORD`)
+- Pannello admin: `http://127.0.0.1:8000/admin-panel` (credenziali da `ADMIN_USERNAME`, password verificata contro `ADMIN_PASSWORD_HASH` — genera l'hash con `python scripts/hash_admin_password.py`)
 
 ## Variabili d'ambiente
 
@@ -223,7 +223,8 @@ uvicorn backend.main:app --reload --port 8000
 | `COACH_TELEGRAM_CONTACT` | No | Contatto Telegram del coach, mostrato nell'email di conferma al cliente. |
 | `DISCORD_WEBHOOK_URL` | No | Webhook del canale Discord del coach, per le notifiche. |
 | `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` / `DISCORD_OAUTH_REDIRECT_URI` | No (per il login Discord) | Credenziali dell'app OAuth2 Discord. |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Sì | Credenziali per accedere al pannello admin. |
+| `ADMIN_USERNAME` | Sì | Username per accedere al pannello admin. |
+| `ADMIN_PASSWORD_HASH` | Sì | Hash bcrypt della password admin — **non la password in chiaro**. Genera l'hash con `python scripts/hash_admin_password.py` (chiede la password interattivamente, non va mai scritta come argomento da riga di comando o salvata in chiaro). |
 | `JWT_SECRET` | Sì | Chiave di firma dei token JWT (admin e studenti). |
 | `JWT_ALGORITHM` | No | Algoritmo di firma JWT (default `HS256`). |
 | `JWT_EXPIRE_MINUTES` | No | Durata di validità dei token in minuti (default `480`). |
@@ -234,6 +235,10 @@ uvicorn backend.main:app --reload --port 8000
 | `REVIEW_CHECK_INTERVAL_MINUTES` | No | Ogni quanti minuti lo scheduler controlla se ci sono richieste di recensione da inviare (default `60`). |
 | `CALENDAR_SYNC_INTERVAL_MINUTES` | No | Ogni quanti minuti lo scheduler sincronizza automaticamente gli slot col calendario Google, oltre al bottone manuale in admin (default `60`). |
 | `GMAIL_HEALTHCHECK_INTERVAL_HOURS` | No | Ogni quante ore lo scheduler controlla che `GMAIL_REFRESH_TOKEN` sia ancora valido, avvisando su Discord se smette di funzionare (default `24`). Vedi la sezione "Gmail API" più sotto. |
+| `DRIVE_REFRESH_TOKEN` | No (per il backup automatico) | Token OAuth2 per caricare i dump del database su Google Drive. Vedi la sezione "Google Drive (backup automatico database)" più sotto. |
+| `GOOGLE_DRIVE_BACKUP_FOLDER_ID` | No (per il backup automatico) | ID della cartella Drive di destinazione dei backup. |
+| `BACKUP_RETENTION_DAYS` | No | Dopo quanti giorni un backup viene eliminato automaticamente da Drive (default `30`). |
+| `RETENTION_MONTHS` | No | Dopo quanti mesi di inattività un cliente viene anonimizzato automaticamente, per conformità GDPR (default `24`). Vedi sezione "Conformità GDPR" più sotto. |
 
 ## Comandi disponibili
 
@@ -246,6 +251,9 @@ uvicorn backend.main:app --reload --port 8000
 | `pip install -r requirements.txt` | Installa/aggiorna le dipendenze |
 | `pip install -r requirements-dev.txt` | Installa anche le dipendenze di test (pytest, httpx) |
 | `pytest` | Esegue la suite di test automatici (`tests/`) — usa un database SQLite in memoria, non tocca mai il MySQL di sviluppo o produzione |
+| `python scripts/hash_admin_password.py` | Genera l'hash bcrypt da mettere in `ADMIN_PASSWORD_HASH` (chiede la password in modo interattivo, senza echo) |
+
+La stessa suite `pytest` gira automaticamente su ogni push/PR tramite GitHub Actions (`.github/workflows/tests.yml`), così un errore emerge prima del deploy, non dopo.
 
 ## Configurazione dei servizi esterni
 
@@ -314,3 +322,13 @@ Non è mai stato provato un ripristino reale end-to-end — vale la pena farlo a
 
 - Nessun segreto è hardcoded nel codice: tutto passa da variabili d'ambiente, mai committate (`.env` è in `.gitignore`).
 - Le credenziali del database MySQL erano finite in chiaro nel codice sorgente nei primi commit del progetto e restano nella cronologia git: se non è già stato fatto, ruota la password sul server MySQL indipendentemente da qualsiasi fix di codice.
+- La password admin non è mai salvata in chiaro: `ADMIN_PASSWORD_HASH` contiene solo un hash bcrypt, verificato con `bcrypt.checkpw` a ogni login.
+- Il login admin (`POST /admin/login`) è protetto da rate limiting (`slowapi`) contro tentativi di forza bruta.
+- La sessione dello studente (dopo login Discord) viaggia in un cookie `httpOnly`/`samesite=lax` (`secure` in produzione), non in `localStorage` — non leggibile da JavaScript, quindi non rubabile via XSS.
+- Il flusso OAuth2 Discord usa un cookie `state` con confronto a tempo costante (`secrets.compare_digest`) per prevenire attacchi CSRF sul login.
+- Ogni endpoint sensibile che tocca un pacchetto/prenotazione di uno studente verifica che l'oggetto appartenga davvero a chi ha fatto la richiesta (protezione IDOR), non solo che esista.
+
+### Conformità GDPR
+- `frontend/privacy.html` — informativa privacy (base giuridica, dati raccolti, diritti dell'interessato).
+- Diritto alla cancellazione (Art. 17): `DELETE /admin/clienti/{id}` rimuove definitivamente un cliente e tutti i dati collegati (prenotazioni, recensioni, note, pacchetti) — pulsante "🗑️ Elimina" nel pannello admin.
+- Limitazione della conservazione (Art. 5.1.e): `backend/services/retention_service.py`, eseguito ogni notte dallo scheduler, anonimizza automaticamente i clienti inattivi da oltre `RETENTION_MONTHS` mesi (colonna `User.anonimizzato_at` traccia chi è già stato processato, per non ripetere il lavoro).

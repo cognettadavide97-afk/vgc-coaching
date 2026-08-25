@@ -19,7 +19,7 @@ class Review(Base):
 
     # Una recensione appena lasciata dal cliente NON è subito pubblica: il
     # coach deve prima approvarla dal pannello admin (vedi
-    # PATCH /admin/recensioni/{id} in backend/routers/admin.py). Solo le
+    # PATCH /admin/recensioni/{id} in backend/routers/admin/reviews.py). Solo le
     # recensioni con approvata=True compaiono nell'endpoint pubblico
     # GET /bookings/recensioni/pubbliche, usato dalla pagina About.
     approvata = Column(Boolean, default=False, nullable=False)

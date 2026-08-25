@@ -5,7 +5,7 @@
 # booking.py e CATALOGO_PACCHETTI in package_service.py), quindi questo
 # endpoint NON crea un pacchetto vero — manda solo i contatti del cliente
 # al coach, che poi lo assegna davvero da POST /admin/pacchetti
-# (backend/routers/admin.py) dopo aver ricevuto il pagamento concordato
+# (backend/routers/admin/packages.py) dopo aver ricevuto il pagamento concordato
 # privatamente.
 
 from fastapi import APIRouter, Depends, Request

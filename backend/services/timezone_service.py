@@ -8,7 +8,7 @@
 # vuole leggere "16:00 UTC" — vuole leggere "18:00", la sua ora locale. Il
 # lavoro di conversione va fatto SOLO nel momento in cui un orario deve
 # essere mostrato, mai mentre viaggia dentro il sistema — per questo questa
-# funzione viene chiamata dai router admin.py/booking.py, non dai model.
+# funzione viene chiamata dai router del package admin/ e da booking.py, non dai model.
 
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo

@@ -7,7 +7,7 @@
 # inattivo, e i suoi dati identificativi vengono anonimizzati in automatico.
 #
 # ANONIMIZZAZIONE, non cancellazione fisica: a differenza di
-# DELETE /admin/clienti/{id} (backend/routers/admin.py, usato quando un
+# DELETE /admin/clienti/{id} (backend/routers/admin/clients.py, usato quando un
 # cliente chiede espressamente la cancellazione), qui le prenotazioni e i
 # pacchetti restano nel database — servono per lo storico incassi/analytics
 # del pannello admin (dashboard, analytics, export CSV) — ma il cliente
