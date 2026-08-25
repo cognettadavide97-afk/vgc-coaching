@@ -30,4 +30,11 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Esegui i test
+        # backend/database.py richiede DATABASE_URL solo per costruire
+        # l'Engine all'import (create_engine non apre una connessione
+        # reale finché nessuno la usa) — i test però sovrascrivono get_db
+        # con un SQLite in-memory separato (vedi tests/conftest.py), quindi
+        # basta un valore fittizio, mai usato per davvero.
         run: pytest
+        env:
+          DATABASE_URL: "sqlite:///:memory:"
