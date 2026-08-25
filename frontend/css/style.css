@@ -1078,6 +1078,60 @@ main {
     color: var(--color-text-muted);
 }
 
+/* INFORMATIVA PRIVACY (frontend/privacy.html) — testo lungo, quindi una
+   colonna più stretta della media (720px, come .about-bio) per righe non
+   troppo lunghe da leggere, e spaziatura verticale generosa tra le
+   sezioni. */
+.legal-section {
+    max-width: 720px;
+    margin: 2.5rem auto;
+    padding: 0 1rem 3rem;
+}
+
+.legal-title {
+    font-family: 'Anton', sans-serif;
+    text-transform: uppercase;
+    color: var(--color-navy);
+    font-size: 1.8rem;
+    margin-bottom: 0.25rem;
+}
+
+.legal-updated {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    margin-bottom: 1.5rem;
+}
+
+.legal-intro {
+    font-size: 1rem;
+    line-height: 1.7;
+    margin-bottom: 2rem;
+}
+
+.legal-block {
+    margin-bottom: 1.75rem;
+}
+
+.legal-block h2 {
+    font-family: 'Anton', sans-serif;
+    font-size: 1.15rem;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    color: var(--color-navy);
+    margin-bottom: 0.5rem;
+}
+
+.legal-block p {
+    font-size: 0.95rem;
+    line-height: 1.7;
+    color: var(--color-text);
+}
+
+.legal-block a {
+    color: var(--color-red);
+    font-weight: 700;
+}
+
 /* RESPONSIVE — schermi stretti (telefono) */
 @media (max-width: 600px) {
     header {

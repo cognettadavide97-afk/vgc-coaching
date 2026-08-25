@@ -515,6 +515,10 @@ async function caricaClienti(pagina = 1) {
                                     onclick="apriAssegnaPacchetto(${c.id}, '${escapeHtml(c.nome).replace(/'/g, "\\'")}')">
                                     🎁 Pacchetto
                                 </button>
+                                <button class="action-btn action-delete"
+                                    onclick="eliminaCliente(${c.id}, '${escapeHtml(c.nome).replace(/'/g, "\\'")}')">
+                                    🗑️ Elimina
+                                </button>
                             </td>
                         </tr>
                     `).join('')}
@@ -524,6 +528,35 @@ async function caricaClienti(pagina = 1) {
         `;
     } catch (error) {
         console.error('Errore clienti:', error);
+    }
+}
+
+// ─── CANCELLAZIONE CLIENTE (diritto all'oblio, Art. 17 GDPR) ──
+async function eliminaCliente(userId, nomeCliente) {
+    // Doppia conferma testuale, non solo un confirm() generico: questa
+    // azione cancella per sempre prenotazioni, note e recensioni del
+    // cliente, non solo il suo profilo — meglio essere espliciti su cosa
+    // sta per sparire prima di procedere (vedi eliminaSlot più sotto per
+    // lo stesso pattern conferma+fetch DELETE, usato qui su un'azione
+    // ancora più distruttiva).
+    if (!confirm(`Eliminare definitivamente ${nomeCliente} e TUTTI i suoi dati (prenotazioni, note, recensioni, pacchetti)? L'azione non è reversibile.`)) return;
+
+    try {
+        const res = await fetch(`/admin/clienti/${userId}`, {
+            method: 'DELETE',
+            headers: authHeaders()
+        });
+
+        if (!res.ok) {
+            const errore = await res.json();
+            alert(errore.detail || 'Errore durante l\'eliminazione del cliente.');
+            return;
+        }
+
+        caricaClienti(paginaCorrente.clienti);
+    } catch (error) {
+        console.error('Errore eliminazione cliente:', error);
+        alert('Errore di connessione durante l\'eliminazione.');
     }
 }
 

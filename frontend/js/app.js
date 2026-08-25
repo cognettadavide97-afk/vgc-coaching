@@ -542,11 +542,15 @@ function aggiornaPrezzoRiepilogo() {
     document.getElementById('summary-price').textContent = usaPacchetto ? t('free_package') : `€${state.selectedPrice}`;
 }
 
-// Cerca un pacchetto attivo per l'email inserita, compatibile con la
+// Cerca un pacchetto attivo dello studente LOGGATO, compatibile con la
 // durata scelta allo step 1 (i pacchetti del catalogo sono tutti da 2 ore,
 // vedi backend/services/package_service.py) — se lo trova, mostra il
 // checkbox "usa pacchetto" allo step 3, altrimenti lo tiene nascosto.
-async function controllaPacchettoAttivo(email) {
+// Nessun parametro email: da quando GET /users/pacchetti-attivi identifica
+// l'utente dal token invece che da un'email nell'URL (fix di sicurezza,
+// vedi backend/routers/users.py), questa funzione va chiamata solo se
+// studentToken esiste — vedi il chiamante, il click su "btn-to-step3".
+async function controllaPacchettoAttivo() {
     const box = document.getElementById('pacchetto-attivo-box');
     const testo = document.getElementById('pacchetto-attivo-testo');
     const checkbox = document.getElementById('usa-pacchetto');
@@ -555,7 +559,9 @@ async function controllaPacchettoAttivo(email) {
     box.style.display = 'none';
 
     try {
-        const res = await fetch(`/users/pacchetti-attivi?email=${encodeURIComponent(email)}`);
+        const res = await fetch('/users/pacchetti-attivi', {
+            headers: { 'Authorization': `Bearer ${studentToken}` }
+        });
         if (!res.ok) return;
         const pacchetti = await res.json();
         const compatibile = pacchetti.find(p => p.durata_sessione_ore === state.selectedHours);
@@ -607,7 +613,16 @@ document.getElementById('btn-to-step3').addEventListener('click', async () => {
         return;
     }
 
-    await controllaPacchettoAttivo(email);
+    // Usare un pacchetto ora richiede login Discord (vedi il controllo
+    // "if not studente" su POST /bookings/ in backend/routers/booking.py):
+    // senza un'identità verificata, chiunque conoscesse l'email di un
+    // cliente avrebbe potuto scoprire e consumare il suo pacchetto già
+    // pagato. Per un ospite non loggato, saltiamo del tutto la ricerca —
+    // GET /users/pacchetti-attivi ora richiede comunque login, quindi non
+    // troverebbe nulla di utile.
+    if (studentToken) {
+        await controllaPacchettoAttivo();
+    }
     aggiornaRiepilogo();
 
     showStep('step-3');
@@ -661,9 +676,18 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
         const packageId = (checkboxPacchetto.checked && state.pacchettoAttivo) ? state.pacchettoAttivo.id : null;
 
         // 2 — crea la prenotazione
+        // L'header Authorization va mandato solo se lo studente è loggato
+        // (studentToken esiste) — è quello che il server controlla per
+        // verificare la proprietà del pacchetto quando packageId non è
+        // null (vedi il commento sopra su controllaPacchettoAttivo).
+        const bookingHeaders = { 'Content-Type': 'application/json' };
+        if (studentToken) {
+            bookingHeaders['Authorization'] = `Bearer ${studentToken}`;
+        }
+
         const bookingResponse = await fetch('/bookings/', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: bookingHeaders,
             body: JSON.stringify({
                 user_id: state.userId,
                 slot_id: state.selectedSlot.id,

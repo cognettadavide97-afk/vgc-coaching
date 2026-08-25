@@ -26,6 +26,8 @@ from backend.database import Base, get_db
 import backend.models  # registra tutti i model su Base.metadata (vedi backend/models/__init__.py)
 from backend.main import app
 from backend.rate_limit import limiter
+from backend.models.slots import Slot
+from backend.services.auth_service import crea_token
 
 TEST_ENGINE = create_engine(
     "sqlite:///:memory:",
@@ -77,11 +79,25 @@ def integrazioni_esterne_finte(monkeypatch):
     "ripristinare" nulla a mano.
     """
     import backend.routers.booking as booking_router
+    import backend.routers.consulenza as consulenza_router
+    import backend.routers.pacchetti_richieste as pacchetti_richieste_router
 
     monkeypatch.setattr(booking_router, "crea_evento_calendario", lambda **kwargs: None)
     monkeypatch.setattr(booking_router, "invia_conferma_cliente", lambda **kwargs: None)
     monkeypatch.setattr(booking_router, "invia_notifica_admin", lambda **kwargs: None)
     monkeypatch.setattr(booking_router, "invia_notifica_discord", lambda **kwargs: None)
+
+    # Stessa cosa per consulenza.py e pacchetti_richieste.py: chiamano email
+    # e Discord VERI tanto quanto booking.py, ma finora nessun test li
+    # copriva — un test che li chiamasse senza queste righe manderebbe
+    # davvero email/messaggi Discord con le credenziali reali del .env.
+    monkeypatch.setattr(consulenza_router, "invia_conferma_richiesta_consulenza", lambda **kwargs: None)
+    monkeypatch.setattr(consulenza_router, "invia_notifica_richiesta_consulenza_admin", lambda **kwargs: None)
+    monkeypatch.setattr(consulenza_router, "invia_richiesta_consulenza_discord", lambda **kwargs: None)
+
+    monkeypatch.setattr(pacchetti_richieste_router, "invia_conferma_richiesta_pacchetto", lambda **kwargs: None)
+    monkeypatch.setattr(pacchetti_richieste_router, "invia_notifica_richiesta_pacchetto_admin", lambda **kwargs: None)
+    monkeypatch.setattr(pacchetti_richieste_router, "invia_richiesta_pacchetto_discord", lambda **kwargs: None)
 
 
 @pytest.fixture
@@ -97,3 +113,23 @@ def db():
         yield session
     finally:
         session.close()
+
+
+# ─── HELPER CONDIVISI DA PIÙ FILE DI TEST ─────────────────────
+# Funzioni semplici (non fixture: prendono parametri, non ha senso
+# iniettarle automaticamente) che diversi file di test ripetevano
+# ciascuno per conto proprio in modo identico — vivono qui una volta sola,
+# stesso principio delle fixture sopra.
+
+def admin_headers():
+    """Header Authorization con un token admin valido, per chiamare endpoint protetti da Depends(get_admin)."""
+    return {"Authorization": f"Bearer {crea_token('admin')}"}
+
+
+def crea_slot(db, start_time, duration_hours=1, is_available=True):
+    """Crea uno Slot direttamente sul database di test, senza passare dall'endpoint POST /slots/ (che richiederebbe un admin)."""
+    slot = Slot(start_time=start_time, duration_hours=duration_hours, is_available=is_available)
+    db.add(slot)
+    db.commit()
+    db.refresh(slot)
+    return slot

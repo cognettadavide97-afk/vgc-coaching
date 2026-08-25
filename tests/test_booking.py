@@ -6,9 +6,9 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from backend.models.slots import Slot
 from backend.models.package import Package
 from backend.services.auth_service import crea_token_studente
+from conftest import crea_slot
 
 ROME_TZ = ZoneInfo("Europe/Rome")
 
@@ -21,14 +21,6 @@ def rome_naive_utc(anno, mese, giorno, ora):
     return datetime(anno, mese, giorno, ora, tzinfo=ROME_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
 
 
-def crea_slot(db, start_time, duration_hours=1, is_available=True):
-    slot = Slot(start_time=start_time, duration_hours=duration_hours, is_available=is_available)
-    db.add(slot)
-    db.commit()
-    db.refresh(slot)
-    return slot
-
-
 def crea_utente(client, email="cliente@example.com"):
     res = client.post("/users/", json={
         "nome": "Cliente Test",
@@ -38,7 +30,13 @@ def crea_utente(client, email="cliente@example.com"):
         "telefono": None
     })
     assert res.status_code == 200, res.text
-    return res.json()
+    # POST /users/ restituisce solo {"id": ...} da quando risponde con
+    # UserIdResponse invece di UserResponse (fix di sicurezza: non deve più
+    # rivelare il profilo di un cliente esistente a chi ne indovina l'email,
+    # vedi backend/schemas/users.py) — i test però conoscono già l'email
+    # (l'hanno appena mandata), gliela riattacchiamo qui per comodità invece
+    # di ripeterla ovunque serve crea_token_studente(id, email).
+    return {**res.json(), "email": email}
 
 
 # Punto di partenza fisso per tutti gli orari di test: un lunedì alle 15:00
@@ -68,6 +66,23 @@ def test_prenotazione_1_ora(client, db):
     assert prenotazione["slot_id_secondario"] is None
     assert prenotazione["price_cents"] == 2000  # 20€/ora, vedi TABELLA_PREZZI in booking.py
     assert prenotazione["status"] == "confirmed"
+
+
+def test_prenotazione_su_slot_passato_viene_rifiutata(client, db):
+    # Uno slot mai prenotato resta is_available=True anche dopo che il suo
+    # orario è passato (nessun job lo marca scaduto) — vedi il controllo
+    # in create_booking, backend/routers/booking.py.
+    utente = crea_utente(client)
+    slot_passato = crea_slot(db, rome_naive_utc(2020, 1, 6, 15))
+
+    res = client.post("/bookings/", json={
+        "user_id": utente["id"],
+        "slot_id": slot_passato.id,
+        "duration_hours": 1,
+        "service_type": "vod_review"
+    })
+
+    assert res.status_code == 400
 
 
 def test_prenotazione_2_ore_unisce_due_slot_adiacenti(client, db):
@@ -196,13 +211,22 @@ def test_redenzione_pacchetto_azzera_prezzo_e_scala_credito(client, db):
     db.commit()
     db.refresh(pacchetto)
 
-    res = client.post("/bookings/", json={
-        "user_id": utente["id"],
-        "slot_id": slot_a.id,
-        "duration_hours": 2,
-        "service_type": "team_building",
-        "package_id": pacchetto.id
-    })
+    # Usare un pacchetto richiede login Discord (vedi il controllo "if not
+    # studente" su POST /bookings/ in backend/routers/booking.py): senza,
+    # chiunque conoscesse user_id/package_id di un cliente vero avrebbe
+    # potuto scalargli una sessione senza il suo consenso.
+    token = crea_token_studente(utente["id"], utente["email"])
+    res = client.post(
+        "/bookings/",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "user_id": utente["id"],
+            "slot_id": slot_a.id,
+            "duration_hours": 2,
+            "service_type": "team_building",
+            "package_id": pacchetto.id
+        }
+    )
 
     assert res.status_code == 200, res.text
     prenotazione = res.json()
@@ -211,6 +235,35 @@ def test_redenzione_pacchetto_azzera_prezzo_e_scala_credito(client, db):
 
     db.refresh(pacchetto)
     assert pacchetto.sessioni_usate == 1
+
+
+def test_redenzione_pacchetto_senza_login_viene_rifiutata(client, db):
+    # Copre proprio la falla chiusa da questo controllo: senza un token
+    # studente valido, provare a prenotare con un package_id (anche vero,
+    # anche di un altro utente) deve fallire con 401 — vedi il commento in
+    # backend/routers/booking.py.
+    utente = crea_utente(client)
+    slot_a = crea_slot(db, INIZIO)
+    crea_slot(db, INIZIO + timedelta(hours=1))
+
+    pacchetto = Package(
+        user_id=utente["id"], tipo="intro",
+        sessioni_totali=2, sessioni_usate=0,
+        durata_sessione_ore=2, prezzo_cents=7000
+    )
+    db.add(pacchetto)
+    db.commit()
+    db.refresh(pacchetto)
+
+    res = client.post("/bookings/", json={
+        "user_id": utente["id"],
+        "slot_id": slot_a.id,
+        "duration_hours": 2,
+        "service_type": "team_building",
+        "package_id": pacchetto.id
+    })
+
+    assert res.status_code == 401
 
 
 def test_redenzione_pacchetto_esaurito_viene_rifiutata(client, db):
@@ -227,15 +280,96 @@ def test_redenzione_pacchetto_esaurito_viene_rifiutata(client, db):
     db.commit()
     db.refresh(pacchetto)
 
-    res = client.post("/bookings/", json={
-        "user_id": utente["id"],
-        "slot_id": slot_a.id,
-        "duration_hours": 2,
-        "service_type": "team_building",
-        "package_id": pacchetto.id
-    })
+    token = crea_token_studente(utente["id"], utente["email"])
+    res = client.post(
+        "/bookings/",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "user_id": utente["id"],
+            "slot_id": slot_a.id,
+            "duration_hours": 2,
+            "service_type": "team_building",
+            "package_id": pacchetto.id
+        }
+    )
 
     assert res.status_code == 400
+
+
+def test_redenzione_pacchetto_di_un_altro_utente_viene_rifiutata(client, db):
+    # Il vero scenario di furto: un attaccante loggato con IL PROPRIO
+    # account Discord (token valido, ma per un altro utente) prova a usare
+    # il package_id di una vittima, magari scoperto da
+    # GET /users/pacchetti-attivi?email=vittima@... — deve fallire, perché
+    # il controllo confronta package.user_id con l'id nel TOKEN, non con
+    # user_id dichiarato nel body.
+    vittima = crea_utente(client, email="vittima@example.com")
+    attaccante = crea_utente(client, email="attaccante@example.com")
+    slot_a = crea_slot(db, INIZIO)
+    crea_slot(db, INIZIO + timedelta(hours=1))
+
+    pacchetto_vittima = Package(
+        user_id=vittima["id"], tipo="intro",
+        sessioni_totali=2, sessioni_usate=0,
+        durata_sessione_ore=2, prezzo_cents=7000
+    )
+    db.add(pacchetto_vittima)
+    db.commit()
+    db.refresh(pacchetto_vittima)
+
+    token_attaccante = crea_token_studente(attaccante["id"], attaccante["email"])
+    res = client.post(
+        "/bookings/",
+        headers={"Authorization": f"Bearer {token_attaccante}"},
+        json={
+            "user_id": vittima["id"],  # l'attaccante dichiara la vittima come user_id...
+            "slot_id": slot_a.id,
+            "duration_hours": 2,
+            "service_type": "team_building",
+            "package_id": pacchetto_vittima.id  # ...e prova a usare il SUO pacchetto
+        }
+    )
+
+    assert res.status_code == 404  # "Package not found": non è suo, anche se esiste davvero
+
+    db.refresh(pacchetto_vittima)
+    assert pacchetto_vittima.sessioni_usate == 0  # il credito della vittima resta intatto
+
+
+def test_pacchetti_attivi_richiede_login_e_mostra_solo_i_propri(client, db):
+    # Copre il fix gemello di quello sopra: GET /users/pacchetti-attivi non
+    # accetta più un'email nella query string (chiunque poteva scoprire i
+    # pacchetti di un altro), ma identifica l'utente dal token — vedi
+    # backend/routers/users.py.
+    vittima = crea_utente(client, email="vittima2@example.com")
+    attaccante = crea_utente(client, email="attaccante2@example.com")
+
+    pacchetto_vittima = Package(
+        user_id=vittima["id"], tipo="intro",
+        sessioni_totali=2, sessioni_usate=0,
+        durata_sessione_ore=2, prezzo_cents=7000
+    )
+    db.add(pacchetto_vittima)
+    db.commit()
+
+    res_senza_login = client.get("/users/pacchetti-attivi")
+    assert res_senza_login.status_code == 401
+
+    token_attaccante = crea_token_studente(attaccante["id"], attaccante["email"])
+    res_attaccante = client.get(
+        "/users/pacchetti-attivi",
+        headers={"Authorization": f"Bearer {token_attaccante}"}
+    )
+    assert res_attaccante.status_code == 200
+    assert res_attaccante.json() == []  # l'attaccante non vede i pacchetti della vittima
+
+    token_vittima = crea_token_studente(vittima["id"], vittima["email"])
+    res_vittima = client.get(
+        "/users/pacchetti-attivi",
+        headers={"Authorization": f"Bearer {token_vittima}"}
+    )
+    assert res_vittima.status_code == 200
+    assert len(res_vittima.json()) == 1
 
 
 def test_cancellazione_self_service_libera_entrambi_gli_slot(client, db):

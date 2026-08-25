@@ -5,7 +5,7 @@
 # FastAPI — qui ci concentriamo sulle parti nuove: il login JWT vero e
 # proprio, la paginazione, e le query aggregate.
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -27,6 +27,7 @@ from backend.schemas.package import PackageCreate, PackageResponse
 from backend.schemas.review import ReviewApprovazione
 from backend.services.package_service import CATALOGO_PACCHETTI
 from backend.services.auth_service import verifica_credenziali, crea_token, verifica_token
+from backend.rate_limit import limiter
 from typing import List, Optional
 import csv
 import io
@@ -64,7 +65,12 @@ def get_admin(token: str = Depends(oauth2_scheme)):
 
 # ─── LOGIN ───────────────────────────────────────────────────
 @router.post("/login")
-def login(form: OAuth2PasswordRequestForm = Depends()):
+# @limiter.limit("5/minute") blocca chi prova troppe password in poco
+# tempo dallo stesso IP — stessa protezione già usata sugli altri endpoint
+# di scrittura pubblici (vedi backend/routers/users.py), qui applicata al
+# login admin che prima ne era privo.
+@limiter.limit("5/minute")
+def login(request: Request, form: OAuth2PasswordRequestForm = Depends()):
     """
     Riceve username e password dal form di login.
     Se corretti restituisce un token JWT.
@@ -517,6 +523,55 @@ def get_clienti(
         "per_pagina": per_pagina,
         "pagine_totali": max((totale + per_pagina - 1) // per_pagina, 1)
     }
+
+# ─── CANCELLAZIONE CLIENTE (diritto all'oblio, Art. 17 GDPR) ─
+@router.delete("/clienti/{user_id}")
+def elimina_cliente(
+    user_id: int,
+    admin: str = Depends(get_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Cancella definitivamente un cliente e tutti i dati collegati:
+    recensioni, prenotazioni, note tecniche e pacchetti. Prima di
+    cancellare, libera lo slot (ed elimina l'evento Google Calendar) di
+    ogni prenotazione ancora "confirmed" — stessa funzione già usata da
+    PATCH /admin/prenotazioni/{id}/stato quando una prenotazione viene
+    cancellata singolarmente.
+
+    Da usare quando un cliente esercita il diritto alla cancellazione dei
+    propri dati (vedi frontend/privacy.html, sezione "I tuoi diritti") —
+    finora l'unico modo per farlo era intervenire a mano sul database.
+    """
+    cliente = db.query(User).filter(User.id == user_id).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente non trovato")
+
+    prenotazioni = db.query(Booking).filter(Booking.user_id == user_id).all()
+    for p in prenotazioni:
+        if p.status == "confirmed":
+            libera_slot_prenotazione(p, db)
+        # Una recensione ha una ForeignKey verso la sua prenotazione (vedi
+        # backend/models/review.py): va cancellata PRIMA della prenotazione
+        # a cui appartiene, altrimenti il database rifiuterebbe di
+        # eliminare una riga ancora referenziata da un'altra.
+        if p.review:
+            db.delete(p.review)
+        db.delete(p)
+
+    # Stesso motivo per cui le prenotazioni vanno cancellate prima dei
+    # pacchetti: Booking.package_id referenzia packages.id (vedi
+    # backend/models/booking.py) — a questo punto le prenotazioni sono già
+    # state eliminate sopra, quindi i pacchetti si possono rimuovere senza
+    # violare nessun vincolo.
+    db.query(ClientNote).filter(ClientNote.user_id == user_id).delete()
+    db.query(Package).filter(Package.user_id == user_id).delete()
+
+    nome_cliente = cliente.nome
+    db.delete(cliente)
+    db.commit()
+    return {"message": f"Cliente {nome_cliente} e tutti i dati collegati sono stati eliminati"}
+
 
 # ─── NOTE TECNICHE CLIENTE (MINI-CRM) ────────────────────────
 @router.get("/clienti/{user_id}/note", response_model=List[ClientNoteResponse])

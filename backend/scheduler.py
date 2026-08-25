@@ -10,16 +10,18 @@
 import os
 from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
-from backend.database import SessionLocal
+from sqlalchemy.orm import contains_eager, joinedload
+from backend.database import SessionLocal, engine
 from backend.models.booking import Booking
 from backend.models.slots import Slot
-from backend.models.users import User
 from backend.models.availability_rule import AvailabilityRule
 from backend.services.email_service import invia_promemoria_cliente, invia_richiesta_recensione, verifica_credenziali_gmail
 from backend.services.discord_service import invia_promemoria_discord, invia_alert_sistema
 from backend.services.timezone_service import utc_to_rome
 from backend.services.calendar_service import sincronizza_slot_con_calendario
 from backend.services.availability_service import genera_slot_da_regola
+from backend.services.retention_service import anonimizza_clienti_inattivi, RETENTION_MONTHS
+from backend.services.backup_service import esegui_backup_database
 
 # Entrambi i valori sono letti da variabili d'ambiente con un default se
 # mancano (os.getenv(nome, default)) — così restano configurabili senza
@@ -50,6 +52,41 @@ GMAIL_HEALTHCHECK_INTERVAL_HOURS = float(os.getenv("GMAIL_HEALTHCHECK_INTERVAL_H
 _ultimo_controllo_gmail_ok = None
 
 
+def _query_prenotazioni_con_slot_e_utente(db):
+    """
+    Query di base condivisa da controlla_e_invia_promemoria e
+    controlla_e_invia_richieste_recensione qui sotto: entrambe cercano
+    prenotazioni filtrando su Slot.start_time e poi, nel ciclo, leggono
+    prenotazione.user/prenotazione.slot — questa funzione fa solo il JOIN
+    e l'eager-loading comuni (senza .filter() né .all()), lasciando a chi
+    la chiama aggiungere le proprie condizioni.
+
+    .join(Booking.slot) è necessario perché la condizione sulla data
+    (Slot.start_time, aggiunta dal chiamante) riguarda la tabella slots,
+    non bookings — bisogna "unire" le due tabelle per poterle confrontare
+    nella stessa query, esattamente come faresti con una JOIN in SQL puro.
+    Passiamo la relationship (Booking.slot) e non solo "Slot": da quando
+    Booking ha due colonne che puntano a slots (slot_id e
+    slot_id_secondario), ".join(Slot)" da solo non saprebbe più quale usare.
+
+    .options(contains_eager(Booking.slot), joinedload(Booking.user)):
+    senza queste due righe, chi cicla sul risultato farebbe DUE query in
+    più per OGNI prenotazione (una per lo User, una per lo Slot) anche se
+    lo Slot era già stato unito dal .join() sopra — un classico problema
+    "N+1 query" (N prenotazioni = 1 query iniziale + N*2 query ripetute
+    nel ciclo). contains_eager dice a SQLAlchemy "lo Slot lo hai già preso
+    col JOIN qui sopra, riempi booking.slot con quello invece di andarlo a
+    riprendere"; joinedload aggiunge un secondo JOIN (a users) nella
+    STESSA query per riempire anche booking.user. Risultato: una singola
+    query SQL per l'intero controllo, qualunque sia il numero di
+    prenotazioni trovate.
+    """
+    return db.query(Booking).join(Booking.slot).options(
+        contains_eager(Booking.slot),
+        joinedload(Booking.user)
+    )
+
+
 def controlla_e_invia_promemoria():
     """
     Questa è la funzione che APScheduler richiama ogni CHECK_INTERVAL_MINUTES
@@ -73,14 +110,9 @@ def controlla_e_invia_promemoria():
         soglia = ora + timedelta(hours=REMINDER_HOURS_BEFORE)
 
         # Una query con più condizioni: SQLAlchemy le combina tutte con "AND".
-        # .join(Booking.slot) è necessario perché la condizione sulla data
-        # (Slot.start_time) riguarda la tabella slots, non bookings — bisogna
-        # "unire" le due tabelle per poterle confrontare nella stessa query,
-        # esattamente come faresti con una JOIN in SQL puro. Passiamo la
-        # relationship (Booking.slot) e non solo "Slot": da quando Booking ha
-        # due colonne che puntano a slots (slot_id e slot_id_secondario),
-        # ".join(Slot)" da solo non saprebbe più quale usare.
-        prenotazioni = db.query(Booking).join(Booking.slot).filter(
+        # Vedi _query_prenotazioni_con_slot_e_utente sopra per il JOIN e
+        # l'eager-loading condivisi con controlla_e_invia_richieste_recensione.
+        prenotazioni = _query_prenotazioni_con_slot_e_utente(db).filter(
             Booking.status == "confirmed",
             Booking.reminder_sent == False,
             Slot.start_time > ora,       # non ancora passato
@@ -91,8 +123,8 @@ def controlla_e_invia_promemoria():
         # segniamo la prenotazione come "già avvisata", per non ripeterlo
         # al prossimo controllo (tra CHECK_INTERVAL_MINUTES minuti).
         for prenotazione in prenotazioni:
-            user = db.query(User).filter(User.id == prenotazione.user_id).first()
-            slot = db.query(Slot).filter(Slot.id == prenotazione.slot_id).first()
+            user = prenotazione.user
+            slot = prenotazione.slot
             if not user or not slot:
                 continue  # sicurezza: salta se per qualche motivo mancano i dati collegati
 
@@ -149,7 +181,7 @@ def controlla_e_invia_richieste_recensione():
         # che in realtà è già finita. Il controllo esatto (che tiene conto
         # della durata reale di ciascuna prenotazione) avviene poi in
         # Python riga per riga.
-        candidate = db.query(Booking).join(Booking.slot).filter(
+        candidate = _query_prenotazioni_con_slot_e_utente(db).filter(
             Booking.status == "confirmed",
             Booking.review_email_sent == False,
             Slot.start_time <= ora - timedelta(hours=2)
@@ -157,8 +189,8 @@ def controlla_e_invia_richieste_recensione():
 
         inviate = 0
         for prenotazione in candidate:
-            user = db.query(User).filter(User.id == prenotazione.user_id).first()
-            slot = db.query(Slot).filter(Slot.id == prenotazione.slot_id).first()
+            user = prenotazione.user
+            slot = prenotazione.slot
             if not user or not slot or not prenotazione.review_token:
                 continue
 
@@ -249,6 +281,52 @@ def controlla_credenziali_gmail():
     return ok
 
 
+def controlla_e_anonimizza_clienti_inattivi():
+    """
+    Applica la data retention (vedi backend/services/retention_service.py):
+    anonimizza i clienti inattivi da più di RETENTION_MONTHS mesi. Avvisa
+    su Discord SOLO quando ne anonimizza almeno uno (stesso spirito di
+    controlla_credenziali_gmail: un evento degno di nota, non un log
+    silenzioso) — il messaggio riporta solo il conteggio, mai nomi o email,
+    per non rimettere in un log/canale Discord proprio i dati che
+    l'anonimizzazione doveva far sparire.
+    """
+    db = SessionLocal()
+    try:
+        anonimizzati = anonimizza_clienti_inattivi(db)
+        if anonimizzati:
+            invia_alert_sistema(
+                "Data retention: clienti anonimizzati",
+                f"{anonimizzati} cliente/i inattivo/i da oltre {RETENTION_MONTHS} mesi "
+                "sono stati anonimizzati automaticamente (nome/email/contatti Discord rimossi, "
+                "storico prenotazioni mantenuto in forma anonima)."
+            )
+        return anonimizzati
+    finally:
+        db.close()
+
+
+def controlla_e_esegui_backup_database():
+    """
+    Genera un backup completo del database e lo carica su Google Drive
+    (vedi backend/services/backup_service.py per il perché: il piano
+    Railway attuale non include backup automatici). Avvisa su Discord SOLO
+    in caso di FALLIMENTO — un backup riuscito ogni giorno non merita un
+    messaggio quotidiano (stesso principio di controlla_credenziali_gmail),
+    ma un backup che smette di funzionare è esattamente il tipo di problema
+    silenzioso che si scopre troppo tardi, quando servirebbe davvero.
+    """
+    ok = esegui_backup_database(engine)
+    if not ok:
+        invia_alert_sistema(
+            "Backup database fallito",
+            "Il backup automatico su Google Drive non è riuscito. Controlla i log "
+            "del server per il dettaglio dell'errore — finché non è risolto, il "
+            "database di produzione non ha nessuna copia di sicurezza recente."
+        )
+    return ok
+
+
 def avvia_scheduler():
     """
     Crea e avvia lo scheduler in background. BackgroundScheduler è la
@@ -298,6 +376,27 @@ def avvia_scheduler():
         "interval",
         hours=GMAIL_HEALTHCHECK_INTERVAL_HOURS,
         id="controlla_credenziali_gmail"
+    )
+    # cron, non interval: una volta al giorno basta e avanza per un
+    # controllo di retention (la soglia è di MESI, non di minuti) — stesso
+    # orario a basso traffico di genera_slot_giornaliero, un minuto dopo per
+    # non farli partire nello stesso istante.
+    scheduler.add_job(
+        controlla_e_anonimizza_clienti_inattivi,
+        "cron",
+        hour=3,
+        minute=1,
+        id="controlla_retention_clienti"
+    )
+    # Un'ora dopo gli altri job notturni: il dump legge l'intero database,
+    # meglio non farlo nello stesso istante in cui girano anche retention e
+    # generazione slot.
+    scheduler.add_job(
+        controlla_e_esegui_backup_database,
+        "cron",
+        hour=4,
+        minute=0,
+        id="backup_database"
     )
     scheduler.start()
     return scheduler

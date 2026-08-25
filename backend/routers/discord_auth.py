@@ -7,16 +7,23 @@
 # fine ci manda solo un "permesso" limitato per sapere chi è quella persona.
 
 import os
+import secrets
+import logging
 import requests
 from urllib.parse import urlencode
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models.users import User
 from backend.services.auth_service import crea_token_studente
 
+# Nome del cookie usato per la protezione CSRF del login (vedi il
+# commento su STATE in discord_login qui sotto).
+STATE_COOKIE = "discord_oauth_state"
+
 router = APIRouter(prefix="/auth/discord", tags=["Discord Auth"])
+logger = logging.getLogger(__name__)
 
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
@@ -42,12 +49,25 @@ def discord_login():
     # rimandarmi indietro" (redirect_uri) dopo che l'utente ha dato il
     # consenso. scope="identify email" chiede solo il permesso di leggere
     # nome utente ed email — non chiediamo accesso a nient'altro.
+    #
+    # "state": protezione CSRF standard del flusso OAuth2 (senza, un
+    # attaccante potrebbe iniettare un proprio "code" Discord valido nel
+    # browser della vittima — vedi discord_callback — facendola
+    # autenticare con l'account Discord DELL'ATTACCANTE, "login CSRF").
+    # secrets.token_urlsafe genera un valore casuale imprevedibile; lo
+    # mandiamo a Discord (tornerà indietro tale e quale nel redirect) E lo
+    # salviamo in un cookie sul browser dello studente — discord_callback
+    # accetta solo se i due valori coincidono, cosa che un sito esterno
+    # non può falsificare (non può leggere né impostare i NOSTRI cookie).
+    state = secrets.token_urlsafe(32)
+
     params = {
         "client_id": DISCORD_CLIENT_ID,
         "redirect_uri": DISCORD_OAUTH_REDIRECT_URI,
         "response_type": "code",
         "scope": "identify email",
-        "prompt": "consent"
+        "prompt": "consent",
+        "state": state
     }
     # urlencode(params) trasforma il dizionario in una stringa di query
     # tipo "client_id=123&redirect_uri=...&scope=identify+email" — con i
@@ -55,11 +75,25 @@ def discord_login():
     # URL (es. spazi diventano %20 o +). RedirectResponse dice al browser
     # "vai su questo altro indirizzo", con un normale redirect HTTP (lo
     # stesso meccanismo che usi quando clicchi un link che ti porta altrove).
-    return RedirectResponse(f"{DISCORD_AUTHORIZE_URL}?{urlencode(params)}")
+    response = RedirectResponse(f"{DISCORD_AUTHORIZE_URL}?{urlencode(params)}")
+    # httponly=True: invisibile a JavaScript (niente da rubare via XSS).
+    # samesite="lax": è il valore giusto per un cookie di redirect OAuth —
+    # "strict" impedirebbe al browser di rimandarcelo indietro proprio
+    # quando Discord reindirizza l'utente al nostro /callback (è una
+    # navigazione "cross-site" dal punto di vista del browser), vanificando
+    # la protezione; "lax" lo permette solo per navigazioni dirette come
+    # questa, non per richieste in background da altri siti. max_age=600
+    # (10 minuti): il tempo che uno studente impiega a fare login su
+    # Discord è sempre molto meno — dopo, il cookie scade da solo.
+    response.set_cookie(
+        STATE_COOKIE, state,
+        httponly=True, samesite="lax", max_age=600
+    )
+    return response
 
 
 @router.get("/callback")
-def discord_callback(code: str = None, error: str = None, db: Session = Depends(get_db)):
+def discord_callback(request: Request, code: str = None, error: str = None, state: str = None, db: Session = Depends(get_db)):
     """
     Riceve il codice di autorizzazione da Discord, lo scambia per un
     access token, recupera identità ed email dello studente, trova o
@@ -75,6 +109,19 @@ def discord_callback(code: str = None, error: str = None, db: Session = Depends(
     # mostrare un messaggio.
     if error or not code:
         return RedirectResponse("/?discord_error=1")
+
+    # Verifica CSRF (vedi il commento su "state" in discord_login): lo
+    # "state" che Discord ci restituisce ora deve essere IDENTICO a quello
+    # che avevamo salvato nel cookie prima di mandare l'utente su Discord.
+    # Se manca, non combacia, o il cookie non c'è più (scaduto, o questa
+    # richiesta non è mai passata da /login su questo stesso browser),
+    # rifiutiamo: è esattamente lo scenario di un "code" iniettato da un
+    # attaccante nel browser della vittima.
+    cookie_state = request.cookies.get(STATE_COOKIE)
+    if not state or not cookie_state or not secrets.compare_digest(state, cookie_state):
+        response = RedirectResponse("/?discord_error=1")
+        response.delete_cookie(STATE_COOKIE)
+        return response
 
     try:
         # STEP 2: "code" è un codice temporaneo, usa-e-getta, che prova che
@@ -111,8 +158,8 @@ def discord_callback(code: str = None, error: str = None, db: Session = Depends(
         )
         user_res.raise_for_status()
         discord_user = user_res.json()
-    except Exception as e:
-        print(f"Errore OAuth Discord: {e}")
+    except Exception:
+        logger.exception("Errore OAuth Discord")
         return RedirectResponse("/?discord_error=1")
 
     # discord_user è un dizionario con i dati che Discord ci ha restituito.
@@ -162,4 +209,8 @@ def discord_callback(code: str = None, error: str = None, db: Session = Depends(
     # frontend/js/app.js a leggerlo dalla barra degli indirizzi e a salvarlo
     # (vedi initDiscordLogin in quel file).
     token = crea_token_studente(user.id, user.email)
-    return RedirectResponse(f"/?student_token={token}")
+    response = RedirectResponse(f"/?student_token={token}")
+    # Il cookie di stato ha fatto il suo lavoro (già verificato sopra) — lo
+    # rimuoviamo, non serve tenerlo dopo un login riuscito.
+    response.delete_cookie(STATE_COOKIE)
+    return response

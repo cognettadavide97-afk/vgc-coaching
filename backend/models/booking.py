@@ -40,7 +40,10 @@ class Booking(Base):
     # deve MOSTRARE il prezzo a un umano.
 
     service_type = Column(String(30), nullable=False)  # vod_review, team_building, bo3_sparring, tournament_prep
-    status = Column(String(20), default="confirmed")  # confirmed, cancelled, no_show
+    # index=True: filtrato in quasi ogni query (dashboard, analytics, job
+    # schedulati, limite anti-abuso prenotazioni attive) — stesso motivo di
+    # Slot.start_time in backend/models/slots.py.
+    status = Column(String(20), default="confirmed", index=True)  # confirmed, cancelled, no_show
 
     note_cliente = Column(Text, nullable=True)
     note_admin = Column(Text, nullable=True)

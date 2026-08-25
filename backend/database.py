@@ -28,7 +28,17 @@ if not DATABASE_URL:
 # oggetto "fabbrica di connessioni" (l'Engine), che SQLAlchemy userà quando
 # servirà davvero. Pensa a DATABASE_URL come all'indirizzo del database
 # (tipo un URL: mysql+pymysql://utente:password@host/nome_database).
-engine = create_engine(DATABASE_URL)
+#
+# pool_pre_ping=True: prima di darti una connessione dal pool, SQLAlchemy le
+# manda un piccolo "sei ancora viva?" (un SELECT 1) e la scarta in
+# automatico se non risponde, aprendone una nuova al posto suo. Senza
+# questo, una connessione tenuta in pool più a lungo di quanto il database
+# la lasci aperta (i database gestiti chiudono le connessioni inattive dopo
+# un tot) fa fallire con un errore la PRIMA richiesta che prova a
+# riusarla — tipicamente quella del primo cliente della giornata, dopo una
+# notte senza traffico. Il costo di questo controllo (un SELECT 1 in più
+# per connessione) è trascurabile rispetto al beneficio.
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 # sessionmaker() crea, a sua volta, una "fabbrica di Session". Una Session è
 # l'oggetto che userai davvero per parlare col database (query, aggiungere

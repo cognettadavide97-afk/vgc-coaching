@@ -6,6 +6,41 @@
 # che arrivano. Non c'è nessuna "funzione main()" da chiamare: in Python,
 # il semplice fatto di importare questo file fa già partire tutto.
 
+import os
+import logging
+
+# Configurazione UNICA del logging per tutto il progetto: va fatta qui,
+# prima di importare qualunque altro modulo del progetto (i router, i
+# service...), perché ognuno di essi chiederà il proprio "logger con nome"
+# (vedi il commento più sotto su logging.getLogger(__name__)) — basicConfig
+# decide come TUTTI quei logger si comportano (livello minimo, formato del
+# messaggio), ma ha effetto solo se chiamata prima che arrivi il primo
+# messaggio di log. main.py è il primo file che viene eseguito quando parte
+# l'app (vedi il commento in cima al file), quindi è il punto giusto.
+#
+# Sostituisce i vecchi print() sparsi in tutto il backend: un print() è solo
+# testo su stdout, senza livello (non puoi filtrare "solo gli errori"), senza
+# timestamp indipendente, e — soprattutto dentro un except — senza lo stack
+# trace di dove l'errore è nato davvero. logging risolve tutti e tre questi
+# problemi, restando comunque semplice: continua a scrivere su console (che
+# su Railway diventa comunque log della piattaforma, come prima), solo in
+# modo strutturato. LOG_LEVEL è configurabile da variabile d'ambiente (default
+# INFO) per poter passare a DEBUG in caso di indagine su un problema, senza
+# toccare il codice.
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+
+# Nota per chi si stesse chiedendo perché non semplicemente
+# "logging.basicConfig(...)" senza un nome a parte: Alembic, quando esegue
+# le migrazioni (run_migrations() più sotto), interferirebbe con questa
+# stessa configurazione chiamando al suo interno logging.config.fileConfig()
+# sul proprio alembic.ini — un bug reale, scoperto proprio così, che
+# silenziosamente sovrascriveva il nostro formato col suo per il resto della
+# vita del processo. La soluzione vera è in alembic/env.py (salta
+# fileConfig() se il root logger ha già handler configurati): con quella in
+# posto, basta chiamare questa configurazione una volta sola, qui.
+logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -32,10 +67,12 @@ import backend.routers.discord_auth as discord_auth
 import backend.routers.consulenza as consulenza
 import backend.routers.pacchetti_richieste as pacchetti_richieste
 
-import os
 from alembic.config import Config
 from alembic import command
 from backend.services.discord_service import invia_alert_sistema
+
+# logger di questo modulo — vedi il commento sopra su logging.getLogger.
+logger = logging.getLogger(__name__)
 
 
 def run_migrations():
@@ -49,11 +86,11 @@ def run_migrations():
     cronologia delle migrazioni, come l'ultimo commit in un ramo Git).
 
     Il blocco try/except è deliberato: se le migrazioni falliscono, l'app
-    continua comunque ad avviarsi (stampa solo un errore) invece di bloccarsi
-    del tutto — utile in fase di sviluppo, ma vuol dire che un problema del
-    database potrebbe manifestarsi più tardi con errori meno chiari quando
-    qualcuno prova a usare una funzione che ne ha bisogno. Per questo, oltre
-    al print(), avvisiamo subito il coach su Discord (vedi
+    continua comunque ad avviarsi (registra solo un errore nei log) invece
+    di bloccarsi del tutto — utile in fase di sviluppo, ma vuol dire che un
+    problema del database potrebbe manifestarsi più tardi con errori meno
+    chiari quando qualcuno prova a usare una funzione che ne ha bisogno.
+    Per questo, oltre al log, avvisiamo subito il coach su Discord (vedi
     invia_alert_sistema in backend/services/discord_service.py): un deploy
     con una migrazione fallita è il tipo di problema che altrimenti si nota
     solo quando un cliente prova a usare la funzione nuova e trova un errore.
@@ -64,11 +101,17 @@ def run_migrations():
             alembic_cfg = Config("alembic.ini")
             alembic_cfg.set_main_option("sqlalchemy.url", database_url)
             command.upgrade(alembic_cfg, "head")
-            print("Migrazioni eseguite con successo")
+            logger.info("Migrazioni eseguite con successo")
         else:
-            print("DATABASE_URL non trovata — salto migrazioni")
+            logger.warning("DATABASE_URL non trovata — salto migrazioni")
     except Exception as e:
-        print(f"Errore migrazioni: {e}")
+        # logger.exception() include automaticamente lo STACK TRACE completo
+        # nel log — con un print() avresti solo il messaggio dell'eccezione,
+        # non da dove è partita: per un errore di migrazione, sapere la riga
+        # esatta fa la differenza tra capire subito il problema e dover
+        # indagare. Teniamo comunque "as e": serve al messaggio Discord
+        # qui sotto, che vuole un riassunto breve, non l'intero traceback.
+        logger.exception("Errore migrazioni")
         invia_alert_sistema(
             "Migrazione database fallita all'avvio",
             f"L'app è comunque partita, ma il database potrebbe non essere "
@@ -154,6 +197,10 @@ def root():
 @app.get("/about")
 def about():
     return FileResponse("frontend/about.html")
+
+@app.get("/privacy")
+def privacy():
+    return FileResponse("frontend/privacy.html")
 
 @app.get("/admin-panel")
 def admin_panel():

@@ -14,6 +14,7 @@
 # cambiamenti al codice: ogni file in alembic/versions/ è "un commit" del
 # database.
 
+import logging
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 
@@ -26,10 +27,11 @@ from sqlalchemy import engine_from_config
 from backend.models import User, Slot, Booking, ClientNote, AvailabilityRule, AvailabilityException
 from backend.database import Base
 # target_metadata è la "fotografia" di come DOVREBBERO essere le tabelle,
-# secondo il codice Python attuale — Alembic la userebbe per confrontarla
-# con lo stato vero del database, se generassimo le migrazioni in modo
-# automatico (funzione "autogenerate", che questo progetto non usa: le
-# migrazioni in alembic/versions/ sono scritte a mano).
+# secondo il codice Python attuale — Alembic la confronta con lo stato vero
+# del database quando generiamo una migrazione con "alembic revision
+# --autogenerate" (usato per le modifiche di schema più meccaniche, es.
+# aggiungere una colonna o un indice); per cambiamenti più delicati si
+# scrive comunque la migrazione a mano.
 target_metadata = Base.metadata
 
 from sqlalchemy import pool
@@ -42,7 +44,19 @@ config = context.config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-if config.config_file_name is not None:
+#
+# ATTENZIONE: fileConfig() riconfigura il logger ROOT, non solo quello di
+# Alembic — se chiamato quando l'app (backend/main.py) ha già impostato il
+# proprio formato di log PRIMA di eseguire le migrazioni (run_migrations()
+# gira all'avvio, prima di qualunque richiesta), questa riga lo
+# sovrascriverebbe silenziosamente con il formato di alembic.ini per il
+# resto della vita del processo — un bug reale, scoperto proprio così.
+# hasHandlers() è vero quando qualcun altro (la nostra app) ha già
+# configurato il logging: in quel caso saltiamo fileConfig() invece di
+# scavalcarlo. Quando Alembic gira da riga di comando (es. "alembic
+# upgrade head" da terminale, non dentro l'app), il root logger non ha
+# ancora handler, quindi fileConfig() si comporta come sempre.
+if config.config_file_name is not None and not logging.getLogger().hasHandlers():
     fileConfig(config.config_file_name)
 
 # add your model's MetaData object here

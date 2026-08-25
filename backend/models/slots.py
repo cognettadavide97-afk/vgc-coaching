@@ -22,7 +22,14 @@ class Slot(Base):
     # backend/services/timezone_service.py) convertire da/verso l'ora
     # italiana solo quando serve mostrarla a un umano o quando arriva un
     # input dall'admin.
-    start_time = Column(DateTime, nullable=False)
+    # index=True: questa colonna è la più interrogata di tutto il progetto
+    # (ogni ricerca di slot pubblica, ogni job schedulato, ogni pagina
+    # admin la filtra e/o la ordina) — senza un indice, il database deve
+    # scorrere l'intera tabella ad ogni query. Con poche centinaia di righe
+    # non si nota, ma la tabella cresce ogni giorno senza pulizia (un nuovo
+    # slot per ogni ora disponibile, per sempre), quindi il costo cresce
+    # nel tempo mentre l'indice lo mantiene costante.
+    start_time = Column(DateTime, nullable=False, index=True)
 
     duration_hours = Column(Integer, nullable=False, default=1)
 

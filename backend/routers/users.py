@@ -18,7 +18,7 @@ from backend.models.users import User
 from backend.models.booking import Booking
 from backend.models.slots import Slot
 from backend.models.package import Package
-from backend.schemas.users import UserCreate, UserResponse
+from backend.schemas.users import UserCreate, UserResponse, UserIdResponse
 from backend.routers.admin import get_admin
 from backend.services.auth_service import verifica_token_studente
 from backend.services.timezone_service import utc_to_rome
@@ -179,11 +179,16 @@ def get_or_create_user(db: Session, user: UserCreate) -> User:
     return db_user
 
 
-@router.post("/", response_model=UserResponse)
+@router.post("/", response_model=UserIdResponse)
 # @limiter.limit("5/minute") è un secondo decoratore sullo stesso endpoint:
 # applica la protezione anti-abuso vista in backend/rate_limit.py,
 # impedendo che lo stesso indirizzo IP chiami questo endpoint più di 5
 # volte al minuto — impedisce a un bot di creare migliaia di utenti falsi.
+#
+# response_model=UserIdResponse (non UserResponse): vedi il commento su
+# UserIdResponse in backend/schemas/users.py — questo endpoint è "get or
+# create" pubblico, quindi non deve rivelare il profilo di un cliente
+# esistente a chiunque ne indovini l'email.
 @limiter.limit("5/minute")
 def create_user(request: Request, user: UserCreate, db: Session = Depends(get_db)):
     # request: Request è un parametro che slowapi richiede per poter
@@ -194,21 +199,22 @@ def create_user(request: Request, user: UserCreate, db: Session = Depends(get_db
 
 
 @router.get("/pacchetti-attivi")
-def get_pacchetti_attivi(email: str, db: Session = Depends(get_db)):
+def get_pacchetti_attivi(studente: User = Depends(get_studente), db: Session = Depends(get_db)):
     """
-    Pacchetti con crediti residui per un'email — pubblico e senza creare
-    nulla: usato dal form di prenotazione (frontend/js/app.js) per proporre
-    "usa una sessione dal pacchetto" PRIMA che l'utente venga effettivamente
-    creato nel database (oggi accade solo alla conferma finale, vedi
-    POST /bookings/). Se l'email non corrisponde a nessun utente esistente,
-    restituisce semplicemente una lista vuota, non un errore.
+    Pacchetti con crediti residui dello studente loggato. Fino al fix di
+    sicurezza del 2026-08-25 questo endpoint era pubblico e prendeva
+    un'email dalla query string — chiunque conoscesse l'email di un
+    cliente poteva scoprire quanti crediti aveva ancora, senza nessuna
+    prova di essere davvero lui (vedi il commento su "if not studente" in
+    create_booking, backend/routers/booking.py, che usa esattamente questo
+    endpoint per proporre "usa pacchetto" in UI — ma solo a chi è già
+    loggato con Discord, vedi controllaPacchettoAttivo in
+    frontend/js/app.js). Ora l'identità arriva dal token verificato dal
+    server (get_studente), non da un parametro che chiunque può scrivere
+    nell'URL.
     """
-    utente = db.query(User).filter(User.email == email).first()
-    if not utente:
-        return []
-
     pacchetti = db.query(Package).filter(
-        Package.user_id == utente.id,
+        Package.user_id == studente.id,
         Package.sessioni_usate < Package.sessioni_totali
     ).all()
 

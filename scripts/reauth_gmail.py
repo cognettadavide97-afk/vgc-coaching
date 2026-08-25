@@ -37,13 +37,15 @@
 #      esplicita.
 
 import os
-import re
 import sys
 
 # La cartella del progetto è quella SOPRA "scripts/" — serve per trovare il
 # file .env indipendentemente da dove viene lanciato lo script.
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _env_utils import aggiorna_env_locale as aggiorna_env_locale_helper
 
 from dotenv import load_dotenv
 load_dotenv(ENV_PATH)
@@ -117,30 +119,7 @@ def main():
 
 
 def aggiorna_env_locale(nuovo_token: str):
-    if not os.path.exists(ENV_PATH):
-        print(f"File .env non trovato in {ENV_PATH} — aggiornalo a mano.")
-        return
-
-    with open(ENV_PATH, "r", encoding="utf-8") as f:
-        contenuto = f.read()
-
-    # Sostituisce solo la riga GMAIL_REFRESH_TOKEN=..., lasciando invariato
-    # tutto il resto del file (comprese le altre credenziali reali).
-    nuovo_contenuto, sostituzioni = re.subn(
-        r"^GMAIL_REFRESH_TOKEN=.*$",
-        f"GMAIL_REFRESH_TOKEN={nuovo_token}",
-        contenuto,
-        count=1,
-        flags=re.MULTILINE
-    )
-
-    if sostituzioni == 0:
-        print("Riga GMAIL_REFRESH_TOKEN= non trovata nel .env — aggiungila a mano.")
-        return
-
-    with open(ENV_PATH, "w", encoding="utf-8") as f:
-        f.write(nuovo_contenuto)
-    print(".env locale aggiornato.")
+    aggiorna_env_locale_helper(ENV_PATH, "GMAIL_REFRESH_TOKEN", nuovo_token)
 
 
 if __name__ == "__main__":

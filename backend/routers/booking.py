@@ -22,9 +22,9 @@ from backend.services.calendar_service import crea_evento_calendario
 from backend.services.discord_service import invia_notifica_discord
 from backend.services.booking_service import libera_slot_prenotazione
 from backend.routers.admin import get_admin
-from backend.routers.users import get_studente
+from backend.routers.users import get_studente, get_studente_opzionale
 from backend.rate_limit import limiter
-from typing import List
+from typing import List, Optional
 
 MAX_PRENOTAZIONI_ATTIVE = 2
 
@@ -55,7 +55,12 @@ def get_bookings(admin: str = Depends(get_admin), db: Session = Depends(get_db))
 
 @router.post("/", response_model=BookingResponse)
 @limiter.limit("5/minute")
-def create_booking(request: Request, booking: BookingCreate, db: Session = Depends(get_db)):
+def create_booking(
+    request: Request,
+    booking: BookingCreate,
+    db: Session = Depends(get_db),
+    studente: Optional[User] = Depends(get_studente_opzionale)
+):
     # Questo endpoint NON richiede login: chiunque può prenotare (guest
     # checkout) — è una scelta di prodotto esplicita del progetto ("il
     # pagamento non è gestito in-app, quindi non serve un vero account").
@@ -63,6 +68,16 @@ def create_booking(request: Request, booking: BookingCreate, db: Session = Depen
     slot = db.query(Slot).filter(Slot.id == booking.slot_id).first()
     if not slot:
         raise HTTPException(status_code=404, detail="Slot not found")
+
+    # Uno slot resta is_available=True per sempre finché nessuno lo prenota
+    # o lo blocca — anche dopo che il suo orario è passato (nessun job lo
+    # marca automaticamente scaduto). Senza questo controllo, chi manda una
+    # richiesta HTTP diretta (scavalcando il form, che mostra solo slot
+    # futuri) potrebbe prenotare un orario già passato: la sessione verrebbe
+    # confermata, l'evento calendario creato, l'email di conferma inviata,
+    # ma per un appuntamento che non potrà mai avvenire.
+    if slot.start_time <= datetime.now(timezone.utc).replace(tzinfo=None):
+        raise HTTPException(status_code=400, detail="This slot is in the past")
 
     # Controllo di coerenza sulla durata. Il calendario (vedi
     # backend/services/availability_service.py) genera SOLO slot da 1 ora:
@@ -109,10 +124,25 @@ def create_booking(request: Request, booking: BookingCreate, db: Session = Depen
     # ancora sessioni residue e che la sua durata combaci con quella
     # richiesta (tutti i pacchetti del catalogo attuale sono da 2 ore, vedi
     # backend/services/package_service.py, ma il controllo resta generico).
+    #
+    # ATTENZIONE, dettaglio di sicurezza importante: la proprietà del
+    # pacchetto va verificata contro studente.id (dal token JWT, verificato
+    # dal server), MAI contro booking.user_id (dichiarato dal client nel
+    # body della richiesta). booking.user_id è un intero qualsiasi che
+    # chiunque può scrivere in una richiesta HTTP diretta — controllare
+    # "package.user_id != booking.user_id" da solo non protegge nulla, se
+    # l'attaccante può scegliere ENTRAMBI i valori nella stessa richiesta
+    # (es. scoprendo user_id/package_id di un cliente vero da
+    # GET /users/pacchetti-attivi?email=...). Per questo l'uso di un
+    # pacchetto richiede login Discord: senza un token studente valido, non
+    # c'è nessuna identità verificata a cui legare "questo pacchetto è
+    # tuo".
     package = None
     if booking.package_id is not None:
+        if not studente:
+            raise HTTPException(status_code=401, detail="Log in with Discord to use a package")
         package = db.query(Package).filter(Package.id == booking.package_id).first()
-        if not package or package.user_id != booking.user_id:
+        if not package or package.user_id != studente.id:
             raise HTTPException(status_code=404, detail="Package not found")
         if package.sessioni_usate >= package.sessioni_totali:
             raise HTTPException(status_code=400, detail="This package has no sessions left")

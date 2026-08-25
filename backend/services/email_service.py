@@ -23,12 +23,13 @@
 # invia_conferma_cliente per il perché di questa scelta.
 
 import os
+import html
 import base64
+import logging
 from email.message import EmailMessage
 from dotenv import load_dotenv
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
+from backend.services.google_oauth_service import credenziali_oauth_google
 
 load_dotenv()
 
@@ -39,6 +40,27 @@ EMAIL_MITTENTE = os.getenv("EMAIL_MITTENTE")
 EMAIL_ADMIN = os.getenv("EMAIL_ADMIN")
 COACH_DISCORD_TAG = os.getenv("COACH_DISCORD_TAG")
 COACH_TELEGRAM_CONTACT = os.getenv("COACH_TELEGRAM_CONTACT")
+
+logger = logging.getLogger(__name__)
+
+
+# Ogni funzione di questo file costruisce il corpo dell'email con una
+# f-string HTML, interpolando direttamente campi testo libero scritti dal
+# cliente (nome, note, messaggio della consulenza...) — senza questa
+# funzione, quel testo finirebbe nell'HTML COSÌ COM'È: un cliente che
+# scrivesse `<a href="sito-di-phishing.com">Clicca qui</a>` come nota
+# vedrebbe il coach ricevere un link vero e cliccabile nella sua casella
+# (non JavaScript eseguibile — i client email lo filtrano — ma un vettore
+# di phishing/tracking concreto). html.escape() trasforma i caratteri
+# speciali dell'HTML (<, >, &, ...) nella loro forma "innocua" (&lt;,
+# &gt;, &amp;...): il testo compare identico a come l'ha scritto il
+# cliente, ma il client email lo mostra come TESTO, non lo interpreta più
+# come markup. Va applicata qui, al momento di costruire l'HTML — non
+# dove il dato viene raccolto, perché lo stesso testo libero (es.
+# note_cliente) viene riusato altrove (pannello admin, webhook Discord)
+# dove HTML-escaparlo sarebbe sbagliato o inutile.
+def _escape(testo: str, default: str = "") -> str:
+    return html.escape(testo) if testo else default
 
 
 # Funzione condivisa dalle tre email qui sotto: costruisce il messaggio
@@ -58,15 +80,7 @@ def _invia_via_gmail(destinatario: str, oggetto: str, corpo_html: str):
     messaggio.set_content("Questa email richiede un client che supporta l'HTML per essere visualizzata correttamente.")
     messaggio.add_alternative(corpo_html, subtype="html")
 
-    credenziali = Credentials(
-        token=None,
-        refresh_token=GMAIL_REFRESH_TOKEN,
-        client_id=GMAIL_CLIENT_ID,
-        client_secret=GMAIL_CLIENT_SECRET,
-        token_uri="https://oauth2.googleapis.com/token",
-    )
-    credenziali.refresh(Request())
-
+    credenziali = credenziali_oauth_google(GMAIL_REFRESH_TOKEN, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET)
     servizio = build("gmail", "v1", credentials=credenziali)
     raw = base64.urlsafe_b64encode(messaggio.as_bytes()).decode()
     servizio.users().messages().send(userId="me", body={"raw": raw}).execute()
@@ -92,19 +106,12 @@ def verifica_credenziali_gmail() -> bool:
     può rifare l'autorizzazione con scripts/reauth_gmail.py.
     """
     try:
-        credenziali = Credentials(
-            token=None,
-            refresh_token=GMAIL_REFRESH_TOKEN,
-            client_id=GMAIL_CLIENT_ID,
-            client_secret=GMAIL_CLIENT_SECRET,
-            token_uri="https://oauth2.googleapis.com/token",
-        )
-        credenziali.refresh(Request())
+        credenziali = credenziali_oauth_google(GMAIL_REFRESH_TOKEN, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET)
         servizio = build("gmail", "v1", credentials=credenziali)
         servizio.users().getProfile(userId="me").execute()
         return True
-    except Exception as e:
-        print(f"Controllo credenziali Gmail fallito: {e}")
+    except Exception:
+        logger.exception("Controllo credenziali Gmail fallito")
         return False
 
 
@@ -139,7 +146,7 @@ def invia_conferma_cliente(
 
         <div style="padding: 2rem; background: #f9f9f9;">
             <h2 style="color: #1a1a2e;">Booking confirmed!</h2>
-            <p>Hi <strong>{nome_cliente}</strong>,</p>
+            <p>Hi <strong>{_escape(nome_cliente)}</strong>,</p>
             <p>Your VGC coaching session is confirmed.</p>
 
             <div style="background: white; border-radius: 8px; padding: 1.5rem; margin: 1.5rem 0; border-left: 4px solid #e74c3c;">
@@ -179,9 +186,9 @@ def invia_conferma_cliente(
     # ragionamento in calendar_service.py e discord_service.py.
     try:
         _invia_via_gmail(email_cliente, "Booking confirmed", corpo_email)
-        print(f"Email inviata a {email_cliente}")
-    except Exception as e:
-        print(f"Errore invio email DETTAGLIO: {type(e).__name__}: {e}")
+        logger.info(f"Email inviata a {email_cliente}")
+    except Exception:
+        logger.exception("Errore invio email")
 
 
 def invia_promemoria_cliente(
@@ -203,7 +210,7 @@ def invia_promemoria_cliente(
 
         <div style="padding: 2rem; background: #f9f9f9;">
             <h2 style="color: #1a1a2e;">Session reminder</h2>
-            <p>Hi <strong>{nome_cliente}</strong>,</p>
+            <p>Hi <strong>{_escape(nome_cliente)}</strong>,</p>
             <p>Just a reminder that you have a VGC coaching session coming up.</p>
 
             <div style="background: white; border-radius: 8px; padding: 1.5rem; margin: 1.5rem 0; border-left: 4px solid #e74c3c;">
@@ -232,9 +239,9 @@ def invia_promemoria_cliente(
 
     try:
         _invia_via_gmail(email_cliente, "Reminder: your VGC coaching session is coming up", corpo_email)
-        print(f"Promemoria inviato a {email_cliente}")
-    except Exception as e:
-        print(f"Errore invio promemoria DETTAGLIO: {type(e).__name__}: {e}")
+        logger.info(f"Promemoria inviato a {email_cliente}")
+    except Exception:
+        logger.exception("Errore invio promemoria")
 
 
 def invia_notifica_admin(
@@ -248,30 +255,31 @@ def invia_notifica_admin(
     # Questa email va al COACH (EMAIL_ADMIN), non allo studente — nota che
     # il destinatario passato a _invia_via_gmail più sotto è diverso
     # rispetto alle due funzioni precedenti (lì era email_cliente).
+    #
+    # _escape(...) chiamata inline qui sotto, non riassegnata a inizio
+    # funzione (come in invia_conferma_cliente): l'oggetto dell'email due
+    # righe più sotto ("Nuova prenotazione — {nome_cliente}") vuole il nome
+    # ORIGINALE — l'oggetto non è HTML, escaparlo lì mostrerebbe
+    # letteralmente "&amp;" invece di "&" nella casella del coach.
     corpo_email = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 2rem;">
         <h2 style="color: #e74c3c;">Nuova prenotazione ricevuta</h2>
         <div style="background: #f9f9f9; border-radius: 8px; padding: 1.5rem;">
-            <p><strong>Cliente:</strong> {nome_cliente}</p>
-            <p><strong>Email:</strong> {email_cliente}</p>
+            <p><strong>Cliente:</strong> {_escape(nome_cliente)}</p>
+            <p><strong>Email:</strong> {_escape(email_cliente)}</p>
             <p><strong>Data:</strong> {data_slot}</p>
             <p><strong>Orario:</strong> {ora_slot}</p>
             <p><strong>Durata:</strong> {durata} ora{"e" if durata > 1 else ""}</p>
-            <p><strong>Note:</strong> {note_cliente or "Nessuna nota"}</p>
+            <p><strong>Note:</strong> {_escape(note_cliente, "Nessuna nota")}</p>
         </div>
     </div>
     """
-    # {note_cliente or "Nessuna nota"}: se note_cliente è una stringa vuota
-    # o None, in Python questi valori sono "falsy" (contano come falso in
-    # un contesto booleano), quindi "or" passa al secondo valore. È un modo
-    # compatto per dire "usa note_cliente se c'è qualcosa di sensato,
-    # altrimenti usa questo testo di default".
 
     try:
         _invia_via_gmail(EMAIL_ADMIN, f"Nuova prenotazione — {nome_cliente}", corpo_email)
-        print("Notifica admin inviata")
-    except Exception as e:
-        print(f"Errore notifica admin DETTAGLIO: {type(e).__name__}: {e}")
+        logger.info("Notifica admin inviata")
+    except Exception:
+        logger.exception("Errore notifica admin")
 
 
 def invia_conferma_richiesta_consulenza(email_cliente: str, nome_cliente: str):
@@ -291,7 +299,7 @@ def invia_conferma_richiesta_consulenza(email_cliente: str, nome_cliente: str):
 
         <div style="padding: 2rem; background: #f9f9f9;">
             <h2 style="color: #1a1a2e;">Request received!</h2>
-            <p>Hi <strong>{nome_cliente}</strong>,</p>
+            <p>Hi <strong>{_escape(nome_cliente)}</strong>,</p>
             <p>We've received your request for a free 20-minute call. We'll get in touch shortly to arrange a time.</p>
         </div>
 
@@ -304,9 +312,9 @@ def invia_conferma_richiesta_consulenza(email_cliente: str, nome_cliente: str):
 
     try:
         _invia_via_gmail(email_cliente, "Free call request received", corpo_email)
-        print(f"Conferma richiesta consulenza inviata a {email_cliente}")
-    except Exception as e:
-        print(f"Errore invio conferma richiesta consulenza DETTAGLIO: {type(e).__name__}: {e}")
+        logger.info(f"Conferma richiesta consulenza inviata a {email_cliente}")
+    except Exception:
+        logger.exception("Errore invio conferma richiesta consulenza")
 
 
 def invia_notifica_richiesta_consulenza_admin(
@@ -320,19 +328,19 @@ def invia_notifica_richiesta_consulenza_admin(
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 2rem;">
         <h2 style="color: #e74c3c;">Nuova richiesta di call gratuita (20 min)</h2>
         <div style="background: #f9f9f9; border-radius: 8px; padding: 1.5rem;">
-            <p><strong>Cliente:</strong> {nome_cliente}</p>
-            <p><strong>Email:</strong> {email_cliente}</p>
-            <p><strong>Discord:</strong> {discord_tag or "non specificato"}</p>
-            <p><strong>Messaggio:</strong> {messaggio or "nessuno"}</p>
+            <p><strong>Cliente:</strong> {_escape(nome_cliente)}</p>
+            <p><strong>Email:</strong> {_escape(email_cliente)}</p>
+            <p><strong>Discord:</strong> {_escape(discord_tag, "non specificato")}</p>
+            <p><strong>Messaggio:</strong> {_escape(messaggio, "nessuno")}</p>
         </div>
     </div>
     """
 
     try:
         _invia_via_gmail(EMAIL_ADMIN, f"Richiesta call gratuita — {nome_cliente}", corpo_email)
-        print("Notifica admin richiesta consulenza inviata")
-    except Exception as e:
-        print(f"Errore notifica admin richiesta consulenza DETTAGLIO: {type(e).__name__}: {e}")
+        logger.info("Notifica admin richiesta consulenza inviata")
+    except Exception:
+        logger.exception("Errore notifica admin richiesta consulenza")
 
 
 def invia_conferma_richiesta_pacchetto(email_cliente: str, nome_cliente: str, nome_pacchetto: str):
@@ -352,7 +360,7 @@ def invia_conferma_richiesta_pacchetto(email_cliente: str, nome_cliente: str, no
 
         <div style="padding: 2rem; background: #f9f9f9;">
             <h2 style="color: #1a1a2e;">Request received!</h2>
-            <p>Hi <strong>{nome_cliente}</strong>,</p>
+            <p>Hi <strong>{_escape(nome_cliente)}</strong>,</p>
             <p>We've received your request to activate the <strong>{nome_pacchetto}</strong> package. We'll get in touch shortly to arrange payment and get it set up.</p>
         </div>
 
@@ -365,9 +373,9 @@ def invia_conferma_richiesta_pacchetto(email_cliente: str, nome_cliente: str, no
 
     try:
         _invia_via_gmail(email_cliente, "Package request received", corpo_email)
-        print(f"Conferma richiesta pacchetto inviata a {email_cliente}")
-    except Exception as e:
-        print(f"Errore invio conferma richiesta pacchetto DETTAGLIO: {type(e).__name__}: {e}")
+        logger.info(f"Conferma richiesta pacchetto inviata a {email_cliente}")
+    except Exception:
+        logger.exception("Errore invio conferma richiesta pacchetto")
 
 
 def invia_notifica_richiesta_pacchetto_admin(
@@ -382,19 +390,19 @@ def invia_notifica_richiesta_pacchetto_admin(
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 2rem;">
         <h2 style="color: #e74c3c;">Nuova richiesta pacchetto — {nome_pacchetto}</h2>
         <div style="background: #f9f9f9; border-radius: 8px; padding: 1.5rem;">
-            <p><strong>Cliente:</strong> {nome_cliente}</p>
-            <p><strong>Email:</strong> {email_cliente}</p>
-            <p><strong>Discord:</strong> {discord_tag or "non specificato"}</p>
-            <p><strong>Messaggio:</strong> {messaggio or "nessuno"}</p>
+            <p><strong>Cliente:</strong> {_escape(nome_cliente)}</p>
+            <p><strong>Email:</strong> {_escape(email_cliente)}</p>
+            <p><strong>Discord:</strong> {_escape(discord_tag, "non specificato")}</p>
+            <p><strong>Messaggio:</strong> {_escape(messaggio, "nessuno")}</p>
         </div>
     </div>
     """
 
     try:
         _invia_via_gmail(EMAIL_ADMIN, f"Richiesta pacchetto {nome_pacchetto} — {nome_cliente}", corpo_email)
-        print("Notifica admin richiesta pacchetto inviata")
-    except Exception as e:
-        print(f"Errore notifica admin richiesta pacchetto DETTAGLIO: {type(e).__name__}: {e}")
+        logger.info("Notifica admin richiesta pacchetto inviata")
+    except Exception:
+        logger.exception("Errore notifica admin richiesta pacchetto")
 
 
 def invia_richiesta_recensione(email_cliente: str, nome_cliente: str, link_recensione: str):
@@ -412,7 +420,7 @@ def invia_richiesta_recensione(email_cliente: str, nome_cliente: str, link_recen
 
         <div style="padding: 2rem; background: #f9f9f9;">
             <h2 style="color: #1a1a2e;">How did it go?</h2>
-            <p>Hi <strong>{nome_cliente}</strong>,</p>
+            <p>Hi <strong>{_escape(nome_cliente)}</strong>,</p>
             <p>I hope the session was useful! If you have a minute, leave me a rating and a comment — it really helps me improve.</p>
 
             <div style="text-align: center; margin: 1.5rem 0;">
@@ -431,6 +439,6 @@ def invia_richiesta_recensione(email_cliente: str, nome_cliente: str, link_recen
 
     try:
         _invia_via_gmail(email_cliente, "How did your session go?", corpo_email)
-        print(f"Richiesta recensione inviata a {email_cliente}")
-    except Exception as e:
-        print(f"Errore invio richiesta recensione DETTAGLIO: {type(e).__name__}: {e}")
+        logger.info(f"Richiesta recensione inviata a {email_cliente}")
+    except Exception:
+        logger.exception("Errore invio richiesta recensione")

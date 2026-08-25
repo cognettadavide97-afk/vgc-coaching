@@ -6,12 +6,15 @@
 # quell'indirizzo diventa un messaggio nel canale collegato.
 
 import os
+import logging
 import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+
+logger = logging.getLogger(__name__)
 
 # Un piccolo dizionario che traduce i valori "tecnici" salvati nel database
 # (es. "vod_review") in etichette leggibili da un umano (es. "VOD Review").
@@ -45,7 +48,7 @@ def invia_notifica_discord(
     # funzione con "return" senza argomenti, che in una funzione che non
     # deve restituire nulla vuol dire semplicemente "fermati qui".
     if not DISCORD_WEBHOOK_URL:
-        print("DISCORD_WEBHOOK_URL non configurato — salto notifica Discord")
+        logger.warning("DISCORD_WEBHOOK_URL non configurato — salto notifica Discord")
         return
 
     servizio_label = SERVICE_LABELS.get(service_type, service_type)
@@ -85,12 +88,12 @@ def invia_notifica_discord(
         # codice di errore (4xx o 5xx), solleva un'eccezione da sola — così
         # non serve controllare manualmente "if response.status_code >= 400".
         response.raise_for_status()
-        print("Notifica Discord inviata")
-    except Exception as e:
+        logger.info("Notifica Discord inviata")
+    except Exception:
         # Stessa filosofia di email_service.py e calendar_service.py: un
         # problema con Discord non deve mai bloccare la prenotazione,
         # quindi cattura l'errore e limitati a segnalarlo.
-        print(f"Errore invio notifica Discord: {e}")
+        logger.exception("Errore invio notifica Discord")
 
 
 def invia_promemoria_discord(
@@ -104,7 +107,7 @@ def invia_promemoria_discord(
     si avvicina. Non blocca nulla in caso di errore o webhook mancante.
     """
     if not DISCORD_WEBHOOK_URL:
-        print("DISCORD_WEBHOOK_URL non configurato — salto promemoria Discord")
+        logger.warning("DISCORD_WEBHOOK_URL non configurato — salto promemoria Discord")
         return
 
     embed = {
@@ -121,9 +124,9 @@ def invia_promemoria_discord(
     try:
         response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
         response.raise_for_status()
-        print("Promemoria Discord inviato")
-    except Exception as e:
-        print(f"Errore invio promemoria Discord: {e}")
+        logger.info("Promemoria Discord inviato")
+    except Exception:
+        logger.exception("Errore invio promemoria Discord")
 
 
 def invia_richiesta_consulenza_discord(
@@ -139,7 +142,7 @@ def invia_richiesta_consulenza_discord(
     l'orario va accordato privatamente col cliente dopo questo avviso.
     """
     if not DISCORD_WEBHOOK_URL:
-        print("DISCORD_WEBHOOK_URL non configurato — salto notifica Discord")
+        logger.warning("DISCORD_WEBHOOK_URL non configurato — salto notifica Discord")
         return
 
     embed = {
@@ -156,9 +159,9 @@ def invia_richiesta_consulenza_discord(
     try:
         response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
         response.raise_for_status()
-        print("Notifica Discord richiesta consulenza inviata")
-    except Exception as e:
-        print(f"Errore invio notifica Discord richiesta consulenza: {e}")
+        logger.info("Notifica Discord richiesta consulenza inviata")
+    except Exception:
+        logger.exception("Errore invio notifica Discord richiesta consulenza")
 
 
 def invia_alert_sistema(titolo: str, descrizione: str):
@@ -173,7 +176,7 @@ def invia_alert_sistema(titolo: str, descrizione: str):
     d'occhio in mezzo alle notifiche di prenotazione normali.
     """
     if not DISCORD_WEBHOOK_URL:
-        print(f"DISCORD_WEBHOOK_URL non configurato — salto alert di sistema: {titolo}")
+        logger.warning(f"DISCORD_WEBHOOK_URL non configurato — salto alert di sistema: {titolo}")
         return
 
     embed = {
@@ -185,12 +188,13 @@ def invia_alert_sistema(titolo: str, descrizione: str):
     try:
         response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
         response.raise_for_status()
-        print(f"Alert di sistema Discord inviato: {titolo}")
-    except Exception as e:
+        logger.info(f"Alert di sistema Discord inviato: {titolo}")
+    except Exception:
         # Ultima spiaggia: anche l'alert stesso può fallire (es. webhook
-        # scaduto) — stampiamo comunque nei log del server, che restano
-        # l'ultima rete di sicurezza se pure Discord non è raggiungibile.
-        print(f"Errore invio alert di sistema Discord: {e}")
+        # scaduto) — lo registriamo comunque nei log del server, che
+        # restano l'ultima rete di sicurezza se pure Discord non è
+        # raggiungibile.
+        logger.exception("Errore invio alert di sistema Discord")
 
 
 def invia_richiesta_pacchetto_discord(
@@ -207,7 +211,7 @@ def invia_richiesta_pacchetto_discord(
     /admin/pacchetti dopo aver ricevuto il pagamento.
     """
     if not DISCORD_WEBHOOK_URL:
-        print("DISCORD_WEBHOOK_URL non configurato — salto notifica Discord")
+        logger.warning("DISCORD_WEBHOOK_URL non configurato — salto notifica Discord")
         return
 
     embed = {
@@ -224,6 +228,6 @@ def invia_richiesta_pacchetto_discord(
     try:
         response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
         response.raise_for_status()
-        print("Notifica Discord richiesta pacchetto inviata")
-    except Exception as e:
-        print(f"Errore invio notifica Discord richiesta pacchetto: {e}")
+        logger.info("Notifica Discord richiesta pacchetto inviata")
+    except Exception:
+        logger.exception("Errore invio notifica Discord richiesta pacchetto")

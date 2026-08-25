@@ -21,6 +21,7 @@
 # ogni volta né tenere traccia delle sessioni attive da qualche parte.
 
 import os
+import bcrypt
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from dotenv import load_dotenv
@@ -32,15 +33,24 @@ ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", 480))
 
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+# ADMIN_PASSWORD_HASH sostituisce il vecchio ADMIN_PASSWORD in chiaro: qui
+# viene salvato solo l'hash bcrypt (generato con
+# scripts/hash_admin_password.py), mai la password vera. Anche chi legge
+# il .env o riesce a farlo trapelare non ottiene direttamente la password.
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH")
 
 
 def verifica_credenziali(username: str, password: str) -> bool:
     """
-    Controlla che username e password corrispondano
-    a quelle salvate nel .env
+    Controlla che lo username corrisponda e che la password, passata
+    all'hash bcrypt, corrisponda all'hash salvato nel .env.
     """
-    return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
+    if username != ADMIN_USERNAME or not ADMIN_PASSWORD_HASH:
+        return False
+    # bcrypt.checkpw ricalcola l'hash della password ricevuta usando lo
+    # stesso "sale" già contenuto in ADMIN_PASSWORD_HASH, e confronta i due
+    # hash — non decifra mai l'hash salvato (bcrypt non è reversibile).
+    return bcrypt.checkpw(password.encode("utf-8"), ADMIN_PASSWORD_HASH.encode("utf-8"))
 
 
 def crea_token(username: str) -> str:

@@ -7,6 +7,7 @@
 # funzionare.
 
 import os
+import logging
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from google.oauth2 import service_account
@@ -31,6 +32,8 @@ SERVICE_ACCOUNT_EMAIL = os.getenv("GOOGLE_SERVICE_ACCOUNT_EMAIL")
 # quei caratteri letterali "\" + "n" in un vero carattere di a-capo, così la
 # chiave torna ad avere il formato che Google si aspetta.
 PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY", "").replace("\\n", "\n")
+
+logger = logging.getLogger(__name__)
 
 
 def get_calendar_service():
@@ -129,15 +132,15 @@ def crea_evento_calendario(
             body=evento
         ).execute()
 
-        print(f"Evento creato: {risultato.get('htmlLink')}")
+        logger.info(f"Evento creato: {risultato.get('htmlLink')}")
         # Restituiamo solo l'id dell'evento (non l'intero risultato): è
         # quello che viene salvato nel campo calendar_event_id di Booking,
         # per poter più avanti eliminare esattamente questo evento se la
         # prenotazione viene cancellata.
         return risultato.get("id")
 
-    except Exception as e:
-        print(f"Errore Google Calendar: {e}")
+    except Exception:
+        logger.exception("Errore Google Calendar")
         # Se qualcosa va storto restituiamo None invece di far esplodere
         # tutta la richiesta di prenotazione: un problema con Google
         # Calendar non deve impedire allo studente di completare la
@@ -207,8 +210,8 @@ def leggi_eventi_calendario(time_min: datetime, time_max: datetime):
 
         return intervalli
 
-    except Exception as e:
-        print(f"Errore lettura calendario: {e}")
+    except Exception:
+        logger.exception("Errore lettura calendario")
         return []  # in caso di errore, meglio "nessun evento trovato" che bloccare la sincronizzazione
 
 
@@ -268,6 +271,6 @@ def elimina_evento_calendario(event_id: str):
             calendarId=CALENDAR_ID,
             eventId=event_id
         ).execute()
-        print(f"Evento {event_id} eliminato dal calendario")
-    except Exception as e:
-        print(f"Errore eliminazione evento: {e}")
+        logger.info(f"Evento {event_id} eliminato dal calendario")
+    except Exception:
+        logger.exception("Errore eliminazione evento")

@@ -1,0 +1,104 @@
+<!--
+    Informativa privacy (GDPR, Regolamento UE 2016/679) — pagina statica
+    separata dalle altre, stesso schema di frontend/about.html: nessun
+    routing lato client, propria voce in backend/main.py (@app.get("/privacy")).
+
+    Multilingua IT/EN: stesso meccanismo di index.html/about.html
+    (data-i18n + frontend/js/i18n.js, chiavi privacy_* in i18n.js).
+
+    Contenuto scritto per riflettere davvero cosa fa il sito (vedi i
+    servizi in backend/services/): nessuna clausola generica copiata da un
+    template, solo ciò che questo progetto realmente raccoglie e condivide.
+    Se il trattamento dei dati cambia (nuovo servizio terzo, nuovo tipo di
+    dato raccolto...), questa pagina va aggiornata insieme al codice.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VGC Coaching — Privacy Policy</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/png" href="/static/images/favicon.png">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+    <!-- INTESTAZIONE (stessa struttura di index.html/about.html, per coerenza visiva) -->
+    <header>
+        <div class="header-content">
+            <img src="/static/images/coach-avatar.png" alt="" class="header-avatar">
+            <div>
+                <h1 class="brand-hero">DesuVGC — Building the Player</h1>
+                <p class="brand-subtitle">VGC Coaching</p>
+            </div>
+        </div>
+        <div class="lang-switcher">
+            <button type="button" class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+            <button type="button" class="lang-btn" data-lang="it" onclick="setLang('it')">IT</button>
+        </div>
+    </header>
+
+    <nav class="site-nav">
+        <a href="/" class="site-nav-link" data-i18n="nav_book">Book a Session</a>
+        <a href="/about" class="site-nav-link" data-i18n="nav_about">Meet the Coach</a>
+        <a href="/privacy" class="site-nav-link active" data-i18n="nav_privacy">Privacy Policy</a>
+    </nav>
+
+    <section class="legal-section">
+        <h1 class="legal-title" data-i18n="privacy_page_title">Privacy Policy</h1>
+        <p class="legal-updated" data-i18n="privacy_updated">Last updated: 25 August 2026</p>
+        <p class="legal-intro" data-i18n="privacy_intro">
+            This page explains, in plain language, what personal data DesuVGC Coaching collects through this website, why, and what rights you have over it, in accordance with the EU General Data Protection Regulation (GDPR, Regulation (EU) 2016/679).
+        </p>
+
+        <div class="legal-block">
+            <h2 data-i18n="privacy_controller_h">Data controller</h2>
+            <p data-i18n="privacy_controller_p">The data controller is Davide Cognetta ("DesuVGC"), who runs this coaching service. For any question or request about your personal data, write to:</p>
+            <p><a href="mailto:cognetta.davide97@gmail.com">cognetta.davide97@gmail.com</a></p>
+        </div>
+
+        <div class="legal-block">
+            <h2 data-i18n="privacy_data_h">What data is collected</h2>
+            <p data-i18n="privacy_data_p">When you book a session, request a free consultation, or leave a review, the following data may be collected: full name, email address, phone number (if provided), Discord tag, notes about your current team and goals that you choose to share, and details of the sessions you book (date, time, service, price). If you log in with Discord, we also receive your Discord account ID and username.</p>
+        </div>
+
+        <div class="legal-block">
+            <h2 data-i18n="privacy_purpose_h">Why this data is processed</h2>
+            <p data-i18n="privacy_purpose_p">This data is used to manage your bookings and deliver the coaching sessions you request, and to send you related communications (confirmations, reminders). This processing is based on performing the service you requested (GDPR Art. 6(1)(b)). If you submit a review, it is published on the public reviews page only after the coach approves it — publication is based on your consent (GDPR Art. 6(1)(a)), which you can withdraw at any time by contacting us.</p>
+        </div>
+
+        <div class="legal-block">
+            <h2 data-i18n="privacy_sharing_h">Who this data is shared with</h2>
+            <p data-i18n="privacy_sharing_p">Some of your data is shared with third-party services that support this site: Google (Gmail API for confirmation/reminder emails, Google Calendar to keep the coach's availability up to date) and Discord (a private webhook notifies the coach of new bookings — including your name, Discord tag, and any notes you left; Discord OAuth is also used for the optional student login). These providers process data under their own privacy policies; none of them are used for advertising or resold to other parties.</p>
+        </div>
+
+        <div class="legal-block">
+            <h2 data-i18n="privacy_retention_h">How long data is kept</h2>
+            <p data-i18n="privacy_retention_p">Booking and client data is kept for as long as your relationship with the coaching service is active, to preserve your session history. You can ask for your data to be deleted at any time — see "Your rights" below.</p>
+        </div>
+
+        <div class="legal-block">
+            <h2 data-i18n="privacy_rights_h">Your rights</h2>
+            <p data-i18n="privacy_rights_p">Under the GDPR you have the right to access, correct, delete, or export your personal data, and to object to or restrict its processing. To exercise any of these rights, contact us at the email address above; we will respond as soon as possible. You also have the right to lodge a complaint with the Italian data protection authority (Garante per la protezione dei dati personali, www.garanteprivacy.it) if you believe your data has been processed unlawfully.</p>
+        </div>
+
+        <div class="legal-block">
+            <h2 data-i18n="privacy_security_h">Security measures</h2>
+            <p data-i18n="privacy_security_p">Access to the coach's admin panel is protected by a password (stored as a cryptographic hash, never in plain text) and by a limit on login attempts to prevent automated attacks. Data is transmitted over an encrypted (HTTPS) connection.</p>
+        </div>
+
+        <div class="legal-block">
+            <h2 data-i18n="privacy_minors_h">Minors</h2>
+            <p data-i18n="privacy_minors_p">This service is open to players of all ages. If you are under 14, please have a parent or legal guardian book on your behalf and provide consent for the processing of your data, as required by Italian law implementing the GDPR.</p>
+        </div>
+
+        <div class="legal-block">
+            <h2 data-i18n="privacy_changes_h">Changes to this policy</h2>
+            <p data-i18n="privacy_changes_p">This page may be updated from time to time to reflect changes to the service or to data protection requirements. The date at the top of the page shows the last update.</p>
+        </div>
+    </section>
+
+    <script src="/static/js/i18n.js"></script>
+</body>
+</html>

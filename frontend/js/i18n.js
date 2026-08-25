@@ -16,6 +16,7 @@ const TRANSLATIONS = {
         // Navigazione condivisa
         nav_book: 'Book a Session',
         nav_about: 'Meet the Coach',
+        nav_privacy: 'Privacy Policy',
 
         // Login Discord (frontend/js/app.js costruisce questo HTML a runtime)
         discord_login_btn: 'Log in with Discord (optional)',
@@ -125,6 +126,29 @@ const TRANSLATIONS = {
         reviews_subtitle: 'Reviews from past students will appear here soon.',
         reviews_placeholder: 'No reviews to show yet.',
 
+        // Privacy policy (frontend/privacy.html)
+        privacy_page_title: 'Privacy Policy',
+        privacy_updated: 'Last updated: 25 August 2026',
+        privacy_intro: 'This page explains, in plain language, what personal data DesuVGC Coaching collects through this website, why, and what rights you have over it, in accordance with the EU General Data Protection Regulation (GDPR, Regulation (EU) 2016/679).',
+        privacy_controller_h: 'Data controller',
+        privacy_controller_p: 'The data controller is Davide Cognetta ("DesuVGC"), who runs this coaching service. For any question or request about your personal data, write to:',
+        privacy_data_h: 'What data is collected',
+        privacy_data_p: 'When you book a session, request a free consultation, or leave a review, the following data may be collected: full name, email address, phone number (if provided), Discord tag, notes about your current team and goals that you choose to share, and details of the sessions you book (date, time, service, price). If you log in with Discord, we also receive your Discord account ID and username.',
+        privacy_purpose_h: 'Why this data is processed',
+        privacy_purpose_p: "This data is used to manage your bookings and deliver the coaching sessions you request, and to send you related communications (confirmations, reminders). This processing is based on performing the service you requested (GDPR Art. 6(1)(b)). If you submit a review, it is published on the public reviews page only after the coach approves it — publication is based on your consent (GDPR Art. 6(1)(a)), which you can withdraw at any time by contacting us.",
+        privacy_sharing_h: 'Who this data is shared with',
+        privacy_sharing_p: "Some of your data is shared with third-party services that support this site: Google (Gmail API for confirmation/reminder emails, Google Calendar to keep the coach's availability up to date) and Discord (a private webhook notifies the coach of new bookings — including your name, Discord tag, and any notes you left; Discord OAuth is also used for the optional student login). These providers process data under their own privacy policies; none of them are used for advertising or resold to other parties.",
+        privacy_retention_h: 'How long data is kept',
+        privacy_retention_p: "Booking and client data is kept for as long as your relationship with the coaching service is active. If you have no session or package for 24 consecutive months, your identifying data (name, email, phone, Discord contact) is automatically anonymised — booking records are kept in anonymous form only, for the coach's own revenue and session statistics. You can also ask for your data to be deleted sooner at any time — see \"Your rights\" below.",
+        privacy_rights_h: 'Your rights',
+        privacy_rights_p: 'Under the GDPR you have the right to access, correct, delete, or export your personal data, and to object to or restrict its processing. To exercise any of these rights, contact us at the email address above; we will respond as soon as possible. You also have the right to lodge a complaint with the Italian data protection authority (Garante per la protezione dei dati personali, www.garanteprivacy.it) if you believe your data has been processed unlawfully.',
+        privacy_security_h: 'Security measures',
+        privacy_security_p: "Access to the coach's admin panel is protected by a password (stored as a cryptographic hash, never in plain text) and by a limit on login attempts to prevent automated attacks. Data is transmitted over an encrypted (HTTPS) connection.",
+        privacy_minors_h: 'Minors',
+        privacy_minors_p: 'This service is open to players of all ages. If you are under 14, please have a parent or legal guardian book on your behalf and provide consent for the processing of your data, as required by Italian law implementing the GDPR.',
+        privacy_changes_h: 'Changes to this policy',
+        privacy_changes_p: 'This page may be updated from time to time to reflect changes to the service or to data protection requirements. The date at the top of the page shows the last update.',
+
         status_confirmed: 'Confirmed',
         status_cancelled: 'Cancelled',
         status_no_show: 'No-show'
@@ -132,6 +156,7 @@ const TRANSLATIONS = {
     it: {
         nav_book: 'Prenota una sessione',
         nav_about: 'Conosci il coach',
+        nav_privacy: 'Informativa Privacy',
 
         discord_login_btn: 'Accedi con Discord (opzionale)',
         welcome_back: 'Bentornato,',
@@ -230,6 +255,29 @@ const TRANSLATIONS = {
         reviews_title: 'Recensioni dei clienti',
         reviews_subtitle: 'Le recensioni degli studenti passati appariranno presto qui.',
         reviews_placeholder: 'Nessuna recensione da mostrare ancora.',
+
+        // Informativa privacy (frontend/privacy.html)
+        privacy_page_title: 'Informativa sulla Privacy',
+        privacy_updated: 'Ultimo aggiornamento: 25 agosto 2026',
+        privacy_intro: 'Questa pagina spiega, in modo semplice, quali dati personali DesuVGC Coaching raccoglie tramite questo sito, per quali finalità, e quali diritti hai su di essi, in conformità al Regolamento (UE) 2016/679 (GDPR).',
+        privacy_controller_h: 'Titolare del trattamento',
+        privacy_controller_p: 'Il titolare del trattamento è Davide Cognetta ("DesuVGC"), che gestisce personalmente questo servizio di coaching. Per qualsiasi domanda o richiesta relativa ai tuoi dati personali, scrivi a:',
+        privacy_data_h: 'Quali dati vengono raccolti',
+        privacy_data_p: 'Quando prenoti una sessione, richiedi una consulenza gratuita o lasci una recensione, possono essere raccolti: nome e cognome, indirizzo email, numero di telefono (se fornito), tag Discord, note sul tuo team attuale e sui tuoi obiettivi che scegli di condividere, e i dettagli delle sessioni prenotate (data, ora, servizio, prezzo). Se accedi con Discord, riceviamo anche l\'ID e il nome utente del tuo account Discord.',
+        privacy_purpose_h: 'Perché questi dati vengono trattati',
+        privacy_purpose_p: 'Questi dati servono per gestire le tue prenotazioni ed erogare le sessioni di coaching richieste, e per inviarti le comunicazioni relative (conferme, promemoria). Questo trattamento si basa sull\'esecuzione del servizio da te richiesto (art. 6.1.b GDPR). Se invii una recensione, questa viene pubblicata nella pagina pubblica solo dopo l\'approvazione del coach — la pubblicazione si basa sul tuo consenso (art. 6.1.a GDPR), che puoi ritirare in qualsiasi momento contattandoci.',
+        privacy_sharing_h: 'Con chi vengono condivisi questi dati',
+        privacy_sharing_p: 'Alcuni tuoi dati sono condivisi con servizi di terze parti che supportano il sito: Google (API Gmail per le email di conferma/promemoria, Google Calendar per tenere aggiornata la disponibilità del coach) e Discord (un webhook privato avvisa il coach di ogni nuova prenotazione — incluso il tuo nome, il tag Discord ed eventuali note lasciate; Discord OAuth viene usato anche per il login opzionale degli studenti). Questi fornitori trattano i dati secondo le proprie informative privacy; nessuno di essi viene usato per pubblicità o rivende i dati a terzi.',
+        privacy_retention_h: 'Per quanto tempo i dati vengono conservati',
+        privacy_retention_p: 'I dati di prenotazione e cliente vengono conservati finché la tua relazione con il servizio di coaching è attiva. Se non hai nessuna sessione o pacchetto per 24 mesi consecutivi, i tuoi dati identificativi (nome, email, telefono, contatto Discord) vengono anonimizzati automaticamente — le prenotazioni restano solo in forma anonima, per le statistiche di incasso e sessioni del coach. Puoi comunque chiedere la cancellazione dei tuoi dati anche prima — vedi "I tuoi diritti" qui sotto.',
+        privacy_rights_h: 'I tuoi diritti',
+        privacy_rights_p: 'In base al GDPR hai diritto di accedere, correggere, cancellare o esportare i tuoi dati personali, e di opporti o chiederne la limitazione del trattamento. Per esercitare uno di questi diritti, scrivici all\'indirizzo email sopra indicato; risponderemo il prima possibile. Hai inoltre diritto di proporre reclamo al Garante per la protezione dei dati personali (www.garanteprivacy.it) se ritieni che i tuoi dati siano stati trattati in modo illecito.',
+        privacy_security_h: 'Misure di sicurezza',
+        privacy_security_p: 'L\'accesso al pannello admin del coach è protetto da una password (salvata come hash crittografico, mai in chiaro) e da un limite ai tentativi di accesso per prevenire attacchi automatizzati. I dati vengono trasmessi tramite connessione cifrata (HTTPS).',
+        privacy_minors_h: 'Minori',
+        privacy_minors_p: 'Questo servizio è aperto a giocatori di ogni età. Se hai meno di 14 anni, chiedi a un genitore o tutore legale di effettuare la prenotazione per te e di fornire il consenso al trattamento dei tuoi dati, come richiesto dalla normativa italiana di attuazione del GDPR.',
+        privacy_changes_h: 'Modifiche a questa informativa',
+        privacy_changes_p: 'Questa pagina può essere aggiornata periodicamente per riflettere cambiamenti nel servizio o negli obblighi in materia di protezione dei dati. La data in alto alla pagina indica l\'ultimo aggiornamento.',
 
         status_confirmed: 'Confermato',
         status_cancelled: 'Cancellato',

@@ -267,6 +267,19 @@ SMTP diretto è bloccato dalla rete di Railway (`OSError: Network is unreachable
 3. Condividi il calendario del coach con l'email del service account.
 4. Imposta `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_CALENDAR_ID`.
 
+### Google Drive (backup automatico database)
+Il piano Railway attuale (Hobby) non include backup né point-in-time recovery per il database MySQL (verificato nella dashboard Railway, tab "Backups" del servizio MySQL: "Backups and point-in-time recovery (PITR) are only available for customers on the Pro plan"). Per non restare senza nessuna rete di sicurezza, un job schedulato (`controlla_e_esegui_backup_database` in `backend/scheduler.py`, una volta al giorno) genera un dump SQL completo e lo carica su Google Drive — un posto diverso da Railway.
+
+**⚠️ Non usa il service account** già configurato per Calendar (`GOOGLE_SERVICE_ACCOUNT_EMAIL`), anche se è lo stesso progetto Google Cloud — scoperto testando un upload reale: un service account non ha una propria quota di archiviazione su Drive, quindi ogni file che crea fallisce con `storageQuotaExceeded`, anche in una cartella condivisa con lui in modalità Editor (le Shared Drive risolverebbero, ma sono una funzionalità Google Workspace, non disponibile su un account Gmail personale). La soluzione è OAuth con l'account Google vero del coach, stesso schema già usato per Gmail:
+1. Nello stesso progetto Google Cloud già usato per Calendar/Gmail, abilita la **"Google Drive API"**.
+2. Sulla stessa schermata di consenso OAuth già configurata per Gmail (Google Cloud Console → OAuth consent screen → Scopes), aggiungi anche lo scope `https://www.googleapis.com/auth/drive.file`.
+3. Su [Google Drive](https://drive.google.com), con il TUO account normale, crea una cartella dedicata ai backup (nessuna condivisione da fare — è già tua).
+4. Apri la cartella nel browser: l'id è la parte finale dell'URL (`https://drive.google.com/drive/folders/QUESTO_È_L_ID`). Impostalo in `GOOGLE_DRIVE_BACKUP_FOLDER_ID`.
+5. Esegui `python scripts/reauth_drive.py` — apre il browser, autorizza con il tuo account, e offre di scrivere subito `DRIVE_REFRESH_TOKEN` nel `.env` locale (va comunque copiato a mano anche su Railway).
+6. Facoltativo: `BACKUP_RETENTION_DAYS` (default 30) decide dopo quanti giorni un backup viene eliminato da Drive automaticamente, per non accumularsi all'infinito.
+
+Senza `GOOGLE_DRIVE_BACKUP_FOLDER_ID`/`DRIVE_REFRESH_TOKEN` configurati, il job registra solo un avviso nei log e non fa nulla (non blocca l'avvio dell'app) — finché non li imposti, il database resta senza backup. Lo stesso controllo di salute pensato per Gmail (refresh token che scade dopo 7 giorni di inattività finché la schermata di consenso resta in "Testing") si applica anche a questo token — vedi il box di attenzione nella sezione Gmail API sopra: portare la schermata a "In production" risolve per entrambi insieme.
+
 ### Discord — Webhook notifiche
 1. Sul server Discord del coach: Impostazioni canale → Integrazioni → Webhook → Crea Webhook.
 2. Copia l'URL del webhook in `DISCORD_WEBHOOK_URL`.
@@ -286,6 +299,15 @@ Configurato per Railway con builder Nixpacks (`nixpacks.toml`, unica fonte di ve
 4. Aggiorna `FRONTEND_ORIGINS` e `DISCORD_OAUTH_REDIRECT_URI` con il dominio reale.
 5. Aggiungi lo stesso redirect URI di produzione anche sul Discord Developer Portal.
 6. Le migrazioni Alembic vengono eseguite automaticamente all'avvio.
+
+## Backup e ripristino
+
+Vedi "Google Drive (backup automatico database)" sopra per il setup. Per **ripristinare** un backup in caso di emergenza (database corrotto/perso):
+1. Scarica il file `.sql` più recente dalla cartella Drive di backup.
+2. `mysql -u UTENTE -p -h HOST NOME_DATABASE < backup.sql` (stesse credenziali di `DATABASE_URL`) — il file contiene sia lo schema (`CREATE TABLE`) sia i dati (`INSERT`), è autosufficiente.
+3. Verifica che l'app riparta correttamente puntando allo stesso `DATABASE_URL`.
+
+Non è mai stato provato un ripristino reale end-to-end — vale la pena farlo almeno una volta in un ambiente di prova, non aspettare una vera emergenza per scoprire se funziona.
 
 ## Sicurezza
 

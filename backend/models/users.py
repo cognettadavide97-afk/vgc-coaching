@@ -74,3 +74,9 @@ class User(Base):
     # attuale". Il calcolo lo fa MySQL stesso al momento del salvataggio,
     # non Python.
     created_at = Column(DateTime, default=func.now())
+
+    # NULL finché il cliente è attivo; valorizzata dal job di data retention
+    # (vedi backend/services/retention_service.py) quando lo anonimizza per
+    # inattività — è così che il job successivo riconosce "questo l'ho già
+    # fatto", invece di dedurlo da una convenzione sul formato dell'email.
+    anonimizzato_at = Column(DateTime, nullable=True)

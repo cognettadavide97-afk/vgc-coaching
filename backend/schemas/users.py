@@ -49,6 +49,23 @@ class UserCreate(BaseModel):
     discord_tag: Optional[str] = None
 
 
+class UserIdResponse(BaseModel):
+    """
+    Risposta "minima" di POST /users/ — vedi il commento su create_user in
+    backend/routers/users.py per il perché: quell'endpoint è "get or
+    create" pubblico, quindi se l'email indicata corrisponde a un cliente
+    ESISTENTE, response_model=UserResponse (sotto) restituirebbe il suo
+    profilo completo (nome, telefono, discord_tag) a chiunque conoscesse o
+    indovinasse la sua email, anche dichiarando un nome diverso nella
+    richiesta. Al client serve solo l'id per procedere con la prenotazione
+    (vedi frontend/js/app.js), quindi è tutto quello che restituiamo.
+    """
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
 class UserResponse(BaseModel):
     """
     Descrive cosa restituisce l'API quando parla di un utente. Include
