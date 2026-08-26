@@ -34,7 +34,11 @@ jobs:
         # l'Engine all'import (create_engine non apre una connessione
         # reale finché nessuno la usa) — i test però sovrascrivono get_db
         # con un SQLite in-memory separato (vedi tests/conftest.py), quindi
-        # basta un valore fittizio, mai usato per davvero.
+        # basta un valore fittizio, mai usato per davvero. JWT_SECRET serve
+        # per davvero (firma/verifica i token creati dai test), ma può
+        # essere un valore qualsiasi: non è mai lo stesso di produzione e
+        # non protegge nulla di reale in questo contesto.
         run: pytest
         env:
           DATABASE_URL: "sqlite:///:memory:"
+          JWT_SECRET: "test-secret-non-usato-in-produzione"
