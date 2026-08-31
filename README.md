@@ -214,7 +214,6 @@ uvicorn backend.main:app --reload --port 8000
 | Variabile | Obbligatoria | Descrizione |
 |---|---|---|
 | `DATABASE_URL` | Sì | Stringa di connessione MySQL (`mysql+pymysql://utente:password@host/db`). L'app non parte senza. |
-| `SECRET_KEY` | No | Chiave generica, tenuta per compatibilità. |
 | `FRONTEND_ORIGINS` | No | Origini autorizzate via CORS, separate da virgola. Default locale già coperto nel codice. |
 | `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN` | Sì (per le email) | Credenziali OAuth2 per inviare email tramite l'API Gmail (SMTP diretto è bloccato su Railway). |
 | `EMAIL_MITTENTE` | Sì (per le email) | Indirizzo email mittente di tutte le comunicazioni. |
