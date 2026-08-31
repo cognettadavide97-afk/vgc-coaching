@@ -18,6 +18,15 @@ ServiceType = Literal["vod_review", "team_building", "bo3_sparring", "tournament
 
 class BookingCreate(BaseModel):
     user_id: int
+    # Usata per verificare, nel flusso guest (nessun login), che user_id
+    # appartenga davvero a chi sta prenotando: senza questo controllo
+    # user_id è un intero qualsiasi (in produzione una PK sequenziale,
+    # banale da indovinare) che chiunque può scrivere in una richiesta HTTP
+    # diretta per creare prenotazioni a nome di un altro cliente esistente.
+    # Ignorata quando lo studente è loggato via Discord: in quel caso
+    # l'identità arriva dal token verificato dal server, mai da qui (vedi
+    # create_booking in backend/routers/booking.py).
+    email: Optional[str] = None
     slot_id: int
     duration_hours: int = 1
     service_type: ServiceType  # deve essere uno dei 4 valori sopra, altrimenti 422 automatico

@@ -114,9 +114,32 @@ def create_booking(
                 detail=f"The requested duration ({booking.duration_hours}h) does not match the selected slot's duration ({slot.duration_hours}h)"
             )
 
-    user = db.query(User).filter(User.id == booking.user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    # L'identità di chi prenota non va mai presa a scatola chiusa da
+    # booking.user_id (un intero qualsiasi che chiunque può scrivere in una
+    # richiesta HTTP diretta, in produzione una PK sequenziale banale da
+    # indovinare): senza un controllo, chiunque potrebbe creare prenotazioni
+    # "confirmed" a nome di un altro cliente esistente, consumandogli il
+    # limite di prenotazioni attive e generandogli un evento Calendar e
+    # un'email di conferma che non ha richiesto.
+    #
+    # Se lo studente è loggato (JWT verificato dal server), l'identità è la
+    # sua e basta: booking.user_id/booking.email dal body non contano più.
+    # Per il guest checkout (nessun account, scelta di prodotto esplicita)
+    # non esiste un token da cui derivarla — l'unico controllo possibile è
+    # verificare che l'email dichiarata nella stessa richiesta corrisponda
+    # davvero all'utente di quello user_id: non elimina il rischio (un
+    # attaccante che conosce già l'email vera di qualcuno può ancora
+    # impersonarlo, come già oggi per POST /users/), ma alza il costo
+    # dell'attacco da "indovina un intero sequenziale" a "conosci già
+    # l'email vera della vittima".
+    if studente:
+        user = studente
+    else:
+        user = db.query(User).filter(User.id == booking.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.email != booking.email:
+            raise HTTPException(status_code=403, detail="user_id and email do not match")
 
     # Redenzione pacchetto (opzionale): se il client indica un package_id
     # non ci fidiamo del prezzo "gratis" mostrato in UI — ricontrolliamo qui
@@ -156,7 +179,7 @@ def create_booking(
     # stessa persona di occupare più slot contemporaneamente. Contiamo solo
     # le prenotazioni confermate con slot ancora futuro (quelle "attive").
     prenotazioni_attive = db.query(Booking).join(Booking.slot).filter(
-        Booking.user_id == booking.user_id,
+        Booking.user_id == user.id,
         Booking.status == "confirmed",
         Slot.start_time >= ora_utc_naive()
     ).count()
@@ -248,7 +271,7 @@ def create_booking(
     )
 
     db_booking = Booking(
-        user_id=booking.user_id,
+        user_id=user.id,
         slot_id=booking.slot_id,
         slot_id_secondario=slot_secondario.id if slot_secondario else None,
         duration_hours=booking.duration_hours,

@@ -26,6 +26,7 @@ def crea_prenotazione_con_token(client, db, nome="Mario Rossi", email="mario@exa
 
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": email,
         "slot_id": slot.id,
         "duration_hours": 1,
         "service_type": "vod_review"

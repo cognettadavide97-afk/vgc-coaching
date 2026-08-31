@@ -18,10 +18,14 @@ INIZIO = datetime(2030, 1, 7, 12, 0, 0)
 
 
 def crea_utente(client, nome="Mario Rossi", email="mario@example.com"):
-    return client.post("/users/", json={
+    res = client.post("/users/", json={
         "nome": nome, "email": email, "categoria": "senior",
         "discord_tag": "mario#0001", "telefono": None
     }).json()
+    # POST /users/ restituisce solo {"id": ...} — l'email va riattaccata qui
+    # per i test che devono mandarla anche a POST /bookings/ (vedi
+    # BookingCreate.email in backend/schemas/booking.py).
+    return {**res, "email": email}
 
 
 def test_elimina_cliente_rimuove_tutti_i_dati_collegati(client, db):
@@ -34,6 +38,7 @@ def test_elimina_cliente_rimuove_tutti_i_dati_collegati(client, db):
 
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": slot.id,
         "duration_hours": 1,
         "service_type": "vod_review"
@@ -85,6 +90,7 @@ def test_export_csv_contiene_le_prenotazioni(client, db):
 
     client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": slot.id,
         "duration_hours": 1,
         "service_type": "vod_review"

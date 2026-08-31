@@ -6,6 +6,7 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from backend.models.booking import Booking
 from backend.models.package import Package
 from conftest import crea_slot, studente_cookies
 
@@ -54,6 +55,7 @@ def test_prenotazione_1_ora(client, db):
 
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": slot.id,
         "duration_hours": 1,
         "service_type": "vod_review"
@@ -76,6 +78,7 @@ def test_prenotazione_su_slot_passato_viene_rifiutata(client, db):
 
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": slot_passato.id,
         "duration_hours": 1,
         "service_type": "vod_review"
@@ -91,6 +94,7 @@ def test_prenotazione_2_ore_unisce_due_slot_adiacenti(client, db):
 
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": primo.id,
         "duration_hours": 2,
         "service_type": "vod_review"
@@ -116,6 +120,7 @@ def test_prenotazione_2_ore_alle_17_e_permessa(client, db):
 
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": primo.id,
         "duration_hours": 2,
         "service_type": "vod_review"
@@ -135,6 +140,7 @@ def test_prenotazione_2_ore_alle_16_e_rifiutata(client, db):
 
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": primo.id,
         "duration_hours": 2,
         "service_type": "vod_review"
@@ -154,6 +160,7 @@ def test_prenotazione_2_ore_fallisce_se_ora_successiva_assente(client, db):
 
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": primo.id,
         "duration_hours": 2,
         "service_type": "vod_review"
@@ -172,6 +179,7 @@ def test_prenotazione_2_ore_fallisce_se_ora_successiva_gia_occupata(client, db):
 
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": primo.id,
         "duration_hours": 2,
         "service_type": "vod_review"
@@ -188,12 +196,38 @@ def test_slot_gia_occupato_viene_rifiutato(client, db):
 
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": slot.id,
         "duration_hours": 1,
         "service_type": "vod_review"
     })
 
     assert res.status_code == 400
+
+
+def test_prenotazione_guest_a_nome_di_un_altro_utente_viene_rifiutata(client, db):
+    """
+    Riproduce l'IDOR su booking.user_id (ANALISI_2026-08-31.md, Area
+    Sicurezza/Backend): un guest non loggato manda lo user_id di un'altra
+    persona (in produzione, una PK sequenziale banale da enumerare) insieme
+    a un'email diversa dalla sua — non deve poter creare la prenotazione a
+    nome della vittima (furto di identità: evento Calendar, email di
+    conferma e limite di prenotazioni attive della vittima, tutti abusati
+    senza che lei abbia fatto nulla).
+    """
+    vittima = crea_utente(client, email="vittima-idor@example.com")
+    slot = crea_slot(db, INIZIO)
+
+    res = client.post("/bookings/", json={
+        "user_id": vittima["id"],
+        "email": "attaccante-idor@example.com",  # non l'email della vittima
+        "slot_id": slot.id,
+        "duration_hours": 1,
+        "service_type": "vod_review"
+    })
+
+    assert res.status_code == 403
+    assert db.query(Booking).count() == 0
 
 
 def test_redenzione_pacchetto_azzera_prezzo_e_scala_credito(client, db):
@@ -255,6 +289,7 @@ def test_redenzione_pacchetto_senza_login_viene_rifiutata(client, db):
 
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": slot_a.id,
         "duration_hours": 2,
         "service_type": "team_building",
@@ -373,6 +408,7 @@ def test_cancellazione_self_service_libera_entrambi_gli_slot(client, db):
 
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": primo.id,
         "duration_hours": 2,
         "service_type": "vod_review"
@@ -399,6 +435,7 @@ def test_cancellazione_rifiutata_per_prenotazione_di_un_altro(client, db):
 
     prenotazione = client.post("/bookings/", json={
         "user_id": proprietario["id"],
+        "email": proprietario["email"],
         "slot_id": slot.id,
         "duration_hours": 1,
         "service_type": "vod_review"
@@ -417,6 +454,7 @@ def test_cancellazione_richiede_login(client, db):
     slot = crea_slot(db, INIZIO)
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": slot.id,
         "duration_hours": 1,
         "service_type": "vod_review"
@@ -432,6 +470,7 @@ def test_doppia_cancellazione_rifiutata(client, db):
     slot = crea_slot(db, INIZIO)
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
+        "email": utente["email"],
         "slot_id": slot.id,
         "duration_hours": 1,
         "service_type": "vod_review"

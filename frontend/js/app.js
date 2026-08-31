@@ -700,6 +700,13 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 user_id: state.userId,
+                // Il backend verifica che questa email corrisponda davvero
+                // a user_id quando non c'è un login Discord (vedi il
+                // commento su BookingCreate.email in
+                // backend/schemas/booking.py) — stessa email appena
+                // mandata a POST /users/ qui sopra, nessun campo nuovo per
+                // chi compila il form.
+                email: document.getElementById('email').value.trim(),
                 slot_id: state.selectedSlot.id,
                 duration_hours: state.selectedHours,
                 service_type: state.selectedService,
