@@ -8,10 +8,11 @@
 // Il token JWT viene salvato in memoria — dura fino
 // a quando la pagina è aperta
 let token = null;
-// Nota la differenza rispetto ad app.js, che salva il token studente in
-// localStorage (persistente tra visite): qui invece "token" è solo una
-// variabile JavaScript normale, che si azzera appena ricarichi la pagina
-// o la chiudi — il coach deve rifare il login ogni volta che riapre il
+// Nota la differenza rispetto al token studente (dal login Discord, vedi
+// backend/routers/discord_auth.py), che vive in un cookie httpOnly
+// impostato dal server: qui invece "token" è solo una variabile
+// JavaScript normale, che si azzera appena ricarichi la pagina o la
+// chiudi — il coach deve rifare il login ogni volta che riapre il
 // pannello. È una scelta di sicurezza deliberata: un token admin dà
 // accesso a TUTTI i dati dei clienti, ha senso che sia meno "comodo" da
 // mantenere rispetto a un token studente che dà accesso solo al proprio
