@@ -428,6 +428,40 @@ def test_cancellazione_self_service_libera_entrambi_gli_slot(client, db):
     assert secondo.is_available is True
 
 
+def test_cancellazione_self_service_non_espone_note_admin(client, db):
+    """
+    ANALISI_2026-08-31.md, Blocco B1: note_admin è documentato come
+    "visibile solo al coach" (STATO_PROGETTO.md) — la risposta della
+    cancellazione self-service non deve includerlo, altrimenti uno
+    studente che cancella una propria prenotazione su cui il coach aveva
+    scritto una nota privata se la ritroverebbe nel JSON di risposta.
+    """
+    utente = crea_utente(client)
+    slot = crea_slot(db, INIZIO)
+
+    prenotazione = client.post("/bookings/", json={
+        "user_id": utente["id"],
+        "email": utente["email"],
+        "slot_id": slot.id,
+        "duration_hours": 1,
+        "service_type": "vod_review"
+    }).json()
+
+    # Simula il coach che scrive una nota privata prima che lo studente
+    # cancelli.
+    db_booking = db.query(Booking).filter(Booking.id == prenotazione["id"]).first()
+    db_booking.note_admin = "Cliente difficile, tenere d'occhio i pagamenti"
+    db.commit()
+
+    res = client.patch(
+        f"/bookings/{prenotazione['id']}/cancella",
+        cookies=studente_cookies(utente["id"], utente["email"])
+    )
+
+    assert res.status_code == 200, res.text
+    assert "note_admin" not in res.json()
+
+
 def test_cancellazione_rifiutata_per_prenotazione_di_un_altro(client, db):
     proprietario = crea_utente(client, email="proprietario@example.com")
     altro = crea_utente(client, email="altro@example.com")

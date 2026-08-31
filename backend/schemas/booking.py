@@ -67,3 +67,27 @@ class BookingResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class BookingResponseStudente(BaseModel):
+    # Stessi campi di BookingResponse TRANNE note_admin — usato dagli
+    # endpoint lato studente (es. cancella_prenotazione_cliente in
+    # backend/routers/booking.py): note_admin è documentato come "visibile
+    # solo al coach" (vedi STATO_PROGETTO.md), non deve mai arrivare in una
+    # risposta che lo studente stesso può leggere.
+    id: int
+    user_id: int
+    slot_id: int
+    slot_id_secondario: Optional[int]
+    duration_hours: int
+    price_cents: int
+    service_type: str
+    status: str
+    note_cliente: Optional[str]
+    vod_link: Optional[str]
+    replay_code: Optional[str]
+    package_id: Optional[int]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

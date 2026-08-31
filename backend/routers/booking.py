@@ -14,7 +14,7 @@ from backend.models.slots import Slot
 from backend.models.users import User
 from backend.models.package import Package
 from backend.models.review import Review
-from backend.schemas.booking import BookingCreate, BookingResponse
+from backend.schemas.booking import BookingCreate, BookingResponse, BookingResponseStudente
 from backend.schemas.review import ReviewCreate, ReviewResponse, ReviewPubblica
 from backend.services.email_service import invia_conferma_cliente, invia_notifica_admin
 from backend.services.timezone_service import utc_to_rome, ora_utc_naive
@@ -333,7 +333,7 @@ def create_booking(
     return db_booking
 
 
-@router.patch("/{booking_id}/cancella", response_model=BookingResponse)
+@router.patch("/{booking_id}/cancella", response_model=BookingResponseStudente)
 def cancella_prenotazione_cliente(
     booking_id: int,
     studente: User = Depends(get_studente),
