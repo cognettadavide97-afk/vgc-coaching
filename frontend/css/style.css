@@ -411,6 +411,15 @@ main {
 }
 
 .slot-card {
+    /* è un <button> (prima era un <div onclick>, non raggiungibile da
+       tastiera): questi quattro reset annullano lo stile che i browser
+       applicano di default ai bottoni (sfondo grigio, font di sistema,
+       larghezza minima), così resta visivamente identico a prima. */
+    background: white;
+    font: inherit;
+    display: block;
+    width: 100%;
+
     border: 2px solid #eee;
     border-radius: 10px;
     padding: 1rem;

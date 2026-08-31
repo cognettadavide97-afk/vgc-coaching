@@ -472,10 +472,10 @@ function renderSlots() {
     // Anche per una card da 2h, si passa a selectSlot() solo il PRIMO slot:
     // il backend risale da solo al secondo (stesso motivo del filtro sopra).
     container.innerHTML = cardsDaMostrare.map(slot => `
-        <div class="slot-card" onclick="selectSlot(${slot.id}, '${slot.start_time}')">
+        <button type="button" class="slot-card" onclick="selectSlot(${slot.id}, '${slot.start_time}')">
             <div class="slot-date">${formatDate(slot.start_time)}</div>
             <div class="slot-time">${formatTime(slot.start_time)}</div>
-        </div>
+        </button>
     `).join('');
     // Nota: onclick="selectSlot(...)" qui viene scritto DENTRO una
     // stringa HTML generata da JavaScript — a runtime diventa un attributo
