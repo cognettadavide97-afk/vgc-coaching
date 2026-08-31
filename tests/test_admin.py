@@ -5,7 +5,7 @@
 # Vedi tests/conftest.py per come sono preparati client/db e perché le
 # integrazioni esterne sono finte in tutti questi test.
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from backend.models.slots import Slot
 from backend.models.users import User
@@ -105,3 +105,51 @@ def test_export_csv_contiene_le_prenotazioni(client, db):
     corpo = res.content.decode("utf-8-sig")  # BOM (vedi export_csv in admin.py), va tolto per confrontare il testo
     assert "Federica Test" in corpo
     assert "federica.test@example.com" in corpo
+
+
+def test_analytics_esclude_prenotazioni_oltre_i_6_mesi(client, db):
+    """
+    ANALISI_2026-08-31.md, Blocco B2: prima del fix, servizi_piu_richiesti/
+    tasso_no_show_percento/clienti_nuovi-ricorrenti includevano TUTTA la
+    storia delle prenotazioni (nessun limite temporale), a differenza di
+    sessioni_per_mese/incasso_per_mese, già limitati a 6 mesi — decisione
+    esplicita: ora tutte e sei le metriche condividono la stessa finestra
+    di 6 mesi. Creiamo la prenotazione direttamente sul DB (non via
+    POST /bookings/, che rifiuta slot nel passato) per simulare una
+    sessione avvenuta ben oltre 6 mesi fa.
+    """
+    utente = crea_utente(client, email="storico@example.com")
+
+    slot_vecchio = Slot(
+        start_time=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=240),
+        duration_hours=1, is_available=False
+    )
+    db.add(slot_vecchio)
+    db.commit()
+    db.refresh(slot_vecchio)
+
+    prenotazione_vecchia = Booking(
+        user_id=utente["id"], slot_id=slot_vecchio.id,
+        duration_hours=1, price_cents=2000,
+        service_type="bo3_sparring", status="no_show"
+    )
+    db.add(prenotazione_vecchia)
+    db.commit()
+
+    res = client.get("/admin/analytics", headers=admin_headers())
+    assert res.status_code == 200, res.text
+    dati = res.json()
+
+    # "bo3_sparring" non deve comparire tra i servizi più richiesti: l'unica
+    # prenotazione con questo servizio è oltre la finestra di 6 mesi.
+    servizi = [s["servizio"] for s in dati["servizi_piu_richiesti"]]
+    assert "bo3_sparring" not in servizi
+
+    # Il no_show vecchio non deve contribuire al tasso di no-show — con
+    # nessun'altra prenotazione nel DB di test, il tasso resta 0.
+    assert dati["tasso_no_show_percento"] == 0
+
+    # Il cliente non deve comparire né tra i nuovi né tra i ricorrenti,
+    # perché la sua unica prenotazione è fuori finestra.
+    assert dati["clienti_nuovi"] == 0
+    assert dati["clienti_ricorrenti"] == 0
