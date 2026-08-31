@@ -80,29 +80,34 @@ def dashboard(
 # ─── ANALYTICS ─────────────────────────────────────────────────
 MESI_ITALIANI = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
 
+# Ampiezza della finestra temporale di /admin/analytics — un anno solare
+# mobile, non il calendario fisso: "12 mesi fa da oggi", non "da gennaio".
+MESI_FINESTRA_ANALYTICS = 12
+
 @router.get("/analytics")
 def analytics(
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
     """
-    Analytics essenziali, tutte sulla stessa finestra degli ultimi 6 mesi
+    Analytics essenziali, tutte sulla stessa finestra degli ultimi 12 mesi
     (calendario italiano): sessioni e incasso per mese, servizi più
     richiesti, tasso di no-show, clienti nuovi vs ricorrenti. Niente
     grafici decorativi: solo numeri e semplici barre proporzionali,
     calcolate lato client dai valori qui.
     """
-    # Calcola le "chiavi" (anno, mese) degli ultimi 6 mesi, dal più vecchio
-    # al più recente. range(5, -1, -1) produce 5, 4, 3, 2, 1, 0 — il terzo
-    # argomento -1 è il "passo" (si va all'indietro). Il ciclo while dentro
-    # gestisce il caso in cui sottraendo mesi si scenda sotto gennaio: "m -=
-    # 12" e "a -= 1" fanno tornare indietro di un anno, esattamente come
-    # contare le ore oltre la mezzanotte. Calcolato PRIMA della query qui
-    # sotto perché ci serve per costruire il filtro sulla finestra.
+    # Calcola le "chiavi" (anno, mese) degli ultimi MESI_FINESTRA_ANALYTICS
+    # mesi, dal più vecchio al più recente. range(11, -1, -1) produce
+    # 11, 10, ..., 1, 0 — il terzo argomento -1 è il "passo" (si va
+    # all'indietro). Il ciclo while dentro gestisce il caso in cui
+    # sottraendo mesi si scenda sotto gennaio: "m -= 12" e "a -= 1" fanno
+    # tornare indietro di un anno, esattamente come contare le ore oltre la
+    # mezzanotte. Calcolato PRIMA della query qui sotto perché ci serve per
+    # costruire il filtro sulla finestra.
     oggi_rome = datetime.now(timezone.utc).astimezone(ROME_TZ)
     chiavi_mesi = []
     anno, mese = oggi_rome.year, oggi_rome.month
-    for i in range(5, -1, -1):
+    for i in range(MESI_FINESTRA_ANALYTICS - 1, -1, -1):
         m = mese - i
         a = anno
         while m <= 0:
@@ -113,7 +118,7 @@ def analytics(
     # Primo giorno del mese più vecchio della finestra, in ora italiana
     # convertito in UTC naive (stesso formato di Slot.start_time) — tutte
     # le statistiche qui sotto (non solo sessioni/incasso per mese) sono
-    # calcolate SOLO su questa finestra di 6 mesi, non sull'intera storia:
+    # calcolate SOLO su questa finestra, non sull'intera storia:
     # ANALISI_2026-08-31.md (Blocco B2) segnalava che senza questo filtro
     # la query scaricava in RAM tutte le prenotazioni di sempre, con un
     # costo che cresce senza limite mano a mano che lo storico si allunga.

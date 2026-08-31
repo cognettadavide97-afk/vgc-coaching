@@ -107,21 +107,22 @@ def test_export_csv_contiene_le_prenotazioni(client, db):
     assert "federica.test@example.com" in corpo
 
 
-def test_analytics_esclude_prenotazioni_oltre_i_6_mesi(client, db):
+def test_analytics_esclude_prenotazioni_oltre_i_12_mesi(client, db):
     """
     ANALISI_2026-08-31.md, Blocco B2: prima del fix, servizi_piu_richiesti/
     tasso_no_show_percento/clienti_nuovi-ricorrenti includevano TUTTA la
     storia delle prenotazioni (nessun limite temporale), a differenza di
-    sessioni_per_mese/incasso_per_mese, già limitati a 6 mesi — decisione
-    esplicita: ora tutte e sei le metriche condividono la stessa finestra
-    di 6 mesi. Creiamo la prenotazione direttamente sul DB (non via
-    POST /bookings/, che rifiuta slot nel passato) per simulare una
-    sessione avvenuta ben oltre 6 mesi fa.
+    sessioni_per_mese/incasso_per_mese, già limitati alla finestra —
+    decisione esplicita: ora tutte e sei le metriche condividono la stessa
+    finestra (12 mesi, MESI_FINESTRA_ANALYTICS in
+    backend/routers/admin/dashboard.py). Creiamo la prenotazione
+    direttamente sul DB (non via POST /bookings/, che rifiuta slot nel
+    passato) per simulare una sessione avvenuta ben oltre 12 mesi fa.
     """
     utente = crea_utente(client, email="storico@example.com")
 
     slot_vecchio = Slot(
-        start_time=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=240),
+        start_time=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=400),
         duration_hours=1, is_available=False
     )
     db.add(slot_vecchio)
@@ -141,7 +142,7 @@ def test_analytics_esclude_prenotazioni_oltre_i_6_mesi(client, db):
     dati = res.json()
 
     # "bo3_sparring" non deve comparire tra i servizi più richiesti: l'unica
-    # prenotazione con questo servizio è oltre la finestra di 6 mesi.
+    # prenotazione con questo servizio è oltre la finestra di 12 mesi.
     servizi = [s["servizio"] for s in dati["servizi_piu_richiesti"]]
     assert "bo3_sparring" not in servizi
 
