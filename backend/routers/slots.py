@@ -4,12 +4,12 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
 from backend.database import get_db
 from backend.models.slots import Slot
 from backend.schemas.slots import SlotCreate, SlotResponse
 from backend.routers.admin import get_admin
 from backend.services.availability_service import slot_si_sovrappone
+from backend.services.timezone_service import ora_utc_naive
 from typing import List
 
 router = APIRouter(prefix="/slots", tags=["Slots"])
@@ -26,7 +26,7 @@ def get_slots(db: Session = Depends(get_db)):
     # liberi ma il cui orario è già passato (mai prenotati, quindi ancora
     # "disponibili" per il database, ma non ha senso proporli): stesso
     # confronto naive-UTC usato in booking.py e nel package admin/.
-    ora_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    ora_utc = ora_utc_naive()
     slots = db.query(Slot).filter(
         Slot.is_available == True,
         Slot.start_time >= ora_utc

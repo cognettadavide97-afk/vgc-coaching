@@ -139,6 +139,15 @@ async function loadStudentProfile() {
         // esplicitamente (e la funzione che lo contiene deve essere
         // "async"), perché JavaScript di norma preferisce non bloccare mai
         // l'esecuzione in attesa di operazioni lente come la rete.
+        // Avviata subito, ma await SOLO più sotto (dove prima stava questa
+        // stessa chiamata): /users/me e /users/me/prenotazioni si
+        // autenticano con lo stesso cookie e non dipendono l'una
+        // dall'altra — partire in parallelo invece che una dopo l'altra
+        // dimezza il tempo di attesa a ogni caricamento della pagina per
+        // un visitatore già loggato. loadBookingHistory() gestisce già i
+        // propri errori (try/catch, restituisce [] in caso di problemi).
+        const prenotazioniPromise = loadBookingHistory();
+
         // Nessun header da allegare qui: se esiste un cookie di sessione
         // valido, il browser lo manda da solo (stessa origine della
         // pagina) — vedi il commento su studentLoggedIn in cima al file.
@@ -179,7 +188,7 @@ async function loadStudentProfile() {
         if (campoCategoria && profilo.categoria) campoCategoria.value = profilo.categoria;
         if (campoDiscord) campoDiscord.value = profilo.discord_tag || '';
 
-        const prenotazioni = await loadBookingHistory();
+        const prenotazioni = await prenotazioniPromise;
 
         document.getElementById('discord-login-bar').innerHTML = `
             <div class="login-bar-content">

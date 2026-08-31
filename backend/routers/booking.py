@@ -6,8 +6,8 @@
 import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import update
-from sqlalchemy.orm import Session
-from datetime import datetime, timedelta, timezone
+from sqlalchemy.orm import Session, joinedload
+from datetime import timedelta
 from backend.database import get_db
 from backend.models.booking import Booking
 from backend.models.slots import Slot
@@ -17,7 +17,7 @@ from backend.models.review import Review
 from backend.schemas.booking import BookingCreate, BookingResponse
 from backend.schemas.review import ReviewCreate, ReviewResponse, ReviewPubblica
 from backend.services.email_service import invia_conferma_cliente, invia_notifica_admin
-from backend.services.timezone_service import utc_to_rome
+from backend.services.timezone_service import utc_to_rome, ora_utc_naive
 from backend.services.calendar_service import crea_evento_calendario
 from backend.services.discord_service import invia_notifica_discord
 from backend.services.booking_service import libera_slot_prenotazione
@@ -76,7 +76,7 @@ def create_booking(
     # futuri) potrebbe prenotare un orario già passato: la sessione verrebbe
     # confermata, l'evento calendario creato, l'email di conferma inviata,
     # ma per un appuntamento che non potrà mai avvenire.
-    if slot.start_time <= datetime.now(timezone.utc).replace(tzinfo=None):
+    if slot.start_time <= ora_utc_naive():
         raise HTTPException(status_code=400, detail="This slot is in the past")
 
     # Controllo di coerenza sulla durata. Il calendario (vedi
@@ -158,7 +158,7 @@ def create_booking(
     prenotazioni_attive = db.query(Booking).join(Booking.slot).filter(
         Booking.user_id == booking.user_id,
         Booking.status == "confirmed",
-        Slot.start_time >= datetime.now(timezone.utc).replace(tzinfo=None)
+        Slot.start_time >= ora_utc_naive()
     ).count()
     if prenotazioni_attive >= MAX_PRENOTAZIONI_ATTIVE:
         raise HTTPException(
@@ -332,7 +332,7 @@ def cancella_prenotazione_cliente(
         raise HTTPException(status_code=403, detail="This booking doesn't belong to you")
     if prenotazione.status != "confirmed":
         raise HTTPException(status_code=400, detail="This booking is not active")
-    if prenotazione.slot.start_time <= datetime.now(timezone.utc).replace(tzinfo=None):
+    if prenotazione.slot.start_time <= ora_utc_naive():
         raise HTTPException(status_code=400, detail="This session has already happened, it can no longer be cancelled")
 
     prenotazione.status = "cancelled"
@@ -352,7 +352,14 @@ def recensioni_pubbliche(db: Session = Depends(get_db)):
     del cliente, così una recensione resta riconoscibile come "vera" senza
     rivelare il cognome o il contatto di chi l'ha scritta.
     """
-    recensioni = db.query(Review).filter(
+    # joinedload(Review.booking).joinedload(Booking.user): senza questo, la
+    # list comprehension sotto (r.booking.user.nome, per ogni recensione)
+    # rifarebbe due query separate per riga invece di prenderle entrambe
+    # con due JOIN nella stessa query — endpoint pubblico, quindi ancora
+    # più importante non lasciarlo N+1.
+    recensioni = db.query(Review).options(
+        joinedload(Review.booking).joinedload(Booking.user)
+    ).filter(
         Review.approvata == True
     ).order_by(Review.created_at.desc()).all()
 

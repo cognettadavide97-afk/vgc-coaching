@@ -5,6 +5,7 @@
 # pacchetto.
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models.booking import Booking
@@ -17,8 +18,9 @@ from backend.schemas.availability import (
 )
 from backend.routers.admin import get_admin
 from backend.services.calendar_service import sincronizza_slot_con_calendario
-from backend.services.timezone_service import utc_to_rome
+from backend.services.timezone_service import formatta_data_ora_rome
 from backend.services.availability_service import genera_slot_da_regola, applica_blocco_eccezionale
+from backend.services.pagination_service import pagina_e_offset, busta_paginazione
 from typing import List
 
 router = APIRouter()
@@ -33,36 +35,29 @@ def get_slots_admin(
     per_pagina: int = 20
 ):
     """Restituisce gli slot, liberi e occupati, paginati (più vicini nel tempo prima)."""
-    pagina = max(pagina, 1)
-    per_pagina = min(max(per_pagina, 1), 100)
+    pagina, per_pagina, offset = pagina_e_offset(pagina, per_pagina)
 
     totale = db.query(Slot).count()
 
     slots = db.query(Slot).order_by(Slot.start_time) \
-        .offset((pagina - 1) * per_pagina) \
+        .offset(offset) \
         .limit(per_pagina) \
         .all()
 
-    items = [
-        {
+    items = []
+    for s in slots:
+        data, ora = formatta_data_ora_rome(s.start_time)
+        items.append({
             "id": s.id,
-            "data": utc_to_rome(s.start_time).strftime("%d/%m/%Y"),
-            "ora": utc_to_rome(s.start_time).strftime("%H:%M"),
+            "data": data,
+            "ora": ora,
             "durata_ore": s.duration_hours,
             "disponibile": s.is_available,
             "bloccato_da_calendario": s.blocked_external,
             "bloccato_da_admin": s.blocked_admin
-        }
-        for s in slots
-    ]
+        })
 
-    return {
-        "items": items,
-        "totale": totale,
-        "pagina": pagina,
-        "per_pagina": per_pagina,
-        "pagine_totali": max((totale + per_pagina - 1) // per_pagina, 1)
-    }
+    return busta_paginazione(items, totale, pagina, per_pagina)
 
 @router.post("/slots/sync-calendario")
 def sincronizza_calendario(
@@ -97,9 +92,14 @@ def elimina_slot(
     if not slot:
         raise HTTPException(status_code=404, detail="Slot non trovato")
 
-    # controlla se esistono prenotazioni collegate a questo slot
+    # controlla se esistono prenotazioni collegate a questo slot — anche
+    # come slot_id_secondario, cioè la "seconda ora" di una sessione da 2h
+    # (vedi backend/models/booking.py): entrambe le colonne sono una
+    # ForeignKey verso slots.id, quindi il database rifiuterebbe comunque
+    # la cancellazione con un errore tecnico se controllassimo solo
+    # slot_id — questo controllo dà invece il messaggio chiaro sotto.
     prenotazioni_collegate = db.query(Booking).filter(
-        Booking.slot_id == slot_id
+        or_(Booking.slot_id == slot_id, Booking.slot_id_secondario == slot_id)
     ).count()
 
     if prenotazioni_collegate > 0:

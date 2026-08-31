@@ -4,7 +4,7 @@
 # questo pacchetto è organizzato e perché get_admin si importa da lì.
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager
 from sqlalchemy import func
 from datetime import datetime, timedelta, timezone
 from backend.database import get_db
@@ -12,7 +12,7 @@ from backend.models.booking import Booking
 from backend.models.slots import Slot
 from backend.models.review import Review
 from backend.routers.admin import get_admin
-from backend.services.timezone_service import utc_to_rome, ROME_TZ
+from backend.services.timezone_service import utc_to_rome, ROME_TZ, ora_utc_naive, formatta_data_ora_rome
 
 router = APIRouter()
 
@@ -60,24 +60,21 @@ def dashboard(
 
     prossimi_slot = db.query(Slot).filter(
         Slot.is_available == True,
-        Slot.start_time >= datetime.now(timezone.utc).replace(tzinfo=None)
+        Slot.start_time >= ora_utc_naive()
     ).order_by(Slot.start_time).limit(5).all()
 
     media_voto = db.query(func.avg(Review.voto)).scalar()
+
+    def slot_liberi_dict(s):
+        data, ora = formatta_data_ora_rome(s.start_time)
+        return {"id": s.id, "data": data, "ora": ora}
 
     return {
         "totale_prenotazioni": totale_prenotazioni,
         "prenotazioni_oggi": prenotazioni_oggi,
         "totale_incassato_euro": totale_incassato / 100,
         "media_voto_recensioni": round(media_voto, 1) if media_voto is not None else None,
-        "prossimi_slot_liberi": [
-            {
-                "id": s.id,
-                "data": utc_to_rome(s.start_time).strftime("%d/%m/%Y"),
-                "ora": utc_to_rome(s.start_time).strftime("%H:%M")
-            }
-            for s in prossimi_slot
-        ]
+        "prossimi_slot_liberi": [slot_liberi_dict(s) for s in prossimi_slot]
     }
 
 # ─── ANALYTICS ─────────────────────────────────────────────────
@@ -101,8 +98,14 @@ def analytics(
     # esprimere in SQL puro, e per un progetto di queste dimensioni (poche
     # centinaia di prenotazioni, non milioni) è più semplice e leggibile
     # farlo con un ciclo Python piuttosto che con SQL molto elaborato.
-    prenotazioni = db.query(Booking).join(Booking.slot).all()
-    ora_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    # contains_eager(Booking.slot): il .join(Booking.slot) qui sotto serve
+    # comunque solo a FILTRARE/ordinare — senza dirlo esplicitamente a
+    # SQLAlchemy, il ciclo poco più sotto (p.slot.start_time, due volte per
+    # ogni prenotazione) farebbe ripartire una query separata per ogni
+    # Slot, invece di riusare quello già preso col JOIN. Stessa tecnica già
+    # usata per lo stesso motivo in backend/scheduler.py.
+    prenotazioni = db.query(Booking).join(Booking.slot).options(contains_eager(Booking.slot)).all()
+    ora_utc = ora_utc_naive()
 
     # Calcola le "chiavi" (anno, mese) degli ultimi 6 mesi, dal più vecchio
     # al più recente. range(5, -1, -1) produce 5, 4, 3, 2, 1, 0 — il terzo

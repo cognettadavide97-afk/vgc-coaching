@@ -14,6 +14,7 @@ from backend.models.package import Package
 from backend.schemas.client_note import ClientNoteCreate, ClientNoteResponse
 from backend.routers.admin import get_admin
 from backend.services.booking_service import libera_slot_prenotazione
+from backend.services.pagination_service import pagina_e_offset, busta_paginazione
 from typing import List
 
 router = APIRouter()
@@ -40,13 +41,12 @@ def get_clienti(
     # clienti, 101 query invece di poche. La soluzione sotto fa UNA query
     # che raggruppa e conta tutto insieme, per tutti i clienti della pagina
     # contemporaneamente.
-    pagina = max(pagina, 1)
-    per_pagina = min(max(per_pagina, 1), 100)
+    pagina, per_pagina, offset = pagina_e_offset(pagina, per_pagina)
 
     totale = db.query(User).count()
 
     clienti = db.query(User).order_by(User.id) \
-        .offset((pagina - 1) * per_pagina) \
+        .offset(offset) \
         .limit(per_pagina) \
         .all()
 
@@ -103,13 +103,7 @@ def get_clienti(
         for c in clienti
     ]
 
-    return {
-        "items": risultato,
-        "totale": totale,
-        "pagina": pagina,
-        "per_pagina": per_pagina,
-        "pagine_totali": max((totale + per_pagina - 1) // per_pagina, 1)
-    }
+    return busta_paginazione(risultato, totale, pagina, per_pagina)
 
 # ─── CANCELLAZIONE CLIENTE (diritto all'oblio, Art. 17 GDPR) ─
 @router.delete("/clienti/{user_id}")

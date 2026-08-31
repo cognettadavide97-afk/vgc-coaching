@@ -63,7 +63,46 @@ def _escape(testo: str, default: str = "") -> str:
     return html.escape(testo) if testo else default
 
 
-# Funzione condivisa dalle tre email qui sotto: costruisce il messaggio
+# Le due funzioni sotto factorizzano lo "scheletro" HTML (header/footer col
+# logo, pannello grigio chiaro per il contenuto) che PRIMA veniva riscritto
+# per intero in ogni singola funzione invia_*: 5 email al cliente
+# condividevano lo stesso wrapper a tre blocchi (header + pannello + footer),
+# 3 email al coach lo stesso wrapper più semplice (titolo + pannello). Ogni
+# funzione invia_* qui sotto costruisce solo il proprio frammento di
+# contenuto (corpo) e lo passa a una di queste due — un cambio di stile
+# (es. il colore del footer) va fatto una volta sola invece che in 8 punti.
+def _template_cliente(corpo: str) -> str:
+    return f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+
+        <div style="background: #1a1a2e; padding: 2rem; text-align: center;">
+            <h1 style="color: white; margin: 0;">VGC Coaching</h1>
+        </div>
+
+        <div style="padding: 2rem; background: #f9f9f9;">
+            {corpo}
+        </div>
+
+        <div style="background: #1a1a2e; padding: 1rem; text-align: center;">
+            <p style="color: #888; font-size: 0.8rem; margin: 0;">VGC Coaching</p>
+        </div>
+
+    </div>
+    """
+
+
+def _template_admin(titolo: str, corpo: str) -> str:
+    return f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 2rem;">
+        <h2 style="color: #e74c3c;">{titolo}</h2>
+        <div style="background: #f9f9f9; border-radius: 8px; padding: 1.5rem;">
+            {corpo}
+        </div>
+    </div>
+    """
+
+
+# Funzione condivisa da tutte le email qui sotto: costruisce il messaggio
 # (con una versione testuale semplice + quella HTML vera e propria, così i
 # client di posta che non mostrano HTML hanno comunque un contenuto
 # leggibile), lo autentica scambiando il refresh_token con un token di
@@ -125,26 +164,11 @@ def invia_conferma_cliente(
 ):
     prezzo_euro = prezzo / 100
 
-    # Questa è una f-string multi-riga (le tre virgolette """ permettono a
-    # una stringa di andare a capo). Ogni {qualcosa} dentro le graffe viene
-    # sostituito con il valore vero della variabile — esattamente come
-    # faresti con una f-string normale in una riga sola, solo che qui il
-    # contenuto è codice HTML: il "corpo" dell'email, con tag <div>, <h1>,
-    # <p>... Un client di posta (Gmail, Outlook...) sa interpretare HTML
-    # dentro un'email e la mostra formattata, non come testo grezzo.
-    #
     # {"e" if durata > 1 else ""} è un'espressione condizionale (l'"if" in
     # una riga sola, equivalente a scrivere "e" if durata > 1 else "")
     # dentro la f-string: serve solo per scrivere "1 ora" ma "2 ore" — una
     # piccola concordanza grammaticale automatica.
-    corpo_email = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-
-        <div style="background: #1a1a2e; padding: 2rem; text-align: center;">
-            <h1 style="color: white; margin: 0;">VGC Coaching</h1>
-        </div>
-
-        <div style="padding: 2rem; background: #f9f9f9;">
+    corpo = f"""
             <h2 style="color: #1a1a2e;">Booking confirmed!</h2>
             <p>Hi <strong>{_escape(nome_cliente)}</strong>,</p>
             <p>Your VGC coaching session is confirmed.</p>
@@ -165,14 +189,8 @@ def invia_conferma_cliente(
             </div>
 
             <p>For any other question, just reply to this email.</p>
-        </div>
-
-        <div style="background: #1a1a2e; padding: 1rem; text-align: center;">
-            <p style="color: #888; font-size: 0.8rem; margin: 0;">VGC Coaching</p>
-        </div>
-
-    </div>
     """
+    corpo_email = _template_cliente(corpo)
 
     # Perché try/except invece di lasciare che un errore fermi tutto? Perché
     # l'invio di un'email dipende da un servizio ESTERNO (il server SMTP di
@@ -198,17 +216,10 @@ def invia_promemoria_cliente(
     ora_slot: str,
     durata: int
 ):
-    # Stessa identica struttura di invia_conferma_cliente qui sopra, solo
+    # Stesso contenuto/struttura di invia_conferma_cliente qui sopra, solo
     # con testo diverso — mandata da backend/scheduler.py quando una
     # sessione si avvicina, invece che al momento della prenotazione.
-    corpo_email = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-
-        <div style="background: #1a1a2e; padding: 2rem; text-align: center;">
-            <h1 style="color: white; margin: 0;">VGC Coaching</h1>
-        </div>
-
-        <div style="padding: 2rem; background: #f9f9f9;">
+    corpo = f"""
             <h2 style="color: #1a1a2e;">Session reminder</h2>
             <p>Hi <strong>{_escape(nome_cliente)}</strong>,</p>
             <p>Just a reminder that you have a VGC coaching session coming up.</p>
@@ -228,14 +239,8 @@ def invia_promemoria_cliente(
             </div>
 
             <p>See you soon!</p>
-        </div>
-
-        <div style="background: #1a1a2e; padding: 1rem; text-align: center;">
-            <p style="color: #888; font-size: 0.8rem; margin: 0;">VGC Coaching</p>
-        </div>
-
-    </div>
     """
+    corpo_email = _template_cliente(corpo)
 
     try:
         _invia_via_gmail(email_cliente, "Reminder: your VGC coaching session is coming up", corpo_email)
@@ -261,19 +266,15 @@ def invia_notifica_admin(
     # righe più sotto ("Nuova prenotazione — {nome_cliente}") vuole il nome
     # ORIGINALE — l'oggetto non è HTML, escaparlo lì mostrerebbe
     # letteralmente "&amp;" invece di "&" nella casella del coach.
-    corpo_email = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 2rem;">
-        <h2 style="color: #e74c3c;">Nuova prenotazione ricevuta</h2>
-        <div style="background: #f9f9f9; border-radius: 8px; padding: 1.5rem;">
+    corpo = f"""
             <p><strong>Cliente:</strong> {_escape(nome_cliente)}</p>
             <p><strong>Email:</strong> {_escape(email_cliente)}</p>
             <p><strong>Data:</strong> {data_slot}</p>
             <p><strong>Orario:</strong> {ora_slot}</p>
             <p><strong>Durata:</strong> {durata} ora{"e" if durata > 1 else ""}</p>
             <p><strong>Note:</strong> {_escape(note_cliente, "Nessuna nota")}</p>
-        </div>
-    </div>
     """
+    corpo_email = _template_admin("Nuova prenotazione ricevuta", corpo)
 
     try:
         _invia_via_gmail(EMAIL_ADMIN, f"Nuova prenotazione — {nome_cliente}", corpo_email)
@@ -290,25 +291,12 @@ def invia_conferma_richiesta_consulenza(email_cliente: str, nome_cliente: str):
     va accordata privatamente, quindi il messaggio resta volutamente vago
     su data/ora.
     """
-    corpo_email = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-
-        <div style="background: #1a1a2e; padding: 2rem; text-align: center;">
-            <h1 style="color: white; margin: 0;">VGC Coaching</h1>
-        </div>
-
-        <div style="padding: 2rem; background: #f9f9f9;">
+    corpo = f"""
             <h2 style="color: #1a1a2e;">Request received!</h2>
             <p>Hi <strong>{_escape(nome_cliente)}</strong>,</p>
             <p>We've received your request for a free 20-minute call. We'll get in touch shortly to arrange a time.</p>
-        </div>
-
-        <div style="background: #1a1a2e; padding: 1rem; text-align: center;">
-            <p style="color: #888; font-size: 0.8rem; margin: 0;">VGC Coaching</p>
-        </div>
-
-    </div>
     """
+    corpo_email = _template_cliente(corpo)
 
     try:
         _invia_via_gmail(email_cliente, "Free call request received", corpo_email)
@@ -324,17 +312,13 @@ def invia_notifica_richiesta_consulenza_admin(
     messaggio: str
 ):
     """Avvisa il coach (EMAIL_ADMIN) di una nuova richiesta di call gratuita."""
-    corpo_email = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 2rem;">
-        <h2 style="color: #e74c3c;">Nuova richiesta di call gratuita (20 min)</h2>
-        <div style="background: #f9f9f9; border-radius: 8px; padding: 1.5rem;">
+    corpo = f"""
             <p><strong>Cliente:</strong> {_escape(nome_cliente)}</p>
             <p><strong>Email:</strong> {_escape(email_cliente)}</p>
             <p><strong>Discord:</strong> {_escape(discord_tag, "non specificato")}</p>
             <p><strong>Messaggio:</strong> {_escape(messaggio, "nessuno")}</p>
-        </div>
-    </div>
     """
+    corpo_email = _template_admin("Nuova richiesta di call gratuita (20 min)", corpo)
 
     try:
         _invia_via_gmail(EMAIL_ADMIN, f"Richiesta call gratuita — {nome_cliente}", corpo_email)
@@ -351,25 +335,12 @@ def invia_conferma_richiesta_pacchetto(email_cliente: str, nome_cliente: str, no
     per accordare il pagamento e solo dopo assegna il pacchetto vero da
     /admin/pacchetti.
     """
-    corpo_email = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-
-        <div style="background: #1a1a2e; padding: 2rem; text-align: center;">
-            <h1 style="color: white; margin: 0;">VGC Coaching</h1>
-        </div>
-
-        <div style="padding: 2rem; background: #f9f9f9;">
+    corpo = f"""
             <h2 style="color: #1a1a2e;">Request received!</h2>
             <p>Hi <strong>{_escape(nome_cliente)}</strong>,</p>
             <p>We've received your request to activate the <strong>{nome_pacchetto}</strong> package. We'll get in touch shortly to arrange payment and get it set up.</p>
-        </div>
-
-        <div style="background: #1a1a2e; padding: 1rem; text-align: center;">
-            <p style="color: #888; font-size: 0.8rem; margin: 0;">VGC Coaching</p>
-        </div>
-
-    </div>
     """
+    corpo_email = _template_cliente(corpo)
 
     try:
         _invia_via_gmail(email_cliente, "Package request received", corpo_email)
@@ -386,17 +357,13 @@ def invia_notifica_richiesta_pacchetto_admin(
     messaggio: str
 ):
     """Avvisa il coach (EMAIL_ADMIN) di una nuova richiesta di attivazione pacchetto."""
-    corpo_email = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 2rem;">
-        <h2 style="color: #e74c3c;">Nuova richiesta pacchetto — {nome_pacchetto}</h2>
-        <div style="background: #f9f9f9; border-radius: 8px; padding: 1.5rem;">
+    corpo = f"""
             <p><strong>Cliente:</strong> {_escape(nome_cliente)}</p>
             <p><strong>Email:</strong> {_escape(email_cliente)}</p>
             <p><strong>Discord:</strong> {_escape(discord_tag, "non specificato")}</p>
             <p><strong>Messaggio:</strong> {_escape(messaggio, "nessuno")}</p>
-        </div>
-    </div>
     """
+    corpo_email = _template_admin(f"Nuova richiesta pacchetto — {nome_pacchetto}", corpo)
 
     try:
         _invia_via_gmail(EMAIL_ADMIN, f"Richiesta pacchetto {nome_pacchetto} — {nome_cliente}", corpo_email)
@@ -411,14 +378,7 @@ def invia_richiesta_recensione(email_cliente: str, nome_cliente: str, link_recen
     controlla_e_invia_richieste_recensione in backend/scheduler.py), con un
     link univoco che porta alla pagina pubblica frontend/recensione.html.
     """
-    corpo_email = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-
-        <div style="background: #1a1a2e; padding: 2rem; text-align: center;">
-            <h1 style="color: white; margin: 0;">VGC Coaching</h1>
-        </div>
-
-        <div style="padding: 2rem; background: #f9f9f9;">
+    corpo = f"""
             <h2 style="color: #1a1a2e;">How did it go?</h2>
             <p>Hi <strong>{_escape(nome_cliente)}</strong>,</p>
             <p>I hope the session was useful! If you have a minute, leave me a rating and a comment — it really helps me improve.</p>
@@ -428,14 +388,8 @@ def invia_richiesta_recensione(email_cliente: str, nome_cliente: str, link_recen
                     Leave a review
                 </a>
             </div>
-        </div>
-
-        <div style="background: #1a1a2e; padding: 1rem; text-align: center;">
-            <p style="color: #888; font-size: 0.8rem; margin: 0;">VGC Coaching</p>
-        </div>
-
-    </div>
     """
+    corpo_email = _template_cliente(corpo)
 
     try:
         _invia_via_gmail(email_cliente, "How did your session go?", corpo_email)

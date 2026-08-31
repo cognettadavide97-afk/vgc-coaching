@@ -34,3 +34,38 @@ def utc_to_rome(dt: datetime) -> datetime:
     # italiana) e restituisce un nuovo datetime già "consapevole" di essere
     # in ora italiana.
     return dt.astimezone(ROME_TZ)
+
+
+def formatta_data_ora_rome(dt: datetime) -> tuple[str, str]:
+    """
+    Converte un datetime naive-UTC in ora di Roma e lo formatta subito nelle
+    due stringhe (data, ora) che quasi ogni endpoint admin mostra affiancate
+    (dashboard, lista prenotazioni, lista slot, export CSV) — prima questa
+    stessa coppia di .strftime() veniva ripetuta in ognuno di quei punti.
+    """
+    dt_rome = utc_to_rome(dt)
+    return dt_rome.strftime("%d/%m/%Y"), dt_rome.strftime("%H:%M")
+
+
+def ora_utc_naive() -> datetime:
+    """
+    "Adesso", nella stessa forma naive-UTC salvata nel DB — serve per
+    confrontare l'ora attuale con Slot.start_time/Booking.created_at ecc.
+    senza il mismatch aware/naive che darebbe un confronto diretto con
+    datetime.now(). Ripetuta identica in una dozzina di punti del progetto
+    prima di questa funzione condivisa.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def intervalli_si_sovrappongono(inizio1: datetime, fine1: datetime, inizio2: datetime, fine2: datetime) -> bool:
+    """
+    True se gli intervalli [inizio1, fine1) e [inizio2, fine2) si
+    sovrappongono. Il modo standard per capire se due intervalli di tempo si
+    sovrappongono è controllare "A inizia prima che B finisca, E B inizia
+    prima che A finisca" — la stessa identica condizione serviva sia per
+    controllare due Slot tra loro (availability_service.py) sia uno Slot
+    contro un evento Google Calendar (calendar_service.py), prima ridefinita
+    a mano in entrambi i punti.
+    """
+    return inizio1 < fine2 and inizio2 < fine1

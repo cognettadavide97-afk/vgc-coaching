@@ -15,9 +15,10 @@
 # contatti Discord vengono sovrascritti con valori anonimi.
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from sqlalchemy.orm import Session, joinedload
 from backend.models.users import User
+from backend.services.timezone_service import ora_utc_naive
 
 # Configurabile da variabile d'ambiente (stesso pattern degli altri
 # intervalli in backend/scheduler.py), con il default deciso per questo
@@ -45,7 +46,7 @@ def anonimizza_clienti_inattivi(db: Session) -> int:
     # esatto (richiederebbe una libreria in più, tipo dateutil, solo per
     # questo) — per una soglia "di quanti mesi fa", uno scarto di qualche
     # giorno non cambia nulla nella pratica.
-    ora = datetime.now(timezone.utc).replace(tzinfo=None)
+    ora = ora_utc_naive()
     soglia = ora - timedelta(days=30 * RETENTION_MONTHS)
 
     # joinedload precarica bookings/packages di TUTTI i clienti in due JOIN

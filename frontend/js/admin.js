@@ -219,6 +219,15 @@ function badgeStato(stato) {
 
 // ─── DASHBOARD ───────────────────────────────────────────────
 async function caricaDashboard() {
+    // Avviata subito, ma await SOLO alla fine (sotto): /admin/dashboard e
+    // /admin/analytics sono due richieste indipendenti (nessuna delle due
+    // ha bisogno del risultato dell'altra) — partire in parallelo invece
+    // che una dopo l'altra dimezza il tempo di attesa a ogni apertura del
+    // pannello. caricaAnalytics() gestisce già i propri errori al suo
+    // interno (try/catch), quindi lasciarla "in volo" qui non rischia di
+    // generare un errore non gestito.
+    const analyticsPromise = caricaAnalytics();
+
     try {
         const res = await fetch('/admin/dashboard', { headers: authHeaders() });
         const data = await res.json();
@@ -245,11 +254,11 @@ async function caricaDashboard() {
                 `).join('')
             }</div>`;
         }
-
-        await caricaAnalytics();
     } catch (error) {
         console.error('Errore dashboard:', error);
     }
+
+    await analyticsPromise;
 }
 
 function renderBarChart(container, dati, chiaveEtichetta, chiaveValore, formattatore) {
@@ -952,7 +961,6 @@ async function creaRegolaDisponibilita() {
     const giorno = document.getElementById('regola-giorno').value;
     const oraInizio = document.getElementById('regola-ora-inizio').value;
     const oraFine = document.getElementById('regola-ora-fine').value;
-    const durata = document.getElementById('regola-durata').value;
 
     if (!oraInizio || !oraFine) {
         alert('Inserisci ora di inizio e fine.');
@@ -967,7 +975,7 @@ async function creaRegolaDisponibilita() {
                 giorno_settimana: parseInt(giorno),
                 ora_inizio: oraInizio,
                 ora_fine: oraFine,
-                durata_slot_ore: parseInt(durata)
+                durata_slot_ore: 1
             })
         });
 

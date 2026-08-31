@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
-from backend.services.timezone_service import ROME_TZ
+from backend.services.timezone_service import ROME_TZ, ora_utc_naive, intervalli_si_sovrappongono
 
 load_dotenv()
 
@@ -230,7 +230,7 @@ def sincronizza_slot_con_calendario(db: Session) -> int:
     # e admin/availability.py importa già da qui.
     from backend.models.slots import Slot
 
-    ora = datetime.now(timezone.utc).replace(tzinfo=None)
+    ora = ora_utc_naive()
 
     slot_liberi = db.query(Slot).filter(
         Slot.is_available == True,
@@ -250,7 +250,7 @@ def sincronizza_slot_con_calendario(db: Session) -> int:
         slot_inizio = slot.start_time
         slot_fine = slot.start_time + timedelta(hours=slot.duration_hours)
         for evento_inizio, evento_fine in eventi:
-            if slot_inizio < evento_fine and evento_inizio < slot_fine:
+            if intervalli_si_sovrappongono(slot_inizio, slot_fine, evento_inizio, evento_fine):
                 slot.is_available = False
                 slot.blocked_external = True
                 bloccati += 1

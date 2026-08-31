@@ -5,14 +5,12 @@
 
 from pydantic import BaseModel, field_validator, field_serializer
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from backend.services.timezone_service import ROME_TZ
 
-# ZoneInfo è la libreria standard di Python (dalla versione 3.9) per
-# lavorare con i fusi orari "veri" — cioè che conoscono anche le regole di
-# cambio ora legale di ogni paese, non solo un offset fisso. "Europe/Rome"
-# è un identificatore standard (IANA) che rappresenta l'Italia con tutte le
-# sue regole (CET in inverno, CEST/ora legale in estate).
-ROME_TZ = ZoneInfo("Europe/Rome")
+# ROME_TZ (definita una sola volta in backend/services/timezone_service.py,
+# vedi il commento lì per cos'è ZoneInfo e perché "Europe/Rome" conosce
+# anche le regole del cambio ora legale) — importata qui invece di essere
+# ridefinita, così un solo punto del progetto costruisce quello ZoneInfo.
 
 
 class SlotCreate(BaseModel):

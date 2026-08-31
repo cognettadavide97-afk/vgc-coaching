@@ -29,6 +29,39 @@ SERVICE_LABELS = {
 }
 
 
+# Ogni funzione invia_* qui sotto costruisce solo il proprio "embed"
+# (il dizionario con titolo/colore/campi del messaggio Discord) e lo passa
+# a questa funzione condivisa — PRIMA ognuna ripeteva per intero lo stesso
+# controllo "webhook configurato?" e lo stesso blocco try/requests.post/
+# raise_for_status/except, cambiando solo il messaggio di log. Un cambio a
+# come vengono mandati i messaggi (es. un timeout diverso) va fatto qui una
+# volta sola, non in 6 punti diversi.
+def _invia_embed(embed: dict, msg_ok: str, msg_errore: str):
+    if not DISCORD_WEBHOOK_URL:
+        logger.warning(f"DISCORD_WEBHOOK_URL non configurato — salto: {msg_ok}")
+        return
+
+    try:
+        # requests.post(url, json=..., timeout=5) manda una richiesta HTTP
+        # POST con il nostro dizionario convertito automaticamente in JSON.
+        # timeout=5 vuol dire "se Discord non risponde entro 5 secondi,
+        # considera la richiesta fallita" — senza un timeout, un servizio
+        # esterno lento potrebbe far restare il nostro programma "in attesa"
+        # per un tempo indefinito, bloccando anche il resto della richiesta
+        # di prenotazione in corso.
+        response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
+        # raise_for_status() controlla il codice di risposta HTTP: se è un
+        # codice di errore (4xx o 5xx), solleva un'eccezione da sola — così
+        # non serve controllare manualmente "if response.status_code >= 400".
+        response.raise_for_status()
+        logger.info(msg_ok)
+    except Exception:
+        # Stessa filosofia di email_service.py e calendar_service.py: un
+        # problema con Discord non deve mai bloccare la prenotazione,
+        # quindi cattura l'errore e limitati a segnalarlo.
+        logger.exception(msg_errore)
+
+
 def invia_notifica_discord(
     nome_cliente: str,
     discord_tag: str,
@@ -43,14 +76,6 @@ def invia_notifica_discord(
     a ogni nuova prenotazione. Non blocca la prenotazione in caso
     di errore o se il webhook non è configurato.
     """
-    # Se il coach non ha ancora configurato un webhook (DISCORD_WEBHOOK_URL
-    # mancante in .env), non ha senso nemmeno provare: usciamo subito dalla
-    # funzione con "return" senza argomenti, che in una funzione che non
-    # deve restituire nulla vuol dire semplicemente "fermati qui".
-    if not DISCORD_WEBHOOK_URL:
-        logger.warning("DISCORD_WEBHOOK_URL non configurato — salto notifica Discord")
-        return
-
     servizio_label = SERVICE_LABELS.get(service_type, service_type)
 
     # "embed" è il formato che Discord usa per i messaggi con un aspetto più
@@ -74,26 +99,7 @@ def invia_notifica_discord(
             {"name": "Note", "value": note_cliente or "nessuna", "inline": False},
         ]
     }
-
-    try:
-        # requests.post(url, json=..., timeout=5) manda una richiesta HTTP
-        # POST con il nostro dizionario convertito automaticamente in JSON.
-        # timeout=5 vuol dire "se Discord non risponde entro 5 secondi,
-        # considera la richiesta fallita" — senza un timeout, un servizio
-        # esterno lento potrebbe far restare il nostro programma "in attesa"
-        # per un tempo indefinito, bloccando anche il resto della richiesta
-        # di prenotazione in corso.
-        response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
-        # raise_for_status() controlla il codice di risposta HTTP: se è un
-        # codice di errore (4xx o 5xx), solleva un'eccezione da sola — così
-        # non serve controllare manualmente "if response.status_code >= 400".
-        response.raise_for_status()
-        logger.info("Notifica Discord inviata")
-    except Exception:
-        # Stessa filosofia di email_service.py e calendar_service.py: un
-        # problema con Discord non deve mai bloccare la prenotazione,
-        # quindi cattura l'errore e limitati a segnalarlo.
-        logger.exception("Errore invio notifica Discord")
+    _invia_embed(embed, "Notifica Discord inviata", "Errore invio notifica Discord")
 
 
 def invia_promemoria_discord(
@@ -106,10 +112,6 @@ def invia_promemoria_discord(
     Avvisa il coach sul suo canale Discord che una sessione prenotata
     si avvicina. Non blocca nulla in caso di errore o webhook mancante.
     """
-    if not DISCORD_WEBHOOK_URL:
-        logger.warning("DISCORD_WEBHOOK_URL non configurato — salto promemoria Discord")
-        return
-
     embed = {
         "title": "⏰ Promemoria sessione in arrivo",
         "color": 0xF39C12,
@@ -120,13 +122,7 @@ def invia_promemoria_discord(
             {"name": "Orario", "value": ora_slot, "inline": True},
         ]
     }
-
-    try:
-        response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
-        response.raise_for_status()
-        logger.info("Promemoria Discord inviato")
-    except Exception:
-        logger.exception("Errore invio promemoria Discord")
+    _invia_embed(embed, "Promemoria Discord inviato", "Errore invio promemoria Discord")
 
 
 def invia_richiesta_consulenza_discord(
@@ -141,10 +137,6 @@ def invia_richiesta_consulenza_discord(
     A differenza di invia_notifica_discord, qui non c'è nessuno slot/data:
     l'orario va accordato privatamente col cliente dopo questo avviso.
     """
-    if not DISCORD_WEBHOOK_URL:
-        logger.warning("DISCORD_WEBHOOK_URL non configurato — salto notifica Discord")
-        return
-
     embed = {
         "title": "🎁 Richiesta call gratuita (20 min)",
         "color": 0xF5C518,
@@ -155,13 +147,7 @@ def invia_richiesta_consulenza_discord(
             {"name": "Messaggio", "value": messaggio or "nessuno", "inline": False},
         ]
     }
-
-    try:
-        response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
-        response.raise_for_status()
-        logger.info("Notifica Discord richiesta consulenza inviata")
-    except Exception:
-        logger.exception("Errore invio notifica Discord richiesta consulenza")
+    _invia_embed(embed, "Notifica Discord richiesta consulenza inviata", "Errore invio notifica Discord richiesta consulenza")
 
 
 def invia_alert_sistema(titolo: str, descrizione: str):
@@ -175,26 +161,12 @@ def invia_alert_sistema(titolo: str, descrizione: str):
     ma un rosso acceso e l'emoji 🚨 lo rendono riconoscibile a colpo
     d'occhio in mezzo alle notifiche di prenotazione normali.
     """
-    if not DISCORD_WEBHOOK_URL:
-        logger.warning(f"DISCORD_WEBHOOK_URL non configurato — salto alert di sistema: {titolo}")
-        return
-
     embed = {
         "title": f"🚨 {titolo}",
         "description": descrizione,
         "color": 0xFF0000
     }
-
-    try:
-        response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
-        response.raise_for_status()
-        logger.info(f"Alert di sistema Discord inviato: {titolo}")
-    except Exception:
-        # Ultima spiaggia: anche l'alert stesso può fallire (es. webhook
-        # scaduto) — lo registriamo comunque nei log del server, che
-        # restano l'ultima rete di sicurezza se pure Discord non è
-        # raggiungibile.
-        logger.exception("Errore invio alert di sistema Discord")
+    _invia_embed(embed, f"Alert di sistema Discord inviato: {titolo}", "Errore invio alert di sistema Discord")
 
 
 def invia_richiesta_pacchetto_discord(
@@ -210,10 +182,6 @@ def invia_richiesta_pacchetto_discord(
     pagamento avviene qui: il pacchetto vero va assegnato a mano da
     /admin/pacchetti dopo aver ricevuto il pagamento.
     """
-    if not DISCORD_WEBHOOK_URL:
-        logger.warning("DISCORD_WEBHOOK_URL non configurato — salto notifica Discord")
-        return
-
     embed = {
         "title": f"📦 Richiesta pacchetto — {nome_pacchetto}",
         "color": 0xF5C518,
@@ -224,10 +192,4 @@ def invia_richiesta_pacchetto_discord(
             {"name": "Messaggio", "value": messaggio or "nessuno", "inline": False},
         ]
     }
-
-    try:
-        response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
-        response.raise_for_status()
-        logger.info("Notifica Discord richiesta pacchetto inviata")
-    except Exception:
-        logger.exception("Errore invio notifica Discord richiesta pacchetto")
+    _invia_embed(embed, "Notifica Discord richiesta pacchetto inviata", "Errore invio notifica Discord richiesta pacchetto")

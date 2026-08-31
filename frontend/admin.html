@@ -235,10 +235,10 @@
                         <input type="time" id="regola-ora-inizio" value="18:00">
                         <span>—</span>
                         <input type="time" id="regola-ora-fine" value="22:00">
-                        <select id="regola-durata">
-                            <option value="1">slot da 1 ora</option>
-                            <option value="2">slot da 2 ore</option>
-                        </select>
+                        <!-- Solo slot da 1 ora: le sessioni da 2 ore uniscono due slot da 1h
+                             adiacenti al momento della prenotazione (vedi ORE_INIZIO_VALIDE_2H
+                             in backend/routers/booking.py) — non esiste un secondo modo di
+                             generare disponibilità da 2h, quindi qui non c'è nulla da scegliere. -->
                         <button class="btn-primary" onclick="creaRegolaDisponibilita()">
                             + Aggiungi regola
                         </button>

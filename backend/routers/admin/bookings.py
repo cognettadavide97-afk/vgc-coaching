@@ -8,13 +8,14 @@ import csv
 import io
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager, joinedload
 from backend.database import get_db
 from backend.models.booking import Booking
 from backend.models.users import User
 from backend.routers.admin import get_admin
 from backend.services.booking_service import libera_slot_prenotazione
-from backend.services.timezone_service import utc_to_rome
+from backend.services.timezone_service import formatta_data_ora_rome
+from backend.services.pagination_service import pagina_e_offset, busta_paginazione
 from typing import Optional
 
 router = APIRouter()
@@ -40,21 +41,27 @@ def get_prenotazioni(
     # compaiono nel percorso dell'endpoint tra graffe (come {slot_id}), e
     # li converte già al tipo giusto (int per pagina/per_pagina).
 
-    # "Sanificazione" degli input: qualcuno potrebbe mandare pagina=-5 o
-    # per_pagina=99999 — questi due max()/min() garantiscono che i valori
-    # restino sempre in un intervallo sensato, indipendentemente da cosa
-    # arriva dal client.
-    pagina = max(pagina, 1)
-    per_pagina = min(max(per_pagina, 1), 100)
+    pagina, per_pagina, offset = pagina_e_offset(pagina, per_pagina)
 
-    query = db.query(Booking).join(User).join(Booking.slot)
+    # contains_eager(Booking.user)/(Booking.slot): i due .join(...) qui sotto
+    # servivano già a filtrare, ma da soli non bastano a evitare che il
+    # ciclo poco più sotto (p.user.*, p.slot.*, per OGNI prenotazione della
+    # pagina) faccia una query separata a riga per ripescare user e slot —
+    # un classico N+1. joinedload(Booking.review) aggiunge un JOIN a parte
+    # per lo stesso motivo (niente da unire alla query principale, dato che
+    # non tutte le prenotazioni hanno una recensione).
+    query = db.query(Booking).join(User).join(Booking.slot).options(
+        contains_eager(Booking.user),
+        contains_eager(Booking.slot),
+        joinedload(Booking.review)
+    )
 
     if stato:
         query = query.filter(Booking.status == stato)
 
     # .count() qui conta il TOTALE di righe che soddisfano il filtro,
     # PRIMA di applicare la paginazione — ci serve per calcolare quante
-    # pagine esistono in tutto (vedi "pagine_totali" più sotto).
+    # pagine esistono in tutto.
     totale = query.count()
 
     # .offset(...) salta le prime N righe, .limit(...) ne prende al massimo
@@ -64,12 +71,13 @@ def get_prenotazioni(
     # spezzare una singola istruzione Python su più righe per leggibilità,
     # senza che Python la consideri "finita" a metà.
     prenotazioni = query.order_by(Booking.created_at.desc()) \
-        .offset((pagina - 1) * per_pagina) \
+        .offset(offset) \
         .limit(per_pagina) \
         .all()
 
     risultato = []
     for p in prenotazioni:
+        data_slot, ora_slot = formatta_data_ora_rome(p.slot.start_time)
         risultato.append({
             "id": p.id,
             "stato": p.status,
@@ -81,8 +89,8 @@ def get_prenotazioni(
                 "discord": p.user.discord_tag
             },
             "slot": {
-                "data": utc_to_rome(p.slot.start_time).strftime("%d/%m/%Y"),
-                "ora": utc_to_rome(p.slot.start_time).strftime("%H:%M")
+                "data": data_slot,
+                "ora": ora_slot
             },
             "servizio": p.service_type,
             "durata_ore": p.duration_hours,
@@ -98,18 +106,7 @@ def get_prenotazioni(
             "creata_il": p.created_at.strftime("%d/%m/%Y %H:%M")
         })
 
-    return {
-        "items": risultato,
-        "totale": totale,
-        "pagina": pagina,
-        "per_pagina": per_pagina,
-        # Formula per arrotondare per eccesso una divisione intera, senza
-        # usare numeri decimali: (totale + per_pagina - 1) // per_pagina.
-        # L'operatore "//" è la divisione intera di Python (scarta la parte
-        # decimale). Esempio: 25 prenotazioni, 20 per pagina → (25+19)//20 =
-        # 44//20 = 2 pagine (la seconda con solo 5 elementi).
-        "pagine_totali": max((totale + per_pagina - 1) // per_pagina, 1)
-    }
+    return busta_paginazione(risultato, totale, pagina, per_pagina)
 
 # ─── AGGIORNA STATO PRENOTAZIONE ─────────────────────────────
 @router.patch("/prenotazioni/{booking_id}/stato")
@@ -183,7 +180,10 @@ def export_csv(
     Genera e scarica un file CSV con tutte
     le prenotazioni — apribile in Excel.
     """
-    prenotazioni = db.query(Booking).join(User).join(Booking.slot).all()
+    prenotazioni = db.query(Booking).join(User).join(Booking.slot).options(
+        contains_eager(Booking.user),
+        contains_eager(Booking.slot)
+    ).all()
 
     # io.StringIO() crea un "file finto" che vive solo in memoria, non sul
     # disco — utile qui perché non ci serve conservare questo CSV da
@@ -204,6 +204,7 @@ def export_csv(
 
     # una riga per ogni prenotazione
     for p in prenotazioni:
+        data_slot, ora_slot = formatta_data_ora_rome(p.slot.start_time)
         writer.writerow([
             p.id,
             p.status,
@@ -211,8 +212,8 @@ def export_csv(
             p.user.email,
             p.user.categoria or "",
             p.service_type,
-            utc_to_rome(p.slot.start_time).strftime("%d/%m/%Y"),
-            utc_to_rome(p.slot.start_time).strftime("%H:%M"),
+            data_slot,
+            ora_slot,
             p.duration_hours,
             p.price_cents / 100,
             p.note_cliente or "",

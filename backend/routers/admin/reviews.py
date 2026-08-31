@@ -3,9 +3,10 @@
 # pacchetto.
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from backend.database import get_db
 from backend.models.review import Review
+from backend.models.booking import Booking
 from backend.schemas.review import ReviewApprovazione
 from backend.routers.admin import get_admin
 from typing import Optional
@@ -30,7 +31,13 @@ def lista_recensioni(
     approvata=true/false filtra solo quelle già approvate/in attesa; senza
     il parametro le mostra tutte.
     """
-    query = db.query(Review)
+    # joinedload(Review.booking).joinedload(Booking.user): senza questo, il
+    # ciclo sotto (r.booking.user.*, per ogni recensione) rifarebbe due
+    # query separate per riga (una per il booking, una per lo user) invece
+    # di prenderli entrambi con due JOIN nella stessa query.
+    query = db.query(Review).options(
+        joinedload(Review.booking).joinedload(Booking.user)
+    )
     if approvata is not None:
         query = query.filter(Review.approvata == approvata)
 

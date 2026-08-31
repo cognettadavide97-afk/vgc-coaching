@@ -9,9 +9,10 @@ import calendar
 from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy.orm import Session
 from backend.models.slots import Slot
+from backend.models.booking import Booking
 from backend.models.availability_rule import AvailabilityRule
 from backend.models.availability_exception import AvailabilityException
-from backend.services.timezone_service import ROME_TZ
+from backend.services.timezone_service import ROME_TZ, ora_utc_naive, intervalli_si_sovrappongono
 
 
 def slot_si_sovrappone(db: Session, start_time: datetime, duration_hours: int, escludi_id: int = None) -> bool:
@@ -51,11 +52,12 @@ def slot_si_sovrappone(db: Session, start_time: datetime, duration_hours: int, e
 
     # Qui il confronto vero e proprio: per ogni slot "candidato" trovato
     # nella finestra di ricerca, controlliamo la condizione di sovrapposizione
-    # esatta. Appena ne troviamo uno, restituiamo True e usciamo subito
-    # dalla funzione (non serve controllare gli altri).
+    # esatta (vedi intervalli_si_sovrappongono in timezone_service.py per il
+    # dettaglio del confronto). Appena ne troviamo uno, restituiamo True e
+    # usciamo subito dalla funzione (non serve controllare gli altri).
     for s in query.all():
         s_fine = s.start_time + timedelta(hours=s.duration_hours)
-        if start_time < s_fine and s.start_time < fine:
+        if intervalli_si_sovrappongono(start_time, fine, s.start_time, s_fine):
             return True
     return False
 
@@ -74,9 +76,24 @@ def genera_slot_da_regola(regola: AvailabilityRule, db: Session) -> int:
     già esistenti allo stesso orario (idempotente) e le occorrenze che si
     sovrapporrebbero a uno slot già esistente. Restituisce il numero di
     slot effettivamente creati.
+
+    Genera SOLO slot da 1 ora: il calendario non supporta uno slot reale da
+    2h, perché bypasserebbe il vincolo "una sessione da 2h parte solo alle
+    15:00 o alle 17:00" (ORE_INIZIO_VALIDE_2H in backend/routers/booking.py
+    si applica solo quando due slot da 1h vengono uniti, non a uno slot già
+    da 2h). AvailabilityRuleCreate rifiuta già durata_slot_ore != 1 in
+    scrittura (vedi backend/schemas/availability.py), ma questo controllo
+    resta qui come seconda barriera: protegge anche il job notturno
+    genera_slot_giornaliero (backend/scheduler.py) contro una regola con
+    durata_slot_ore=2 creata prima che quel controllo esistesse — una
+    regola così resta nel database ma da qui in poi non genera più nulla,
+    invece di continuare a produrre slot da 2h prenotabili a qualsiasi ora.
     """
+    if regola.durata_slot_ore != 1:
+        return 0
+
     oggi = date.today()
-    ora_utc_adesso = datetime.now(timezone.utc).replace(tzinfo=None)
+    ora_utc_adesso = ora_utc_naive()
 
     # calendar.monthrange(anno, mese) restituisce una coppia (giorno della
     # settimana del 1°, numero di giorni nel mese) — ci serve solo il
@@ -152,6 +169,51 @@ def genera_slot_da_regola(regola: AvailabilityRule, db: Session) -> int:
 
     db.commit()
     return creati
+
+
+def elimina_slot_obsoleti(db: Session) -> int:
+    """
+    Elimina gli slot il cui orario è già passato e che non sono mai stati
+    prenotati. Prima di questa funzione uno slot non toccato restava lì per
+    sempre (vedi il commento in backend/routers/booking.py su
+    create_booking) — invisibile al pubblico (GET /slots/ filtra già gli
+    orari passati) ma ancora presente nel pannello admin, dove si accumula
+    all'infinito e finisce per intasare le prime pagine della lista slot
+    (ordinata per data crescente). Riguarda sia gli slot rimasti liberi
+    (is_available=True) sia quelli bloccati (blocked_admin/blocked_external)
+    senza mai essere stati prenotati — un blocco eccezionale passato e mai
+    toccato da nessuna prenotazione non ha più nessun valore storico da
+    preservare, esattamente come uno slot libero mai prenotato.
+
+    Stesso identico controllo di sicurezza già usato dalla cancellazione
+    manuale (DELETE /admin/slots/{id} in backend/routers/admin/availability.py):
+    uno slot con almeno una prenotazione collegata — anche cancellata, anche
+    come slot_id_secondario di una sessione da 2h — non viene mai toccato,
+    per preservare lo storico. Uno slot passato SENZA nessuna prenotazione
+    collegata è per definizione uno che non è mai stato davvero usato (una
+    prenotazione poi cancellata riapre lo slot con libera_slot_prenotazione,
+    ma la riga Booking resta con status="cancelled" — non sparisce), quindi
+    il controllo qui sotto lo esclude correttamente in ogni caso.
+    """
+    ora_utc = ora_utc_naive()
+
+    slot_prenotati_id = set(
+        row[0] for row in db.query(Booking.slot_id).all()
+    ) | set(
+        row[0] for row in db.query(Booking.slot_id_secondario).filter(Booking.slot_id_secondario.isnot(None)).all()
+    )
+
+    candidati = db.query(Slot).filter(Slot.start_time < ora_utc).all()
+
+    eliminati = 0
+    for slot in candidati:
+        if slot.id in slot_prenotati_id:
+            continue
+        db.delete(slot)
+        eliminati += 1
+
+    db.commit()
+    return eliminati
 
 
 def applica_blocco_eccezionale(eccezione: AvailabilityException, db: Session) -> int:

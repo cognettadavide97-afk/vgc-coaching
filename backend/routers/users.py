@@ -10,7 +10,7 @@
 # solo non fa nulla di per sé, definisce solo del codice Python.
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager
 from datetime import timezone
 from backend.database import get_db
 from backend.models.users import User
@@ -20,7 +20,7 @@ from backend.models.package import Package
 from backend.schemas.users import UserCreate, UserResponse, UserIdResponse
 from backend.routers.admin import get_admin
 from backend.services.auth_service import verifica_token_studente
-from backend.services.timezone_service import utc_to_rome
+from backend.services.timezone_service import formatta_data_ora_rome
 from backend.services.package_service import CATALOGO_PACCHETTI
 from backend.rate_limit import limiter
 from typing import List, Optional
@@ -120,7 +120,14 @@ def get_prenotazioni_studente(
     # DUE colonne che puntano a slots (slot_id e slot_id_secondario, vedi
     # backend/models/booking.py), un semplice ".join(Slot)" non saprebbe più
     # quale delle due usare e solleverebbe un errore di ambiguità.
-    prenotazioni = db.query(Booking).join(Booking.slot).filter(
+    # contains_eager(Booking.slot): il .join(Booking.slot) qui sopra serve
+    # già a ordinare — senza dirlo esplicitamente a SQLAlchemy, il ciclo
+    # sotto (p.slot.start_time, due volte per ogni prenotazione) rifarebbe
+    # una query separata per ogni Slot invece di riusare quello già preso
+    # col JOIN.
+    prenotazioni = db.query(Booking).join(Booking.slot).options(
+        contains_eager(Booking.slot)
+    ).filter(
         Booking.user_id == studente.id
     ).order_by(Slot.start_time.desc()).all()
 
@@ -130,13 +137,15 @@ def get_prenotazioni_studente(
     # non usa un response_model Pydantic — FastAPI converte comunque questa
     # lista in JSON automaticamente, ma senza la validazione/documentazione
     # extra che avresti con uno schema dedicato.
-    return [
-        {
+    risultato = []
+    for p in prenotazioni:
+        data, ora = formatta_data_ora_rome(p.slot.start_time)
+        risultato.append({
             "id": p.id,
             "servizio": p.service_type,
             "stato": p.status,
-            "data": utc_to_rome(p.slot.start_time).strftime("%d/%m/%Y"),
-            "ora": utc_to_rome(p.slot.start_time).strftime("%H:%M"),
+            "data": data,
+            "ora": ora,
             "durata_ore": p.duration_hours,
             # ISO con offset UTC esplicito (stesso pattern di SlotResponse in
             # backend/schemas/slots.py), così il frontend può confrontare in
@@ -144,9 +153,8 @@ def get_prenotazioni_studente(
             # stringhe già formattate "data"/"ora" sopra — serve al bottone
             # di cancellazione self-service, vedi frontend/js/app.js.
             "start_time_iso": p.slot.start_time.replace(tzinfo=timezone.utc).isoformat()
-        }
-        for p in prenotazioni  # "list comprehension": costruisce la lista in una riga sola, un dizionario per ogni prenotazione
-    ]
+        })
+    return risultato
 
 
 def get_or_create_user(db: Session, user: UserCreate) -> User:

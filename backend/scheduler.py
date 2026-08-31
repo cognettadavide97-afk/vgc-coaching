@@ -8,7 +8,7 @@
 # conto suo, senza bloccare nulla).
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import contains_eager, joinedload
 from backend.database import SessionLocal, engine
@@ -17,9 +17,9 @@ from backend.models.slots import Slot
 from backend.models.availability_rule import AvailabilityRule
 from backend.services.email_service import invia_promemoria_cliente, invia_richiesta_recensione, verifica_credenziali_gmail
 from backend.services.discord_service import invia_promemoria_discord, invia_alert_sistema
-from backend.services.timezone_service import utc_to_rome
+from backend.services.timezone_service import utc_to_rome, ora_utc_naive
 from backend.services.calendar_service import sincronizza_slot_con_calendario
-from backend.services.availability_service import genera_slot_da_regola
+from backend.services.availability_service import genera_slot_da_regola, elimina_slot_obsoleti
 from backend.services.retention_service import anonimizza_clienti_inattivi, RETENTION_MONTHS
 from backend.services.backup_service import esegui_backup_database
 
@@ -106,7 +106,7 @@ def controlla_e_invia_promemoria():
         # fuso attaccato) perché nel database gli orari sono salvati così —
         # per poterli confrontare, devono essere nello stesso "formato".
         # Questo pattern lo ritrovi identico in molti altri file del backend.
-        ora = datetime.now(timezone.utc).replace(tzinfo=None)
+        ora = ora_utc_naive()
         soglia = ora + timedelta(hours=REMINDER_HOURS_BEFORE)
 
         # Una query con più condizioni: SQLAlchemy le combina tutte con "AND".
@@ -172,7 +172,7 @@ def controlla_e_invia_richieste_recensione():
     """
     db = SessionLocal()
     try:
-        ora = datetime.now(timezone.utc).replace(tzinfo=None)
+        ora = ora_utc_naive()
 
         # Pre-filtro largo lato database: nessuna sessione dura più di 2
         # ore (vedi TABELLA_PREZZI in backend/routers/booking.py), quindi
@@ -246,6 +246,23 @@ def genera_slot_giornaliero():
         for regola in regole_attive:
             totale_creati += genera_slot_da_regola(regola, db)
         return totale_creati
+    finally:
+        db.close()
+
+
+def pulisci_slot_obsoleti():
+    """
+    Elimina gli slot passati mai prenotati (vedi elimina_slot_obsoleti in
+    backend/services/availability_service.py) — senza questo job si
+    accumulano per sempre nel database, invisibili al form pubblico ma
+    sempre più numerosi nella lista slot del pannello admin. Nessun alert
+    Discord: una pulizia di routine che trova 0 slot da eliminare (il caso
+    più comune) non è un evento degno di nota, stesso principio già seguito
+    dagli altri job silenziosi di questo file.
+    """
+    db = SessionLocal()
+    try:
+        return elimina_slot_obsoleti(db)
     finally:
         db.close()
 
@@ -387,6 +404,16 @@ def avvia_scheduler():
         hour=3,
         minute=1,
         id="controlla_retention_clienti"
+    )
+    # Un minuto dopo la retention, stesso orario a basso traffico: elimina
+    # gli slot obsoleti PRIMA del backup delle 4:00, così il dump notturno
+    # non si porta dietro slot che stiamo per cancellare comunque.
+    scheduler.add_job(
+        pulisci_slot_obsoleti,
+        "cron",
+        hour=3,
+        minute=2,
+        id="pulisci_slot_obsoleti"
     )
     # Un'ora dopo gli altri job notturni: il dump legge l'intero database,
     # meglio non farlo nello stesso istante in cui girano anche retention e

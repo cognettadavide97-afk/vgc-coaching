@@ -29,6 +29,21 @@ class AvailabilityRuleCreate(BaseModel):
             raise ValueError("giorno_settimana deve essere tra 0 (lunedì) e 6 (domenica)")
         return v
 
+    # Il calendario genera SOLO slot da 1 ora: una sessione da 2h non nasce
+    # da un vero slot da 2h, ma unisce due slot da 1h adiacenti al momento
+    # della prenotazione (vedi ORE_INIZIO_VALIDE_2H in
+    # backend/routers/booking.py, l'unico punto dove viene applicato il
+    # vincolo "solo alle 15:00 o alle 17:00"). Un vero slot da 2h generato
+    # da qui bypasserebbe quel vincolo — bloccato qui, non solo omesso dal
+    # form admin (frontend/admin.html), perché niente impedisce a una
+    # richiesta HTTP diretta di provare comunque a mandare durata_slot_ore=2.
+    @field_validator("durata_slot_ore")
+    @classmethod
+    def valida_durata(cls, v: int) -> int:
+        if v != 1:
+            raise ValueError("Il calendario genera solo slot da 1 ora — le sessioni da 2h uniscono due slot da 1h adiacenti al momento della prenotazione")
+        return v
+
 
 class AvailabilityRuleResponse(BaseModel):
     id: int
