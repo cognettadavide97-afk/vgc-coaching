@@ -154,3 +154,68 @@ def test_analytics_esclude_prenotazioni_oltre_i_12_mesi(client, db):
     # perché la sua unica prenotazione è fuori finestra.
     assert dati["clienti_nuovi"] == 0
     assert dati["clienti_ricorrenti"] == 0
+
+
+def test_analytics_calcola_correttamente_le_metriche(client, db):
+    """
+    ANALISI_2026-08-31.md, Blocco C3: test_analytics_esclude_prenotazioni_oltre_i_12_mesi
+    copre solo il confine della finestra — questo test verifica che i
+    NUMERI calcolati da dati noti siano quelli giusti (tasso di no-show,
+    servizio più richiesto, clienti nuovi vs ricorrenti, incasso totale).
+    Le date usate sono tutte "N giorni fa" (mai un mese/anno fisso), per
+    non dipendere da quando la suite viene eseguita: le assert non fanno
+    mai riferimento a un mese specifico, solo a totali aggregati su tutti
+    i mesi restituiti — così restano corrette indipendentemente da come i
+    tre giorni scelti si distribuiscono nei bucket mensili.
+    """
+    utente_1 = crea_utente(client, nome="Cliente Uno", email="uno@example.com")
+    utente_2 = crea_utente(client, nome="Cliente Due", email="due@example.com")
+    ora = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    def slot_passato(giorni_fa):
+        s = Slot(start_time=ora - timedelta(days=giorni_fa), duration_hours=1, is_available=False)
+        db.add(s)
+        db.commit()
+        db.refresh(s)
+        return s
+
+    # utente_1: una sola prenotazione, confermata e già passata → "cliente nuovo".
+    db.add(Booking(
+        user_id=utente_1["id"], slot_id=slot_passato(5).id,
+        duration_hours=1, price_cents=2000,
+        service_type="vod_review", status="confirmed"
+    ))
+    # utente_2: due prenotazioni → "cliente ricorrente" — una confermata e
+    # passata, una no_show (entrambe entro la finestra di 12 mesi).
+    db.add(Booking(
+        user_id=utente_2["id"], slot_id=slot_passato(10).id,
+        duration_hours=1, price_cents=4000,
+        service_type="team_building", status="confirmed"
+    ))
+    db.add(Booking(
+        user_id=utente_2["id"], slot_id=slot_passato(3).id,
+        duration_hours=1, price_cents=2000,
+        service_type="vod_review", status="no_show"
+    ))
+    db.commit()
+
+    res = client.get("/admin/analytics", headers=admin_headers())
+    assert res.status_code == 200, res.text
+    dati = res.json()
+
+    # 2 prenotazioni confermate e già concluse, 1 no_show → tasso di
+    # no-show = 1 / (1 + 2) * 100 = 33.3.
+    assert dati["tasso_no_show_percento"] == 33.3
+
+    # vod_review compare 2 volte (utente_1 + il no_show di utente_2),
+    # team_building 1 sola volta — vod_review deve essere il più richiesto.
+    assert dati["servizi_piu_richiesti"][0] == {"servizio": "vod_review", "conteggio": 2}
+
+    # utente_1 ha una sola prenotazione (nuovo), utente_2 ne ha due (ricorrente).
+    assert dati["clienti_nuovi"] == 1
+    assert dati["clienti_ricorrenti"] == 1
+
+    # Incasso totale sommato su tutti i mesi restituiti: solo le due
+    # prenotazioni CONFERMATE contano (il no_show non genera incasso).
+    incasso_totale = sum(m["euro"] for m in dati["incasso_per_mese"])
+    assert incasso_totale == 60.0
