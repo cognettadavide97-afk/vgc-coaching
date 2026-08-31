@@ -88,7 +88,6 @@ Monolite Python/FastAPI che serve sia le API REST sia i file statici del fronten
     ├── privacy.html                 # informativa privacy/GDPR (IT/EN)
     ├── recensione.html               # pagina pubblica per lasciare una recensione post-sessione (via token)
     ├── admin.html                      # pannello admin (login + dashboard, prenotazioni, clienti, slot, pacchetti, recensioni)
-    ├── Architettura.txt                 # documento obsoleto, NON riflette la struttura attuale, ignorarlo
     ├── css/style.css, css/admin.css
     └── js/app.js, admin.js, about.js, i18n.js, recensione.js
 ```
