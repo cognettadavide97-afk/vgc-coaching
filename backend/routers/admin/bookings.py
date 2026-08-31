@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, contains_eager, joinedload
 from backend.database import get_db
 from backend.models.booking import Booking
 from backend.models.users import User
+from backend.schemas.booking import BookingStatoUpdate, BookingNoteUpdate
 from backend.routers.admin import get_admin
 from backend.services.booking_service import libera_slot_prenotazione
 from backend.services.timezone_service import formatta_data_ora_rome
@@ -112,7 +113,7 @@ def get_prenotazioni(
 @router.patch("/prenotazioni/{booking_id}/stato")
 def aggiorna_stato(
     booking_id: int,
-    nuovo_stato: str,
+    dati: BookingStatoUpdate,
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
@@ -124,10 +125,10 @@ def aggiorna_stato(
     # @router.patch (non get/post): PATCH è il metodo HTTP pensato per
     # "modifica parziale" di qualcosa che esiste già — qui, cambiare solo
     # il campo status di una prenotazione, senza toccare il resto.
-    stati_validi = ["confirmed", "cancelled", "no_show"]
-    if nuovo_stato not in stati_validi:
-        raise HTTPException(status_code=400, detail="Stato non valido")
-
+    # nuovo_stato arriva nel body JSON (BookingStatoUpdate), non più come
+    # query param: uno stato non ammesso è già rifiutato da Pydantic (422)
+    # prima ancora che questa funzione venga eseguita, nessun controllo
+    # manuale da ripetere qui.
     prenotazione = db.query(Booking).filter(
         Booking.id == booking_id
     ).first()
@@ -138,9 +139,9 @@ def aggiorna_stato(
     # qui una semplice assegnazione basta: questa è un'azione manuale del
     # coach, non c'è nessun rischio di "gara" tra richieste concorrenti
     # sullo stesso oggetto.
-    prenotazione.status = nuovo_stato
+    prenotazione.status = dati.nuovo_stato
 
-    if nuovo_stato == "cancelled":
+    if dati.nuovo_stato == "cancelled":
         # libera_slot_prenotazione (backend/services/booking_service.py)
         # gestisce sia lo slot singolo sia, per le sessioni da 2 ore che ne
         # avevano uniti due, anche lo slot secondario — stessa funzione
@@ -148,13 +149,13 @@ def aggiorna_stato(
         libera_slot_prenotazione(prenotazione, db)
 
     db.commit()
-    return {"message": f"Stato aggiornato a {nuovo_stato}"}
+    return {"message": f"Stato aggiornato a {dati.nuovo_stato}"}
 
 # ─── AGGIORNA NOTE ADMIN ─────────────────────────────────────
 @router.patch("/prenotazioni/{booking_id}/note")
 def aggiorna_note(
     booking_id: int,
-    note: str,
+    dati: BookingNoteUpdate,
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
@@ -166,7 +167,7 @@ def aggiorna_note(
     if not prenotazione:
         raise HTTPException(status_code=404, detail="Prenotazione non trovata")
 
-    prenotazione.note_admin = note
+    prenotazione.note_admin = dati.note
     db.commit()
     return {"message": "Note aggiornate"}
 

@@ -219,3 +219,85 @@ def test_analytics_calcola_correttamente_le_metriche(client, db):
     # prenotazioni CONFERMATE contano (il no_show non genera incasso).
     incasso_totale = sum(m["euro"] for m in dati["incasso_per_mese"])
     assert incasso_totale == 60.0
+
+
+def test_aggiorna_stato_prenotazione(client, db):
+    """
+    ANALISI_2026-08-31.md, Blocco D4: nuovo_stato viaggiava come query
+    param, ora nel body JSON (BookingStatoUpdate) — questa rotta non
+    aveva nessuna copertura prima di questo cambio di contratto.
+    """
+    utente = crea_utente(client)
+    slot = Slot(start_time=INIZIO, duration_hours=1, is_available=True)
+    db.add(slot)
+    db.commit()
+    db.refresh(slot)
+
+    prenotazione = client.post("/bookings/", json={
+        "user_id": utente["id"],
+        "email": utente["email"],
+        "slot_id": slot.id,
+        "duration_hours": 1,
+        "service_type": "vod_review"
+    }).json()
+
+    res = client.patch(
+        f"/admin/prenotazioni/{prenotazione['id']}/stato",
+        headers=admin_headers(),
+        json={"nuovo_stato": "no_show"}
+    )
+    assert res.status_code == 200, res.text
+
+    db_prenotazione = db.query(Booking).filter(Booking.id == prenotazione["id"]).first()
+    assert db_prenotazione.status == "no_show"
+
+
+def test_aggiorna_stato_rifiuta_valore_non_valido(client, db):
+    """Literal in BookingStatoUpdate rifiuta uno stato inventato con 422, prima ancora di eseguire l'endpoint."""
+    utente = crea_utente(client)
+    slot = Slot(start_time=INIZIO, duration_hours=1, is_available=True)
+    db.add(slot)
+    db.commit()
+    db.refresh(slot)
+
+    prenotazione = client.post("/bookings/", json={
+        "user_id": utente["id"],
+        "email": utente["email"],
+        "slot_id": slot.id,
+        "duration_hours": 1,
+        "service_type": "vod_review"
+    }).json()
+
+    res = client.patch(
+        f"/admin/prenotazioni/{prenotazione['id']}/stato",
+        headers=admin_headers(),
+        json={"nuovo_stato": "stato-inventato"}
+    )
+    assert res.status_code == 422
+
+
+def test_aggiorna_note_prenotazione(client, db):
+    """ANALISI_2026-08-31.md, Blocco D4: note viaggiava come query param, ora nel body JSON (BookingNoteUpdate)."""
+    utente = crea_utente(client)
+    slot = Slot(start_time=INIZIO, duration_hours=1, is_available=True)
+    db.add(slot)
+    db.commit()
+    db.refresh(slot)
+
+    prenotazione = client.post("/bookings/", json={
+        "user_id": utente["id"],
+        "email": utente["email"],
+        "slot_id": slot.id,
+        "duration_hours": 1,
+        "service_type": "vod_review"
+    }).json()
+
+    res = client.patch(
+        f"/admin/prenotazioni/{prenotazione['id']}/note",
+        headers=admin_headers(),
+        json={"note": "Cliente puntuale, buon feeling"}
+    )
+    assert res.status_code == 200, res.text
+
+    db_prenotazione = db.query(Booking).filter(Booking.id == prenotazione["id"]).first()
+    assert db_prenotazione.note_admin == "Cliente puntuale, buon feeling"

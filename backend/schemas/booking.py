@@ -69,6 +69,25 @@ class BookingResponse(BaseModel):
         from_attributes = True
 
 
+class BookingStatoUpdate(BaseModel):
+    # PATCH /admin/prenotazioni/{id}/stato (backend/routers/admin/bookings.py)
+    # accettava nuovo_stato come query param — finiva quindi in log di
+    # accesso/proxy e cronologia browser esattamente come "note" qui sotto.
+    # Literal, coerente con ServiceType sopra: uno stato non ammesso viene
+    # rifiutato automaticamente da Pydantic (422), nessun controllo manuale
+    # da ripetere nel router.
+    nuovo_stato: Literal["confirmed", "cancelled", "no_show"]
+
+
+class BookingNoteUpdate(BaseModel):
+    # PATCH /admin/prenotazioni/{id}/note accettava "note" come query
+    # param — un testo potenzialmente sensibile su un cliente finiva così
+    # nei log di accesso del server/proxy e nella cronologia del browser
+    # dell'admin. Ora viaggia nel body JSON, come qualunque altro dato di
+    # questo tipo nel progetto.
+    note: str
+
+
 class BookingResponseStudente(BaseModel):
     # Stessi campi di BookingResponse TRANNE note_admin — usato dagli
     # endpoint lato studente (es. cancella_prenotazione_cliente in

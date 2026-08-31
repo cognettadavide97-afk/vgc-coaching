@@ -442,9 +442,13 @@ async function caricaPrenotazioni(pagina = 1) {
 
 async function aggiornaStato(id, stato) {
     try {
-        await fetch(`/admin/prenotazioni/${id}/stato?nuovo_stato=${stato}`, {
+        // nuovo_stato viaggia nel body JSON, non più come query param (vedi
+        // BookingStatoUpdate in backend/schemas/booking.py) — uno stato
+        // finiva altrimenti nei log di accesso del server/proxy.
+        await fetch(`/admin/prenotazioni/${id}/stato`, {
             method: 'PATCH',
-            headers: authHeaders()
+            headers: authHeaders(),
+            body: JSON.stringify({ nuovo_stato: stato })
         });
         caricaPrenotazioni(paginaCorrente.prenotazioni);
     } catch (error) {
@@ -462,14 +466,14 @@ async function modificaNota(id, notaAttuale) {
     if (nuovaNota === null) return;
 
     try {
-        // encodeURIComponent(...) "protegge" il testo per poterlo inserire
-        // in un URL: trasforma spazi, accenti e caratteri speciali nella
-        // loro forma sicura (es. lo spazio diventa %20) — necessario
-        // perché "note" qui viaggia come parametro nell'URL, non nel
-        // corpo della richiesta.
-        await fetch(`/admin/prenotazioni/${id}/note?note=${encodeURIComponent(nuovaNota)}`, {
+        // note viaggia nel body JSON, non più come query param (vedi
+        // BookingNoteUpdate in backend/schemas/booking.py) — un testo
+        // potenzialmente sensibile su un cliente finiva altrimenti nei log
+        // di accesso del server/proxy e nella cronologia del browser.
+        await fetch(`/admin/prenotazioni/${id}/note`, {
             method: 'PATCH',
-            headers: authHeaders()
+            headers: authHeaders(),
+            body: JSON.stringify({ note: nuovaNota })
         });
         caricaPrenotazioni(paginaCorrente.prenotazioni);
     } catch (error) {
