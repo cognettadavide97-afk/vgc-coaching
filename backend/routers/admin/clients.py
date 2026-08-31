@@ -4,7 +4,7 @@
 # pacchetto.
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from backend.database import get_db
 from backend.models.booking import Booking
@@ -128,7 +128,11 @@ def elimina_cliente(
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente non trovato")
 
-    prenotazioni = db.query(Booking).filter(Booking.user_id == user_id).all()
+    # joinedload(Booking.review): senza questo, "p.review" nel ciclo sotto
+    # rifarebbe una query separata per OGNI prenotazione del cliente
+    # (N+1) invece di prenderle tutte con un solo JOIN in più — stessa
+    # tecnica già usata per lo stesso motivo in admin/bookings.py.
+    prenotazioni = db.query(Booking).options(joinedload(Booking.review)).filter(Booking.user_id == user_id).all()
     for p in prenotazioni:
         if p.status == "confirmed":
             libera_slot_prenotazione(p, db)
