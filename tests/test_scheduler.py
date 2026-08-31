@@ -110,3 +110,49 @@ def test_promemoria_gia_inviato_non_si_ripete(db, monkeypatch):
 
     assert risultato == 0
     assert inviati == []
+
+
+# ─── controlla_e_invia_richieste_recensione ───────────────────
+
+def test_richiesta_recensione_inviata_per_sessione_conclusa(db, monkeypatch):
+    finge_sessione_scheduler(monkeypatch)
+    inviate = []
+    monkeypatch.setattr(scheduler_module, "invia_richiesta_recensione", lambda **kw: inviate.append(kw))
+
+    utente = crea_utente_db(db)
+    # Slot iniziato 3 ore fa, durata 1h di default: la sessione è conclusa
+    # da 2 ore, oltre il pre-filtro largo della funzione.
+    slot = crea_slot(db, scheduler_module.ora_utc_naive() - timedelta(hours=3), is_available=False)
+    prenotazione = crea_prenotazione_db(db, utente, slot, review_token="token-test-123")
+
+    risultato = scheduler_module.controlla_e_invia_richieste_recensione()
+
+    assert risultato == 1
+    assert len(inviate) == 1
+    db.refresh(prenotazione)
+    assert prenotazione.review_email_sent is True
+
+
+def test_richiesta_recensione_non_inviata_se_sessione_non_ancora_conclusa(db, monkeypatch):
+    finge_sessione_scheduler(monkeypatch)
+    inviate = []
+    monkeypatch.setattr(scheduler_module, "invia_richiesta_recensione", lambda **kw: inviate.append(kw))
+
+    utente = crea_utente_db(db)
+    # Pre-filtro largo (backend/scheduler.py): "nessuna sessione dura più di
+    # 2 ore" è vero solo per le prenotazioni create dal flusso normale
+    # (TABELLA_PREZZI in backend/routers/booking.py ammette solo 1h/2h) — il
+    # controllo Python esatto sotto è una rete di sicurezza per quando
+    # quell'assunzione non vale (qui: duration_hours=3, scritta direttamente
+    # sul DB di test, non ottenibile dal flusso di prenotazione normale).
+    # Con lo slot iniziato 2h10' fa il pre-filtro SQL la include comunque,
+    # ma con 3 ore di durata la sessione finisce solo tra 50 minuti.
+    slot = crea_slot(db, scheduler_module.ora_utc_naive() - timedelta(hours=2, minutes=10), is_available=False)
+    prenotazione = crea_prenotazione_db(db, utente, slot, duration_hours=3, review_token="token-test-456")
+
+    risultato = scheduler_module.controlla_e_invia_richieste_recensione()
+
+    assert risultato == 0
+    assert inviate == []
+    db.refresh(prenotazione)
+    assert prenotazione.review_email_sent is False
