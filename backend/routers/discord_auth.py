@@ -194,9 +194,24 @@ def discord_callback(request: Request, code: str = None, error: str = None, stat
 
     # trova l'utente per discord_id (login successivo) o per email
     # (studente che aveva già prenotato via guest checkout con questa email)
+    # — il fallback per email collega un account Discord a un utente
+    # esistente, quindi va fatto SOLO se Discord garantisce che quell'email
+    # appartiene davvero a chi sta facendo login (discord_user["verified"]).
+    # Senza questo controllo, chiunque aggiunga l'email (non verificata) di
+    # un altro cliente al proprio account Discord otterrebbe un cookie di
+    # sessione legato all'identità di quel cliente — storico prenotazioni,
+    # pacchetti residui inclusi.
     user = db.query(User).filter(User.discord_id == discord_id).first()
     if not user:
-        user = db.query(User).filter(User.email == email).first()
+        utente_per_email = db.query(User).filter(User.email == email).first()
+        if utente_per_email:
+            if not discord_user.get("verified"):
+                # L'email appartiene già a un altro utente ma Discord non
+                # garantisce che sia davvero sua: non ci colleghiamo (furto
+                # di identità) e non possiamo nemmeno creare un nuovo utente
+                # con la stessa email (colonna UNIQUE) — rifiutiamo il login.
+                return RedirectResponse("/?discord_error=1")
+            user = utente_per_email
 
     if user:
         # Utente già esistente: aggiorniamo il suo discord_id (utile se

@@ -26,7 +26,7 @@ class RispostaFinta:
         return self._dati
 
 
-def finge_scambio_discord(monkeypatch, discord_id="999888777", email="studente@example.com", username="studentetest"):
+def finge_scambio_discord(monkeypatch, discord_id="999888777", email="studente@example.com", username="studentetest", verified=True):
     monkeypatch.setattr(
         discord_auth_router.requests, "post",
         lambda *a, **k: RispostaFinta({"access_token": "token-finto"})
@@ -35,7 +35,8 @@ def finge_scambio_discord(monkeypatch, discord_id="999888777", email="studente@e
         discord_auth_router.requests, "get",
         lambda *a, **k: RispostaFinta({
             "id": discord_id, "email": email,
-            "username": username, "discriminator": "0"
+            "username": username, "discriminator": "0",
+            "verified": verified
         })
     )
 
@@ -96,3 +97,37 @@ def test_callback_con_state_corretto_completa_il_login(client, db, monkeypatch):
     utente = db.query(User).filter(User.email == "nuovo@example.com").first()
     assert utente is not None
     assert utente.discord_id == "42"
+
+
+def test_callback_con_email_non_verificata_non_si_collega_a_utente_esistente(client, db, monkeypatch):
+    """
+    Se l'email restituita da Discord non è verificata, il login non deve
+    collegarsi a un User esistente trovato per quella email — altrimenti un
+    attaccante che aggiunge l'email (non verificata, mai dimostrata sua) di
+    una vittima al proprio account Discord otterrebbe un cookie di sessione
+    legato all'account della vittima: storico prenotazioni, pacchetti
+    residui, possibilità di cancellare le sue sessioni.
+    """
+    vittima = User(nome="Vittima", email="vittima@example.com")
+    db.add(vittima)
+    db.commit()
+    db.refresh(vittima)
+
+    finge_scambio_discord(
+        monkeypatch, discord_id="666-attaccante",
+        email="vittima@example.com", username="attaccante", verified=False
+    )
+
+    login_res = client.get("/auth/discord/login", follow_redirects=False)
+    state = stato_da_redirect(login_res.headers["location"])
+
+    res = client.get(f"/auth/discord/callback?code=abc&state={state}", follow_redirects=False)
+
+    # Login rifiutato (stesso pattern degli altri casi invalidi in questo
+    # file): non si collega alla vittima (furto di identità) e non si può
+    # nemmeno creare un secondo utente con la stessa email (colonna UNIQUE).
+    assert res.headers["location"] == "/?discord_error=1"
+
+    db.refresh(vittima)
+    assert vittima.discord_id is None
+    assert db.query(User).count() == 1
