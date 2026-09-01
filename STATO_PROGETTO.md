@@ -35,13 +35,14 @@ Monolite Python/FastAPI che serve sia le API REST sia i file statici del fronten
 ├── tests/                      # 82 test, SQLite in-memory, tutte le integrazioni esterne mockate
 │   ├── conftest.py                # fixture condivise: DB isolato, mock Gmail/Discord/Calendar/Drive, helper auth
 │   ├── test_admin.py, test_booking.py, test_slots.py, test_richieste.py, test_discord_auth.py,
-│   │   test_email_service.py, test_retention.py, test_backup_service.py, test_health.py, test_reviews.py
+│   │   test_email_service.py, test_retention.py, test_backup_service.py, test_health.py, test_reviews.py,
+│   │   test_availability.py, test_scheduler.py, test_pagination_service.py
 ├── backend/
 │   ├── main.py                      # entrypoint: logging, migrazioni (+ backup pre-migrazione), crea l'app,
 │   │                                  monta router/static/scheduler, CORS ristretto, rate limiter
 │   ├── database.py                   # engine SQLAlchemy (pool_pre_ping=True) + sessionmaker + get_db()
 │   ├── rate_limit.py                  # istanza condivisa slowapi Limiter (evita import circolari)
-│   ├── scheduler.py                    # 7 job periodici APScheduler, vedi sezione 4
+│   ├── scheduler.py                    # 8 job periodici APScheduler (promemoria, recensioni, sync calendario, generazione slot, healthcheck Gmail, retention, pulizia slot, backup)
 │   ├── models/
 │   │   ├── __init__.py                   # raccoglie tutti i model per l'import (necessario ad Alembic)
 │   │   ├── users.py                       # tabella users (con anonimizzato_at per la retention)
@@ -72,7 +73,7 @@ Monolite Python/FastAPI che serve sia le API REST sia i file statici del fronten
 │   │   │   package.py, review.py, consulenza.py, pacchetto_richiesta.py   # validazione Pydantic in/out
 │   └── services/
 │       ├── auth_service.py                   # crea/verifica JWT (admin e studente, claim "type" separato)
-│       ├── timezone_service.py                # unica funzione utc_to_rome(), usata ovunque un orario va mostrato
+│       ├── timezone_service.py                # utc_to_rome() + helper condivisi (formatta_data_ora_rome, ora_utc_naive, intervalli_si_sovrappongono), usati ovunque un orario va mostrato o confrontato
 │       ├── availability_service.py             # genera slot da regola ricorrente, controllo overlap, applica blocchi
 │       ├── calendar_service.py                  # Google Calendar: crea/elimina/legge eventi
 │       ├── email_service.py                      # invio email transazionali via Gmail API (OAuth2), HTML-escaping
@@ -81,7 +82,8 @@ Monolite Python/FastAPI che serve sia le API REST sia i file statici del fronten
 │       ├── backup_service.py                        # dump SQL + upload su Google Drive
 │       ├── google_oauth_service.py                   # credenziali OAuth condivise (Gmail + Calendar + Drive)
 │       ├── package_service.py                         # catalogo fisso pacchetti (CATALOGO_PACCHETTI)
-│       └── booking_service.py                          # libera_slot_prenotazione(), condivisa da cliente+admin
+│       ├── booking_service.py                          # libera_slot_prenotazione(), condivisa da cliente+admin
+│       └── pagination_service.py                        # pagina_e_offset()/busta_paginazione(), condivise da tutte le liste admin paginate
 └── frontend/
     ├── index.html               # form pubblico di prenotazione (wizard + login Discord opzionale)
     ├── about.html                 # pagina About con vetrina recensioni approvate
@@ -237,7 +239,7 @@ Le prime 12 sono descritte in dettaglio nella versione precedente di questo docu
 | Metodo | Path | Auth | Cosa fa |
 |---|---|---|---|
 | GET | `/bookings/` | admin | tutte le prenotazioni |
-| POST | `/bookings/` | no (rate limit 5/min/IP), package opzionale richiede login studente | crea prenotazione: valida durata/slot, gestisce sessioni da 2h (unione di 2 slot da 1h, solo inizio 15:00/17:00), redenzione pacchetto verificata contro l'utente **autenticato** (mai contro `user_id` nel body), claim atomico dello slot, prezzo server-side, evento Calendar, email+Discord |
+| POST | `/bookings/` | no (rate limit 5/min/IP), package opzionale richiede login studente | crea prenotazione: valida durata/slot, gestisce sessioni da 2h (unione di 2 slot da 1h, solo inizio 15:00/17:00), **identità del prenotante mai presa dal body a scatola chiusa** — studente loggato → sempre dal token; guest → `user_id` deve corrispondere a `email` nello stesso body, altrimenti 403 (vedi §7.7) —, redenzione pacchetto verificata contro l'utente **autenticato** (mai contro `user_id` nel body), claim atomico dello slot, prezzo server-side, evento Calendar, email+Discord |
 | **PATCH** | **`/bookings/{id}/cancella`** | studente (JWT Discord) | cancellazione self-service di una propria prenotazione futura |
 | **GET** | **`/bookings/recensioni/pubbliche`** | no | recensioni approvate, per la vetrina in `about.html` |
 | **POST** | **`/bookings/{id}/recensione`** | no (token monouso nel body, rate limit 5/min) | lascia una recensione tramite il link ricevuto via email |
@@ -262,7 +264,7 @@ Le prime 12 sono descritte in dettaglio nella versione precedente di questo docu
 |---|---|---|
 | POST | `/admin/login` | rate limit 5/min/IP; verifica contro `ADMIN_USERNAME`/**`ADMIN_PASSWORD_HASH`** (bcrypt, non più in chiaro) |
 | GET | `/admin/dashboard` | numeri chiave + prossimi slot liberi |
-| GET | `/admin/analytics` | sessioni/incasso ultimi 6 mesi, servizi più richiesti, no-show rate, clienti nuovi/ricorrenti |
+| GET | `/admin/analytics` | sessioni/incasso, servizi più richiesti, no-show rate, clienti nuovi/ricorrenti — tutte le metriche sulla stessa finestra degli ultimi 12 mesi (`MESI_FINESTRA_ANALYTICS`, vedi §12) |
 | GET | `/admin/prenotazioni` | lista paginata |
 | PATCH | `/admin/prenotazioni/{id}/stato` | cambia stato |
 | PATCH | `/admin/prenotazioni/{id}/note` | imposta `note_admin` |
@@ -282,7 +284,7 @@ Le prime 12 sono descritte in dettaglio nella versione precedente di questo docu
 | Metodo | Path | Auth | Cosa fa |
 |---|---|---|---|
 | GET | `/auth/discord/login` | no | redirect a Discord con parametro `state` anti-CSRF (cookie httponly/samesite=lax) |
-| GET | `/auth/discord/callback` | no | verifica `state` (`secrets.compare_digest`), scambia il code, trova/crea l'utente, **imposta cookie httpOnly** `student_token` (non più nell'URL) |
+| GET | `/auth/discord/callback` | no | verifica `state` (`secrets.compare_digest`), scambia il code, trova/crea l'utente — **si collega a un utente esistente trovato per email solo se Discord la marca `verified`** (vedi §7.7), altrimenti rifiuta il login — **imposta cookie httpOnly** `student_token` (non più nell'URL) |
 | **POST** | **`/auth/discord/logout`** | no | cancella il cookie `student_token` (JS non può farlo da solo su un cookie httpOnly) |
 
 ---
@@ -345,6 +347,10 @@ Tutti i punti della versione precedente di questo documento restano validi (fusi
 4. **Retention GDPR automatica**: un cliente inattivo da oltre `RETENTION_MONTHS` mesi (nessuna prenotazione/pacchetto recente) viene anonimizzato (non cancellato) da un job notturno — prenotazioni/pacchetti restano per analytics/storico, solo l'identità (nome/email/contatti Discord) viene rimossa.
 5. **`AvailabilityRule.attiva` ora è davvero usato**: prima esisteva come colonna inerte, ora `genera_slot_giornaliero` (job notturno) filtra solo le regole attive.
 6. **Backup pre-migrazione**: se all'avvio ci sono migrazioni Alembic in sospeso, l'app tenta un backup su Drive PRIMA di applicarle (fail-soft: un backup fallito o non configurato non blocca comunque la migrazione).
+7. **Identità mai presa da un valore dichiarato dal client/provider esterno, senza verificarla**: sessione 31/08 (§12) — stessa classe di problema già chiusa una volta sul lato pacchetti (punto 3 sopra), riemersa altrove.
+   - Creazione prenotazione (`POST /bookings/`): per lo studente loggato l'identità viene sempre dal token (`studente.id`), mai da `booking.user_id`. Per il guest checkout (nessun account, scelta di prodotto) non esiste un token da cui derivarla — `BookingCreate.email` deve corrispondere all'email dell'utente indicato da `user_id`, altrimenti 403.
+   - Login Discord (`backend/routers/discord_auth.py`): un utente esistente viene collegato per email SOLO se Discord garantisce che è verificata (`discord_user["verified"]`) — altrimenti il login è rifiutato invece di agganciarsi a un account altrui.
+8. **`/admin/analytics` a finestra fissa**: tutte e sei le metriche (non solo sessioni/incasso per mese, come prima) condividono la stessa finestra mobile di `MESI_FINESTRA_ANALYTICS` mesi (12, `backend/routers/admin/dashboard.py`), filtrata a livello query invece di scaricare l'intera storia delle prenotazioni in RAM.
 
 ---
 
@@ -372,6 +378,7 @@ Tutti i punti della versione precedente di questo documento restano validi (fusi
 - Login admin con la nuova password hashata, verificato live dopo il deploy.
 
 **Non ancora verificato**:
+- Le due correzioni di sicurezza Alta severità della sessione 31/08 (§7.7): verificate dalla suite automatica (test che riproducono l'abuso e lo dimostrano bloccato), non ancora con un vero tentativo contro l'ambiente di produzione.
 - Login Discord studente end-to-end in produzione con il nuovo cookie httpOnly (solo mock + curl finora).
 - Che il cron di backup notturno (04:00) abbia davvero prodotto un file da produzione (solo verificato in locale).
 - Un uptime monitor esterno puntato su `/health` non risulta ancora configurato.
