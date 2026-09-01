@@ -1,6 +1,6 @@
 # STATO_PROGETTO.md — VGC Coaching App
 
-> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al commit `1732fc2`, 2026-08-31**, dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
+> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al commit `1732fc2`, 2026-08-31**, dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08 (sezione 12), fino al commit `2114b73`. Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
 
 ---
 
@@ -32,7 +32,7 @@ Monolite Python/FastAPI che serve sia le API REST sia i file statici del fronten
 │   ├── hash_admin_password.py      # genera ADMIN_PASSWORD_HASH da una password digitata
 │   ├── reauth_gmail.py              # rinnova GMAIL_REFRESH_TOKEN (OAuth2, apre il browser)
 │   └── reauth_drive.py               # rinnova DRIVE_REFRESH_TOKEN (OAuth2, apre il browser)
-├── tests/                      # 54 test, SQLite in-memory, tutte le integrazioni esterne mockate
+├── tests/                      # 82 test, SQLite in-memory, tutte le integrazioni esterne mockate
 │   ├── conftest.py                # fixture condivise: DB isolato, mock Gmail/Discord/Calendar/Drive, helper auth
 │   ├── test_admin.py, test_booking.py, test_slots.py, test_richieste.py, test_discord_auth.py,
 │   │   test_email_service.py, test_retention.py, test_backup_service.py, test_health.py, test_reviews.py
@@ -366,7 +366,7 @@ Tutti i punti della versione precedente di questo documento restano validi (fusi
 
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
-- **54 test automatizzati**, suite verde, eseguita di nuovo il 2026-08-30 (coverage 67%).
+- **82 test automatizzati**, suite verde, eseguita di nuovo il 2026-08-31 (coverage 78%).
 - **CI verde** su ogni push/PR (GitHub Actions).
 - Backup su Google Drive verificato end-to-end con un dump reale.
 - Login admin con la nuova password hashata, verificato live dopo il deploy.
@@ -401,3 +401,82 @@ Sessione dedicata a portare il progetto da "funzionante" a "pronto per traffico 
 - Uptime monitor esterno (UptimeRobot/Better Uptime) su `/health`.
 - Conferma che il backup notturno (04:00) produca davvero un file in produzione, non solo in locale.
 - Dominio personalizzato — non fatto per scelta, da riconsiderare se serve un'immagine più professionale o SPF/DKIM/DMARC veri.
+
+---
+
+## 12. Sessione 2026-08-31 — review indipendente e chiusura findings
+
+Su richiesta esplicita di una code review indipendente ("senior full-stack
+engineer, impronta back-end"), prodotta come `ANALISI_2026-08-31.md`
+(root del progetto — vedi quel file per l'analisi completa, area per
+area, con voti e riferimenti `file:riga`). Di seguito solo la sintesi di
+cosa è stato corretto in questa sessione, in ordine cronologico:
+
+0. Messa in sicurezza del lavoro pregresso: 22 file modificati + 2 nuovi
+   (`backend/services/pagination_service.py`, `tests/test_availability.py`)
+   risultavano non committati da una sessione precedente — committati in
+   blocco prima di qualunque fix. Ambiente locale allineato a
+   produzione/CI: venv ricreato su Python 3.11 (era 3.14).
+1. **Sicurezza, Alta severità (2 bug chiusi)**:
+   - `backend/routers/discord_auth.py`: il login Discord collegava un
+     account esistente trovato per email SENZA controllare il flag
+     `verified` restituito da Discord — un attaccante poteva aggiungere
+     l'email non verificata di un cliente al proprio account Discord e
+     ottenere un cookie di sessione legato alla sua identità (storico
+     prenotazioni, pacchetti residui). Fix: il fallback per email avviene
+     solo se `verified` è vero; altrimenti il login viene rifiutato.
+   - IDOR su `booking.user_id` (`backend/routers/booking.py`,
+     `backend/schemas/booking.py`): chiunque poteva creare prenotazioni
+     "confirmed" a nome di un altro cliente esistente (in produzione una
+     PK sequenziale, banale da indovinare). Fix: studente loggato →
+     identità sempre dal token; guest checkout → `BookingCreate` verifica
+     che l'email dichiarata corrisponda davvero a `user_id`.
+2. **Privacy/performance/accessibilità (quick-win)**:
+   - `note_admin` (documentato come "visibile solo al coach") non compare
+     più nella risposta di `PATCH /bookings/{id}/cancella` (nuovo schema
+     `BookingResponseStudente`).
+   - `/admin/analytics` filtra ora a livello DB invece di scaricare in RAM
+     tutta la storia delle prenotazioni — finestra estesa a 12 mesi
+     (`MESI_FINESTRA_ANALYTICS`) su richiesta esplicita, dopo un primo
+     fix a 6 mesi.
+   - Le card slot del form pubblico sono ora `<button>` veri, raggiungibili
+     da tastiera (prima `<div onclick>`, unico punto del flusso di
+     prenotazione non accessibile).
+3. **Debito di test colmato**: `controlla_e_invia_promemoria` e
+   `controlla_e_invia_richieste_recensione` (`backend/scheduler.py`, prima
+   completamente scoperti nonostante girino senza supervisione umana),
+   calcoli di `/admin/analytics` verificati con dati noti,
+   `pagination_service.py` portato al 100% di coverage. Suite: 54 → **82
+   test**, coverage 67% → **78%**.
+4. **Igiene**: rimossa `SECRET_KEY` (var d'ambiente mai letta, documentata
+   per errore in README), corretto un commento obsoleto in `admin.js`
+   sul token studente, rimosso `frontend/Architettura.txt` (già segnalato
+   come obsoleto), `nuovo_stato`/`note` di `PATCH /admin/prenotazioni/{id}/*`
+   passati da query param a body JSON (finivano nei log di accesso),
+   eliminato un N+1 residuo in `elimina_cliente`.
+
+### Checklist identità — da applicare a ogni endpoint nuovo che legge, scrive o collega un'identità utente
+1. L'endpoint legge/scrive un dato collegato a un `user_id`? Quell'`user_id`
+   deve venire da `get_studente`/`get_admin` (JWT verificato), MAI da un
+   campo del body/query dichiarato dal client.
+2. Se il client sceglie QUALE risorsa toccare (es. l'admin che gestisce un
+   cliente), l'identità dell'ATTORE resta comunque quella del token — il
+   BERSAGLIO va sempre validato con un `.filter()` esplicito di
+   appartenenza, mai un UPDATE/DELETE su un id nudo.
+3. Un'email da un provider OAuth (Discord, Google...) usata per
+   collegare/creare un utente? Controlla il flag `verified` del provider
+   prima di fidartene.
+4. Esiste un test che prova l'azione COME UN ALTRO UTENTE (id/email
+   diverso da chi detiene il token) e verifica un 403/404? Se manca,
+   l'area non è coperta indipendentemente dalla percentuale di coverage
+   totale.
+
+### Backlog / follow-up manuali ancora aperti (nessuno bloccante, nessun codice da scrivere)
+- Screen di consenso OAuth Google: portarlo da "Testing" a "In production"
+  (Google Cloud Console) — elimina la scadenza a 7 giorni di inattività dei
+  refresh token Gmail/Drive invece di limitarsi all'alert automatico.
+- Confermare/eseguire la rotazione della password MySQL esposta in chiaro
+  nella storia git (commit `15f536d`, mai confermata fatta —
+  `ROADMAP.md` la segnava "todo").
+- Verificare che le variabili d'ambiente reali su Railway riflettano
+  `.env.example` aggiornato.
