@@ -1,6 +1,6 @@
 # STATO_PROGETTO.md — VGC Coaching App
 
-> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al commit `1732fc2`, 2026-08-31**, dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08 (sezione 12), fino al commit `2114b73`. Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
+> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al commit `1732fc2`, 2026-08-31**, dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), fino al commit `61d4554` — pushato su `origin/master` e verificato: CI verde su questo push specifico (run GitHub Actions `33529945237`, non solo sulla suite locale). Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
 
 ---
 
@@ -368,12 +368,12 @@ Tutti i punti della versione precedente di questo documento restano validi (fusi
 
 ---
 
-## 9. Cosa funziona e cosa no, ad oggi (aggiornato 2026-08-31)
+## 9. Cosa funziona e cosa no, ad oggi (aggiornato 2026-09-01)
 
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
-- **82 test automatizzati**, suite verde, eseguita di nuovo il 2026-08-31 (coverage 78%).
-- **CI verde** su ogni push/PR (GitHub Actions).
+- **82 test automatizzati**, suite verde, eseguita di nuovo il 2026-08-31 in locale e riconfermata dalla CI il 2026-09-01 (coverage 78%).
+- **CI verde** su ogni push/PR (GitHub Actions) — riconfermato sul push del 01/09 (18 commit, `1732fc2..61d4554`, run `33529945237`), non solo assunto dalla suite locale.
 - Backup su Google Drive verificato end-to-end con un dump reale.
 - Login admin con la nuova password hashata, verificato live dopo il deploy.
 
@@ -411,7 +411,7 @@ Sessione dedicata a portare il progetto da "funzionante" a "pronto per traffico 
 
 ---
 
-## 12. Sessione 2026-08-31 — review indipendente e chiusura findings
+## 12. Sessione 2026-08-31/09-01 — review indipendente e chiusura findings
 
 Su richiesta esplicita di una code review indipendente ("senior full-stack
 engineer, impronta back-end"), prodotta come `ANALISI_2026-08-31.md`
@@ -423,7 +423,10 @@ cosa è stato corretto in questa sessione, in ordine cronologico:
    (`backend/services/pagination_service.py`, `tests/test_availability.py`)
    risultavano non committati da una sessione precedente — committati in
    blocco prima di qualunque fix. Ambiente locale allineato a
-   produzione/CI: venv ricreato su Python 3.11 (era 3.14).
+   produzione/CI: venv ricreato su Python 3.11 (era 3.14). Il giorno dopo
+   (01/09) i 18 commit risultanti sono stati pushati su `origin/master`
+   (`1732fc2..61d4554`) e la CI verificata verde sul push reale, non solo
+   sulla suite locale — il lavoro non esiste più solo su questa macchina.
 1. **Sicurezza, Alta severità (2 bug chiusi)**:
    - `backend/routers/discord_auth.py`: il login Discord collegava un
      account esistente trovato per email SENZA controllare il flag
