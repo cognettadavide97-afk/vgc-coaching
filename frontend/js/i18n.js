@@ -128,12 +128,12 @@ const TRANSLATIONS = {
 
         // Privacy policy (frontend/privacy.html)
         privacy_page_title: 'Privacy Policy',
-        privacy_updated: 'Last updated: 25 August 2026',
+        privacy_updated: 'Last updated: 2 September 2026',
         privacy_intro: 'This page explains, in plain language, what personal data DesuVGC Coaching collects through this website, why, and what rights you have over it, in accordance with the EU General Data Protection Regulation (GDPR, Regulation (EU) 2016/679).',
         privacy_controller_h: 'Data controller',
         privacy_controller_p: 'The data controller is Davide Cognetta ("DesuVGC"), who runs this coaching service. For any question or request about your personal data, write to:',
         privacy_data_h: 'What data is collected',
-        privacy_data_p: 'When you book a session, request a free consultation, or leave a review, the following data may be collected: full name, email address, phone number (if provided), Discord tag, notes about your current team and goals that you choose to share, and details of the sessions you book (date, time, service, price). If you log in with Discord, we also receive your Discord account ID and username.',
+        privacy_data_p: 'When you book a session, request a free consultation, or leave a review, the following data may be collected: full name, email address, phone number (if provided), Discord tag, the experience level you select (junior, senior or master), notes about your current team and goals that you choose to share, and details of the sessions you book (date, time, service, price). If you log in with Discord, we also receive your Discord account ID and username.',
         privacy_purpose_h: 'Why this data is processed',
         privacy_purpose_p: "This data is used to manage your bookings and deliver the coaching sessions you request, and to send you related communications (confirmations, reminders). This processing is based on performing the service you requested (GDPR Art. 6(1)(b)). If you submit a review, it is published on the public reviews page only after the coach approves it — publication is based on your consent (GDPR Art. 6(1)(a)), which you can withdraw at any time by contacting us.",
         privacy_sharing_h: 'Who this data is shared with',
@@ -258,12 +258,12 @@ const TRANSLATIONS = {
 
         // Informativa privacy (frontend/privacy.html)
         privacy_page_title: 'Informativa sulla Privacy',
-        privacy_updated: 'Ultimo aggiornamento: 25 agosto 2026',
+        privacy_updated: 'Ultimo aggiornamento: 2 settembre 2026',
         privacy_intro: 'Questa pagina spiega, in modo semplice, quali dati personali DesuVGC Coaching raccoglie tramite questo sito, per quali finalità, e quali diritti hai su di essi, in conformità al Regolamento (UE) 2016/679 (GDPR).',
         privacy_controller_h: 'Titolare del trattamento',
         privacy_controller_p: 'Il titolare del trattamento è Davide Cognetta ("DesuVGC"), che gestisce personalmente questo servizio di coaching. Per qualsiasi domanda o richiesta relativa ai tuoi dati personali, scrivi a:',
         privacy_data_h: 'Quali dati vengono raccolti',
-        privacy_data_p: 'Quando prenoti una sessione, richiedi una consulenza gratuita o lasci una recensione, possono essere raccolti: nome e cognome, indirizzo email, numero di telefono (se fornito), tag Discord, note sul tuo team attuale e sui tuoi obiettivi che scegli di condividere, e i dettagli delle sessioni prenotate (data, ora, servizio, prezzo). Se accedi con Discord, riceviamo anche l\'ID e il nome utente del tuo account Discord.',
+        privacy_data_p: 'Quando prenoti una sessione, richiedi una consulenza gratuita o lasci una recensione, possono essere raccolti: nome e cognome, indirizzo email, numero di telefono (se fornito), tag Discord, la fascia di esperienza che selezioni (junior, senior o master), note sul tuo team attuale e sui tuoi obiettivi che scegli di condividere, e i dettagli delle sessioni prenotate (data, ora, servizio, prezzo). Se accedi con Discord, riceviamo anche l\'ID e il nome utente del tuo account Discord.',
         privacy_purpose_h: 'Perché questi dati vengono trattati',
         privacy_purpose_p: 'Questi dati servono per gestire le tue prenotazioni ed erogare le sessioni di coaching richieste, e per inviarti le comunicazioni relative (conferme, promemoria). Questo trattamento si basa sull\'esecuzione del servizio da te richiesto (art. 6.1.b GDPR). Se invii una recensione, questa viene pubblicata nella pagina pubblica solo dopo l\'approvazione del coach — la pubblicazione si basa sul tuo consenso (art. 6.1.a GDPR), che puoi ritirare in qualsiasi momento contattandoci.',
         privacy_sharing_h: 'Con chi vengono condivisi questi dati',

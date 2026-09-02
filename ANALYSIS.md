@@ -1,6 +1,14 @@
 # ANALYSIS — VGC Coaching App
 
-> Documento generato da una sessione di analisi (nessun codice applicativo modificato in questa sessione). Autosufficiente: non presuppone di aver letto la conversazione originale.
+> ⚠️ **DOCUMENTO STORICO — non descrive lo stato attuale.** Fotografa il progetto al
+> **2026-08-06** (vedi §5, "Decisioni prese con l'utente"). Quasi tutto ciò che segue è stato
+> superato: gli endpoint pubblici sono stati chiusi, il CORS ristretto, le credenziali tolte dal
+> codice, la password admin passata a hash bcrypt, l'invio email migrato da SendGrid all'API
+> Gmail, i fusi orari sistemati, la race condition sullo slot risolta, e lo scheduler — qui
+> dato per inesistente — oggi ha 8 job. Per lo stato di oggi vedi `STATO_PROGETTO.md`.
+> Conservato come memoria delle decisioni prese allora, **non va aggiornato**.
+
+> Documento generato da una sessione di analisi (nessun codice applicativo modificato in quella sessione). Autosufficiente: non presuppone di aver letto la conversazione originale.
 
 ## 1. Architettura in sintesi
 

@@ -1,6 +1,6 @@
 # STATO_PROGETTO.md — VGC Coaching App
 
-> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al commit `1732fc2`, 2026-08-31**, dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), fino al commit `61d4554` — pushato su `origin/master` e verificato: CI verde su questo push specifico (run GitHub Actions `33529945237`, non solo sulla suite locale). Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
+> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-02** (sezione 13), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. *Il riferimento è una data e non un hash di commit: inseguire l'hash a ogni modifica aveva già prodotto due disallineamenti — gli hash li tiene `git log`.* Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), fino al commit `61d4554` — pushato su `origin/master` e verificato: CI verde su quel push specifico (run GitHub Actions `33529945237`, non solo sulla suite locale). **Attenzione: i commit successivi a `61d4554` non sono ancora stati pushati** e non sono mai passati dalla CI — vedi §13.4. Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
 
 ---
 
@@ -11,7 +11,7 @@ Monolite Python/FastAPI che serve sia le API REST sia i file statici del fronten
 ```
 .
 ├── .env                    # segreti reali — MAI in git
-├── .env.example             # template dei nomi di variabile, allineato al codice attuale
+├── .env.example             # template dei nomi di variabile, riverificato allineato al codice il 2026-09-02
 ├── .gitignore
 ├── .github/workflows/tests.yml  # CI: pytest su ogni push/PR, verde
 ├── ANALYSIS.md               # audit di una sessione di sviluppo molto precedente (storico)
@@ -32,13 +32,13 @@ Monolite Python/FastAPI che serve sia le API REST sia i file statici del fronten
 │   ├── hash_admin_password.py      # genera ADMIN_PASSWORD_HASH da una password digitata
 │   ├── reauth_gmail.py              # rinnova GMAIL_REFRESH_TOKEN (OAuth2, apre il browser)
 │   └── reauth_drive.py               # rinnova DRIVE_REFRESH_TOKEN (OAuth2, apre il browser)
-├── tests/                      # 82 test, SQLite in-memory, tutte le integrazioni esterne mockate
+├── tests/                      # 83 test, SQLite in-memory, tutte le integrazioni esterne mockate
 │   ├── conftest.py                # fixture condivise: DB isolato, mock Gmail/Discord/Calendar/Drive, helper auth
 │   ├── test_admin.py, test_booking.py, test_slots.py, test_richieste.py, test_discord_auth.py,
 │   │   test_email_service.py, test_retention.py, test_backup_service.py, test_health.py, test_reviews.py,
-│   │   test_availability.py, test_scheduler.py, test_pagination_service.py
+│   │   test_availability.py, test_scheduler.py, test_pagination_service.py, test_avvio.py
 ├── backend/
-│   ├── main.py                      # entrypoint: logging, migrazioni (+ backup pre-migrazione), crea l'app,
+│   ├── main.py                      # entrypoint: logging, crea l'app, lifespan (migrazioni + backup pre-migrazione + scheduler),
 │   │                                  monta router/static/scheduler, CORS ristretto, rate limiter
 │   ├── database.py                   # engine SQLAlchemy (pool_pre_ping=True) + sessionmaker + get_db()
 │   ├── rate_limit.py                  # istanza condivisa slowapi Limiter (evita import circolari)
@@ -98,7 +98,7 @@ Monolite Python/FastAPI che serve sia le API REST sia i file statici del fronten
 
 ## 2. Schema del database
 
-MySQL, **9 tabelle attive**. Nessun ORM "autogenerate": ogni migrazione in `alembic/versions/` è scritta a mano.
+MySQL, **8 tabelle applicative** (più `alembic_version`, gestita da Alembic e non dal codice dell'app). Nessun ORM "autogenerate": ogni migrazione in `alembic/versions/` è scritta a mano.
 
 ### `users`
 | Campo | Tipo | Vincoli |
@@ -202,17 +202,28 @@ Relazione: `ClientNote.user`, backref `User.note_tecniche`.
 `payments` — rimossa nel primo consolidamento del progetto (agosto 2026), mai realmente usata.
 
 ### Catena delle migrazioni (18 totali, ordine reale)
-Le prime 12 sono descritte in dettaglio nella versione precedente di questo documento (crea tabelle iniziali → discord_id). Aggiunte dopo il 19/08:
+Riportata per intero: prima le prime 11 erano delegate a "la versione precedente di questo documento", che esiste solo nella storia git e non è consultabile da chi legge oggi.
 ```
-0bfc529cd9fd  aggiungi discord_id a users
-  → a1c92f7e4b18  categoria al posto di showdown_username su users
-    → b3d84a19e6f2  crea tabella packages
-      → c5f612a8d9e3  crea tabella reviews
-        → d4a72e0f8b31  aggiungi slot_id_secondario a bookings
-          → a1b2c3d4e5f6  aggiungi approvata a reviews
-            → 215aa000de4b  indici su slots.start_time e bookings.status
-              → 2eac6f32b19b  aggiungi anonimizzato_at a users   [HEAD]
+1972ef07e768  crea tabelle iniziali (slots, users, bookings, payments)   [base]
+  → a4568987d2e7  aggiungi calendar_event_id a bookings
+    → d1af2a35c949  rimuovi tabella payments
+      → 98489ff817ea  aggiungi service_type a bookings
+        → 37a82dbead86  aggiungi discord_tag a users
+          → f56a5f50b503  aggiungi blocked_external a slots
+            → dcfea9cf2bb0  aggiungi vod_link, replay_code a bookings
+              → 60a355bf4f97  aggiungi reminder_sent a bookings
+                → cc755d0d6a6b  crea tabella client_notes
+                  → 17c843945785  regole ricorrenti, blocchi eccezionali, blocked_admin
+                    → 0bfc529cd9fd  aggiungi discord_id a users
+                      → a1c92f7e4b18  categoria al posto di showdown_username su users
+                        → b3d84a19e6f2  crea tabella packages
+                          → c5f612a8d9e3  crea tabella reviews
+                            → d4a72e0f8b31  aggiungi slot_id_secondario a bookings
+                              → a1b2c3d4e5f6  aggiungi approvata a reviews
+                                → 215aa000de4b  indici su slots.start_time e bookings.status
+                                  → 2eac6f32b19b  aggiungi anonimizzato_at a users  [HEAD]
 ```
+Per verificare quale revisione è applicata a un database: `SELECT * FROM alembic_version;` (in produzione, al 2026-09-02, risulta `2eac6f32b19b`).
 
 ---
 
@@ -227,19 +238,20 @@ Le prime 12 sono descritte in dettaglio nella versione precedente di questo docu
 | GET | `/admin-panel` | no | serve `frontend/admin.html` |
 | GET | `/static/*` | no | file statici da `frontend/` (css/js/immagini) |
 | **GET** | **`/health`** | no | esegue `SELECT 1` reale sul DB, per un monitor esterno (non solo "processo vivo") |
+| GET | `/docs`, `/redoc`, `/openapi.json` | no | documentazione API generata automaticamente da FastAPI, **pubblica**: espone lo schema di tutti gli endpoint, admin compresi (non i dati). Scelta consapevole; disattivabile con `docs_url=None` in `backend/main.py` se un domani non la si vuole più |
 
 ### `/slots` (`backend/routers/slots.py`)
 | Metodo | Path | Auth | Cosa fa |
 |---|---|---|---|
 | GET | `/slots/` | no | slot con `is_available=True` e `start_time` non ancora passato |
-| GET | `/slots/{id}` | no | un singolo slot, qualsiasi stato |
 | POST | `/slots/` | admin (JWT) | crea slot singolo; rifiuta se sovrapposto a uno esistente |
+
+*`GET /slots/{id}` è stato rimosso il 2026-09-02 (§13): era pubblico, restituiva qualunque slot in qualunque stato e non lo chiamava nessuno.*
 
 ### `/bookings` (`backend/routers/booking.py`)
 | Metodo | Path | Auth | Cosa fa |
 |---|---|---|---|
-| GET | `/bookings/` | admin | tutte le prenotazioni |
-| POST | `/bookings/` | no (rate limit 5/min/IP), package opzionale richiede login studente | crea prenotazione: valida durata/slot, gestisce sessioni da 2h (unione di 2 slot da 1h, solo inizio 15:00/17:00), **identità del prenotante mai presa dal body a scatola chiusa** — studente loggato → sempre dal token; guest → `user_id` deve corrispondere a `email` nello stesso body, altrimenti 403 (vedi §7.7) —, redenzione pacchetto verificata contro l'utente **autenticato** (mai contro `user_id` nel body), claim atomico dello slot, prezzo server-side, evento Calendar, email+Discord |
+| POST | `/bookings/` | no (rate limit 5/min/IP), package opzionale richiede login studente | crea prenotazione: valida durata/slot, gestisce sessioni da 2h (unione di 2 slot da 1h, solo inizio 15:00/17:00), **identità del prenotante mai presa dal body a scatola chiusa** — studente loggato → sempre dal token; guest → `email` obbligatoria (altrimenti 422) e deve corrispondere a quella dell'utente indicato da `user_id`, altrimenti 403 (vedi §7.7) —, redenzione pacchetto verificata contro l'utente **autenticato** (mai contro `user_id` nel body), claim atomico dello slot, prezzo server-side, evento Calendar, email+Discord |
 | **PATCH** | **`/bookings/{id}/cancella`** | studente (JWT Discord) | cancellazione self-service di una propria prenotazione futura |
 | **GET** | **`/bookings/recensioni/pubbliche`** | no | recensioni approvate, per la vetrina in `about.html` |
 | **POST** | **`/bookings/{id}/recensione`** | no (token monouso nel body, rate limit 5/min) | lascia una recensione tramite il link ricevuto via email |
@@ -263,7 +275,7 @@ Le prime 12 sono descritte in dettaglio nella versione precedente di questo docu
 | Metodo | Path | Cosa fa |
 |---|---|---|
 | POST | `/admin/login` | rate limit 5/min/IP; verifica contro `ADMIN_USERNAME`/**`ADMIN_PASSWORD_HASH`** (bcrypt, non più in chiaro) |
-| GET | `/admin/dashboard` | numeri chiave + prossimi slot liberi |
+| GET | `/admin/dashboard` | numeri chiave + prossimi slot liberi. Nota: `media_voto_recensioni` è calcolata su **tutte** le recensioni ricevute, anche quelle non ancora approvate — è un dato interno per il coach, diverso da quello che il pubblico vede in `about.html` |
 | GET | `/admin/analytics` | sessioni/incasso, servizi più richiesti, no-show rate, clienti nuovi/ricorrenti — tutte le metriche sulla stessa finestra degli ultimi 12 mesi (`MESI_FINESTRA_ANALYTICS`, vedi §12) |
 | GET | `/admin/prenotazioni` | lista paginata |
 | PATCH | `/admin/prenotazioni/{id}/stato` | cambia stato |
@@ -309,7 +321,7 @@ Le prime 12 sono descritte in dettaglio nella versione precedente di questo docu
 
 ## 5. Variabili d'ambiente richieste
 
-Vedi `.env.example` (verificato allineato al codice il 2026-08-31) per l'elenco completo con commenti — qui solo le differenze rilevanti rispetto alla versione precedente di questo documento:
+Vedi `.env.example` (riverificato allineato al codice il 2026-09-02: tolta `SECRET_KEY`, mai letta da nessuna riga; aggiunta `LOG_LEVEL`, che invece lo era) per l'elenco completo con commenti — qui solo le differenze rilevanti rispetto alla versione precedente di questo documento:
 
 | Nome | Cambiato | Note |
 |---|---|---|
@@ -328,7 +340,7 @@ Tutte le altre variabili (`DATABASE_URL`, `GMAIL_*`, `EMAIL_*`, `DISCORD_*`, `JW
 
 ## 6. Servizi esterni
 
-- **Gmail API (OAuth2)** — email transazionali. Il progetto Google Cloud OAuth resta in stato "Testing" (non verificato): `GMAIL_REFRESH_TOKEN` scade dopo 7 giorni di inattività dell'app. Un job notturno (`controlla_credenziali_gmail`) verifica automaticamente e avvisa su Discord solo alla transizione ok→rotto. Rinnovo manuale: `python scripts/reauth_gmail.py`.
+- **Gmail API (OAuth2)** — email transazionali. Il progetto Google Cloud OAuth resta in stato "Testing" (non verificato): `GMAIL_REFRESH_TOKEN` scade dopo **7 giorni, a prescindere dall'uso** — non per inattività, come si è creduto a lungo: il 2026-09-02 è scaduto pur essendo esercitato ogni giorno (vedi §13.5). Un job notturno (`controlla_credenziali_gmail`) verifica automaticamente e avvisa su Discord solo alla transizione ok→rotto; **rileva** la scadenza, non la previene. Rinnovo manuale: `python scripts/reauth_gmail.py`.
 - **Google Calendar** — service account, scrittura (crea/elimina evento a ogni prenotazione/cancellazione) + lettura (sync automatico ogni ora via job, oltre al bottone admin manuale).
 - **Google Drive (nuovo)** — backup automatico notturno del database (dump SQL scritto a mano via PyMySQL, non `mysqldump`) via OAuth2 con l'account reale del coach (**non** un service account — un service account non ha quota di storage propria su Drive, scoperto testando). Rinnovo: `python scripts/reauth_drive.py`.
 - **Discord** — webhook in uscita (notifiche prenotazione/promemoria/alert di sistema) + OAuth2 in entrata (login studenti, ora con protezione CSRF via parametro `state`).
@@ -339,7 +351,14 @@ Tutte le altre variabili (`DATABASE_URL`, `GMAIL_*`, `EMAIL_*`, `DISCORD_*`, `JW
 
 ## 7. Vincoli tecnici e comportamenti non ovvi
 
-Tutti i punti della versione precedente di questo documento restano validi (fusi orari UTC naive, claim atomico via UPDATE condizionale, migrazioni automatiche non bloccanti, SMTP diretto bloccato su Railway, ecc.). Aggiunte rilevanti dopo il 19/08:
+I quattro punti ereditati dalle versioni precedenti di questo documento, riportati per esteso invece che delegati a un testo non più consultabile:
+
+- **Tutti i datetime nel database sono UTC "naive"** — salvati senza fuso, ma da leggere sempre come UTC. La conversione da/verso Europe/Rome avviene solo ai bordi: in ingresso nel validator di `SlotCreate`, in uscita in `SlotResponse` e nei service che formattano per il coach (`timezone_service.py`). Mai nel mezzo.
+- **Il claim dello slot è atomico**, non "leggi e poi scrivi": un `UPDATE slots SET is_available=0 WHERE id=? AND is_available=1` con controllo di `rowcount`. Deliberatamente **nessun vincolo UNIQUE** a schema, perché incompatibile col flusso cancella/riprenota (uno slot cancellato torna prenotabile).
+- **Le migrazioni girano a ogni avvio e non bloccano il boot**: `run_migrations()` è dentro un `try/except` che, se fallisce, lascia partire l'app registrando l'errore e mandando un alert Discord. Scelta deliberata: un deploy con migrazione fallita si nota subito, invece che al primo cliente che usa la funzione nuova.
+- **SMTP diretto è bloccato dalla rete di Railway** (`OSError: Network is unreachable`): le email passano dall'API Gmail via HTTPS con OAuth2, non da una password SMTP.
+
+Aggiunte rilevanti dopo il 19/08:
 
 1. **Prenotazioni da 2 ore ora uniscono due slot da 1h** (`slot_id_secondario`), non un unico slot da 2h come generato in origine — il calendario genera solo slot da 1h; vedi §4.
 2. **Token JWT studente in cookie httpOnly**, non più in `localStorage`/header `Authorization` — `secure` derivato da `DISCORD_OAUTH_REDIRECT_URI` (inizia con `https://`?), non da `request.url.scheme` (Railway strip-a HTTPS prima che l'app veda la richiesta). Non ancora verificato con un vero login Discord end-to-end in produzione, solo via mock + curl.
@@ -351,6 +370,9 @@ Tutti i punti della versione precedente di questo documento restano validi (fusi
    - Creazione prenotazione (`POST /bookings/`): per lo studente loggato l'identità viene sempre dal token (`studente.id`), mai da `booking.user_id`. Per il guest checkout (nessun account, scelta di prodotto) non esiste un token da cui derivarla — `BookingCreate.email` deve corrispondere all'email dell'utente indicato da `user_id`, altrimenti 403.
    - Login Discord (`backend/routers/discord_auth.py`): un utente esistente viene collegato per email SOLO se Discord garantisce che è verificata (`discord_user["verified"]`) — altrimenti il login è rifiutato invece di agganciarsi a un account altrui.
 8. **`/admin/analytics` a finestra fissa**: tutte e sei le metriche (non solo sessioni/incasso per mese, come prima) condividono la stessa finestra mobile di `MESI_FINESTRA_ANALYTICS` mesi (12, `backend/routers/admin/dashboard.py`), filtrata a livello query invece di scaricare l'intera storia delle prenotazioni in RAM.
+9. **I job cron usano il fuso del processo, non Europe/Rome.** `BackgroundScheduler()` è costruito senza `timezone=`, quindi gli orari dei job notturni (03:00, 03:01, 03:02, 04:00) sono ore locali del processo. Su Railway il processo gira in UTC: il backup "delle 04:00" parte in realtà alle 06:00 italiane d'estate e alle 05:00 d'inverno. In locale sono davvero le 03:00/04:00 italiane. Nessun impatto pratico — restano ore a basso traffico — ma va saputo prima di leggere un log o di aspettarsi un file a un'ora precisa.
+10. **Migrazioni e scheduler partono dal `lifespan`, non dall'import** (dal 2026-09-02, §13): il semplice `import backend.main` non ha più effetti collaterali. Prima li aveva, e la conseguenza era che lanciare `pytest` con un `.env` popolato applicava le migrazioni al database di sviluppo reale.
+11. **Non citare i markdown per numero di riga.** I riferimenti tipo `README.md:217` si rompono nel giro di giorni: di due citati in `ANALISI_2026-08-31.md`, entrambi puntano oggi a tutt'altro contenuto. Citare invece il titolo di sezione (`§7.7`, "Area Sicurezza"), che sopravvive alle riscritture. Vale sia fra documenti sia nei commenti del codice.
 
 ---
 
@@ -372,16 +394,18 @@ Tutti i punti della versione precedente di questo documento restano validi (fusi
 
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
-- **82 test automatizzati**, suite verde, eseguita di nuovo il 2026-08-31 in locale e riconfermata dalla CI il 2026-09-01 (coverage 78%).
-- **CI verde** su ogni push/PR (GitHub Actions) — riconfermato sul push del 01/09 (18 commit, `1732fc2..61d4554`, run `33529945237`), non solo assunto dalla suite locale.
-- Backup su Google Drive verificato end-to-end con un dump reale.
+- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-02: **83 test, coverage 77%** (era 82/80% prima che il codice di avvio uscisse dall'import, vedi §13).
+- **CI verde** su ogni push/PR (GitHub Actions) — riconfermato sul push del 01/09 (18 commit, `1732fc2..61d4554`, run `33529945237`), non solo assunto dalla suite locale. **Attenzione**: i commit successivi a `61d4554` non sono ancora stati pushati, quindi non sono mai passati dalla CI (vedi §13).
+- Backup su Google Drive verificato end-to-end con un dump reale, **e confermato il 2026-09-02 che la cartella Drive contiene backup prodotti dalla produzione**, non solo dalle prove in locale.
 - Login admin con la nuova password hashata, verificato live dopo il deploy.
+- **Login Discord studente end-to-end in produzione, verificato il 2026-09-02** — con cookie `student_token` marcato `Secure` e `HttpOnly`, controllato da DevTools. Da annotare perché non era solo "non verificato": **non poteva funzionare**, mancavano `DISCORD_CLIENT_ID`/`DISCORD_CLIENT_SECRET` su entrambi i servizi Railway (vedi §13).
+- **Schema di produzione allineato**: `alembic_version` risulta `2eac6f32b19b`, la head della catena in §2.
+- **Variabili d'ambiente su Railway verificate** su entrambi i servizi il 2026-09-02, e riallineate (§13).
 
 **Non ancora verificato**:
 - Le due correzioni di sicurezza Alta severità della sessione 31/08 (§7.7): verificate dalla suite automatica (test che riproducono l'abuso e lo dimostrano bloccato), non ancora con un vero tentativo contro l'ambiente di produzione.
-- Login Discord studente end-to-end in produzione con il nuovo cookie httpOnly (solo mock + curl finora).
-- Che il cron di backup notturno (04:00) abbia davvero prodotto un file da produzione (solo verificato in locale).
-- Un uptime monitor esterno puntato su `/health` non risulta ancora configurato.
+- Che il link nell'email di richiesta recensione sia ora cliccabile: serve una sessione già conclusa e al 2026-09-02 non ce n'erano (vedi §13).
+- Un uptime monitor esterno puntato su `/health` non risulta ancora configurato — confermato osservativamente il 2026-09-02: nei log di Railway non compare nessuna chiamata a quell'endpoint. L'endpoint funziona (interrogato a mano risponde), semplicemente nessuno lo interroga.
 - Dominio personalizzato non acquistato — resta su `*.up.railway.app`, scelta consapevole.
 
 ---
@@ -457,9 +481,10 @@ cosa è stato corretto in questa sessione, in ordine cronologico:
    completamente scoperti nonostante girino senza supervisione umana),
    calcoli di `/admin/analytics` verificati con dati noti,
    `pagination_service.py` portato al 100% di coverage. Suite: 54 → **82
-   test**, coverage 67% → **78%**.
-4. **Igiene**: rimossa `SECRET_KEY` (var d'ambiente mai letta, documentata
-   per errore in README), corretto un commento obsoleto in `admin.js`
+   test**, coverage 67% → **80%**.
+4. **Igiene**: rimossa `SECRET_KEY` **dalla tabella del README** (var
+   d'ambiente mai letta; è poi rimasta in `.env.example` e su Railway fino
+   al 2026-09-02, vedi §13), corretto un commento obsoleto in `admin.js`
    sul token studente, rimosso `frontend/Architettura.txt` (già segnalato
    come obsoleto), `nuovo_stato`/`note` di `PATCH /admin/prenotazioni/{id}/*`
    passati da query param a body JSON (finivano nei log di accesso),
@@ -483,10 +508,164 @@ cosa è stato corretto in questa sessione, in ordine cronologico:
 
 ### Backlog / follow-up manuali ancora aperti (nessuno bloccante, nessun codice da scrivere)
 - Screen di consenso OAuth Google: portarlo da "Testing" a "In production"
-  (Google Cloud Console) — elimina la scadenza a 7 giorni di inattività dei
-  refresh token Gmail/Drive invece di limitarsi all'alert automatico.
+  (Google Cloud Console) — elimina la scadenza dei refresh token Gmail/Drive
+  invece di limitarsi all'alert automatico. **Ancora aperto al 2026-09-03**, e
+  nel frattempo la scadenza si è materializzata davvero (§13).
 - Confermare/eseguire la rotazione della password MySQL esposta in chiaro
   nella storia git (commit `15f536d`, mai confermata fatta —
-  `ROADMAP.md` la segnava "todo").
-- Verificare che le variabili d'ambiente reali su Railway riflettano
-  `.env.example` aggiornato.
+  `ROADMAP.md` la segnava "todo"). **Rimandata deliberatamente al 2026-09-03**,
+  valutata non necessaria per ora: riguarda il database di **sviluppo locale**,
+  mentre la produzione su Railway usa credenziali separate, generate dalla
+  piattaforma e mai finite in git. Vedi §13.5.
+- ~~Verificare che le variabili d'ambiente reali su Railway riflettano
+  `.env.example` aggiornato.~~ **Fatto il 2026-09-02, vedi §13.**
+
+---
+
+## 13. Sessione 2026-09-01/02 — revisione documentale in tre parti
+
+Revisione strutturata in tre sessioni con un obiettivo dichiarato: **rendere i documenti
+markdown un ritratto fedele del codice**, perché chi apre il progetto fra tre mesi possa
+fidarsene senza rileggere tutto. Referto completo in **`REVISIONE_2026-09-01.md`** (root):
+fotografia del codice a freddo, 29 rilievi documentali approvati voce per voce, ritrovamenti
+di codice e di configurazione. Runbook operativo dell'intervento su Railway in
+**`RAILWAY_RIALLINEAMENTO_2026-09-02.md`**.
+
+Le tre sessioni, in ordine: **analisi** (nessuna modifica, solo il referto) → **codice**
+(correzioni + test) → **documenti** (allineamento). I documenti sono rimasti volutamente
+disallineati fra la prima e la terza, per non riscrivere due volte le correzioni che il lavoro
+sul codice avrebbe reso obsolete.
+
+### 13.1 Configurazione Railway — riallineata
+
+L'analisi delle variabili d'ambiente ha trovato **3 problemi con effetto reale in produzione**,
+tutti corretti il 2026-09-02:
+
+1. **Il login Discord non poteva funzionare.** `DISCORD_CLIENT_ID` e `DISCORD_CLIENT_SECRET`
+   **non esistevano su nessuno dei due servizi** Railway: `discord_login()` costruiva l'URL di
+   autorizzazione con `client_id=None`. Non era "non ancora verificato", era rotto. Aggiunte, e
+   il flusso è stato provato end-to-end con esito positivo.
+2. **Le email di richiesta recensione contenevano un link non cliccabile.** `PUBLIC_BASE_URL`
+   non era impostata, quindi il codice ricadeva sulla prima origine di `FRONTEND_ORIGINS` —
+   che era un hostname **senza schema**. Impostata; aggiunto `https://` anche a
+   `FRONTEND_ORIGINS`, che senza schema non poteva combaciare con nessun header `Origin`.
+3. **I cookie di sessione uscivano senza il flag `Secure`.** `DISCORD_OAUTH_REDIRECT_URI` era
+   `http://`, e da quella variabile l'app deduce di essere in produzione. Portata a `https://`
+   (e allineata sul Discord Developer Portal); verificato da DevTools che `student_token` ha
+   ora `Secure` e `HttpOnly`.
+
+Pulizia, sullo stesso intervento: rimosse `SECRET_KEY` e `PAYPAL_EMAIL` (mai lette da nessuna
+riga di codice), la **password admin in chiaro** `ADMIN_PASSWORD` rimasta sul servizio MySQL
+dopo il passaggio a bcrypt di agosto, e una **copia divergente e non referenziata** di
+`GMAIL_REFRESH_TOKEN` — pericolosa non perché occupasse spazio, ma perché al prossimo
+`reauth_gmail.py` sarebbe stata il posto "naturale" dove incollare il token nuovo, quello
+sbagliato. Corretto infine un refuso, `REMINDER_CHECK_INTERNAL_MINUTES`, che rendeva la
+variabile invisibile al codice.
+
+**Non toccate di proposito**: tutte le `MYSQL*` del servizio database, che Railway genera e
+consuma da sé (`MYSQL_ROOT_PASSWORD` e `MYSQL_DATABASE` sono lette dal container all'avvio:
+rimuoverle romperebbe il database). Resta **aperto** un consolidamento facoltativo: la
+configurazione è divisa fra i due servizi senza un criterio, ed è proprio quell'asimmetria ad
+aver prodotto il token divergente.
+
+### 13.2 Codice — 5 commit
+
+- **`1d2c850`** — `run_migrations()` e `avvia_scheduler()` spostati in un handler **`lifespan`**
+  di FastAPI. Erano a livello di modulo, quindi il solo `import backend.main` — che
+  `tests/conftest.py` fa — applicava le migrazioni al database di **sviluppo reale**, tentava un
+  backup su Drive e poteva mandare un **alert Discord autentico**, oltre a lasciare vivo un
+  thread APScheduler per tutta la suite. Nuovo `tests/test_avvio.py`, che verifica l'assenza di
+  effetti collaterali facendo un import pulito in un sottoprocesso. Verificato con uvicorn reale
+  che il lifespan esegua comunque migrazioni e gli 8 job all'avvio.
+- **`886b10b`** — sette commenti che descrivevano comportamenti inesistenti: `attiva` data per
+  inutilizzata mentre lo scheduler ci filtra; un rimando a `GET /pacchetti/attivi`, endpoint mai
+  esistito; il refresh Gmail dato per rifatto a ogni invio; il docstring che prometteva di
+  "disattivare" uno slot mentre solleva 400; sei rimandi a "Blocco B1/B2/C3/D4" di
+  `ANALISI_2026-08-31.md`, nomenclatura che quel documento non ha mai avuto; il fuso dei job
+  cron; la scadenza dei token. Nessuna riga eseguibile toccata.
+- **`d3a0f32`** — nel guest checkout, `email` mancante ora risponde **422** invece di un 403
+  "user_id and email do not match", che descriveva un problema diverso da quello reale. Resta
+  `Optional` nello schema di proposito: lo studente loggato non la manda, la sua identità viene
+  dal token.
+- **`a8bc99d`** — rimosso `GET /bookings/`: nessun consumatore (verificato su frontend e test),
+  restituiva tutte le prenotazioni di sempre senza paginazione. Rimosso di conseguenza un import
+  diventato morto.
+- **`23544db`** — rimosso `GET /slots/{slot_id}`: pubblico, senza consumatori, restituiva
+  qualunque slot in qualunque stato. **La suite scende da 84 a 83 test** perché è caduto anche
+  il test che lo copriva: è il test di una funzionalità eliminata di proposito, non un test
+  aggiustato per farlo passare.
+
+**Lasciato stare deliberatamente**: `/docs` pubblici (gli endpoint restano protetti, la scelta
+è ora dichiarata in §3), la media voto calcolata anche sulle recensioni non approvate (dato
+interno, ora dichiarato), `categoria` non anonimizzata dalla retention (non è un
+identificativo), il parametro `escludi_id` mai usato (il commento accanto lo dichiara tenuto
+apposta per un caso futuro), la duplicazione minima negli script.
+
+### 13.3 Documenti — allineati
+
+29 correzioni approvate voce per voce, più due nate dal lavoro sul codice. In sintesi:
+`README.md` (inventari di model/schemi/service/router incompleti, `timezone_service` descritto
+come "un'unica funzione", lo scheduler descritto come se facesse solo i promemoria, un rimando
+a `backend/routers/admin.py` che non esiste più da agosto, `GET /slots/` senza il filtro sugli
+orari passati, "due pagine web" invece di cinque, "tre notifiche in parallelo" che sono
+sequenziali, Python "3.11+" invece di 3.11 esatta, l'healthcheck attribuito anche al token
+Drive); `.env.example` (via `SECRET_KEY`, dentro `LOG_LEVEL`); questo documento (conteggio
+tabelle, catena migrazioni riportata per intero invece di rimandare a una versione precedente
+non consultabile, §7 espansa per lo stesso motivo, `/docs` dichiarati, fuso dei job cron);
+`frontend/privacy.html` e `i18n.js` (la **fascia di esperienza** junior/senior/master era
+raccolta ma non dichiarata fra i dati trattati — corretta in entrambe le lingue e data di
+aggiornamento portata al 2 settembre 2026).
+
+`ANALYSIS.md` e `ROADMAP.md` hanno ricevuto **un cartello di storicità in testa** con la data a
+cui si riferiscono: restano storici di proposito e non sono stati allineati al presente.
+`ANALISI_2026-08-31.md` ne ha ricevuto uno che dichiara i findings chiusi — un lettore che lo
+apriva senza contesto concludeva che l'app avesse due vulnerabilità Alta severità aperte.
+
+### 13.4 Push e deploy — NON EFFETTUATI
+
+**Non c'è stato nessun push e nessun deploy in questa sessione, per scelta esplicita.** Il
+coach ha deciso di **collaudare prima in locale** e pushare solo dopo (confermato il
+2026-09-03). Il lavoro su git resta comunque all'umano; `Bash(git push:*)` è nella lista `deny` di
+`.claude/settings.local.json` per tutta la durata delle tre sessioni.
+
+Al 2026-09-02 restano quindi **6 commit non pushati**: `5c495cb` (documentale, dalla sessione
+del 01/09, mai partito) più i 5 della sessione sul codice. `origin/master` è fermo a
+`61d4554`. **Nessuno di questi commit è mai passato dalla CI**, che gira solo su push.
+
+Da tenere d'occhio al primo push: `tests/test_avvio.py` avvia un sottoprocesso, ed è il primo
+test del progetto a farlo — se in CI si comportasse diversamente dal locale, è lì che guardare.
+
+L'intervento su Railway descritto in §13.1 **è invece già in produzione**: sono modifiche alle
+variabili d'ambiente fatte dalla dashboard, che hanno provocato un redeploy dell'immagine
+esistente. Il codice in esecuzione su Railway è quindi ancora quello di `61d4554`: **le
+correzioni di §13.2 non sono in produzione** finché non viene fatto il push.
+
+### 13.5 Backlog / follow-up ancora aperti
+- **Schermata di consenso OAuth Google da "Testing" a "In production".** Ora è più urgente di
+  prima: il 2026-09-02 il `GMAIL_REFRESH_TOKEN` **è scaduto davvero**, pur essendo esercitato
+  ogni giorno — la scadenza è a 7 giorni a prescindere dall'uso, non per inattività come si era
+  creduto. È stato rinnovato a mano. Finché si resta in "Testing", la cosa si ripeterà.
+  **Verificato il 2026-09-03: lo stato è ancora "Testing".** Il prossimo scadere è quindi atteso
+  entro il 2026-09-09.
+- **Rotazione della password MySQL** esposta in git dal commit `15f536d` (giugno) — non fatta,
+  e **rimandata deliberatamente**: il coach l'ha valutata non necessaria al momento (confermato
+  il 2026-09-03), perché riguarda il database di **sviluppo locale** e la produzione su Railway
+  usa credenziali separate generate dalla piattaforma. Non è una dimenticanza: è una decisione
+  presa con l'informazione giusta, che prima mancava. Da riconsiderare se quel database locale
+  dovesse mai diventare raggiungibile da fuori.
+- **Push dei 6 commit** e verifica che la CI resti verde — previsto dopo il collaudo in
+  locale (§13.4).
+- **Consolidamento delle variabili Railway** su un solo servizio (§13.1).
+- **Uptime monitor esterno** su `/health`, mai configurato.
+
+### 13.6 Non verificato
+- Che il link nell'email di richiesta recensione sia ora cliccabile: al 2026-09-02 non
+  esistevano sessioni concluse su cui provarlo. **Nota**: la correzione vale per le email
+  future; le richieste già inviate non verranno rimandate, perché il job filtra su
+  `review_email_sent == False`.
+- Che il `DRIVE_REFRESH_TOKEN` regga fino al prossimo backup. Vale la stessa scadenza del
+  token Gmail e **non esiste un healthcheck che lo controlli**: un token Drive morto si scopre
+  solo dall'alert di backup fallito, quindi a copia di sicurezza già saltata. **Al 2026-09-03**
+  il file più recente nella cartella Drive è datato **2 settembre** e non risulta nessun alert
+  Discord — il che conferma che il token era valido a quell'esecuzione, ma **non** dice nulla
+  sull'esecuzione successiva.

@@ -1,6 +1,15 @@
 # ROADMAP — VGC Coaching App
 
-> Da leggere insieme a `ANALYSIS.md`. Ogni step indica: cosa si costruisce, file coinvolti, come si verifica, da cosa dipende, stato. Stato aggiornabile a `in corso` / `fatto` man mano che si procede.
+> ⚠️ **DOCUMENTO STORICO — non è il piano di lavoro corrente.** Copre il periodo
+> **2026-08-06 → 2026-08-21** (il file non conteneva alcuna data propria: ricavata dal git log
+> degli step P0–P3). Tutti gli step risultano `fatto` tranne **P0-1**, la rotazione della
+> password MySQL, che è davvero ancora aperta. Le descrizioni interne sono superate — per dirne
+> due, la generazione slot non è più "8 settimane in avanti" ma fino a fine mese corrente, e il
+> servizio `mentality_prep` oggi si chiama `tournament_prep`. Per lo stato di oggi vedi
+> `STATO_PROGETTO.md`. Conservato come memoria delle decisioni prese allora, **non va
+> aggiornato**.
+
+> Da leggere insieme a `ANALYSIS.md`. Ogni step indica: cosa si costruisce, file coinvolti, come si verifica, da cosa dipende, stato. Lo stato di ogni step è quello registrato alla chiusura di quella sessione.
 
 Legenda priorità:
 - **P0 — Core funzionante**: minimo perché uno studente prenoti uno slot e il coach lo veda, correttamente e in sicurezza. Include i correttivi bloccanti emersi in Fase 2 (vanno prima di tutto il resto).
@@ -13,7 +22,7 @@ Legenda priorità:
 ## P0 — Core funzionante
 
 ### P0-1 — Rotazione credenziali database
-**Cosa**: cambiare la password dell'utente MySQL `Desuzakiddo` sul server, dato che è esposta in chiaro nella storia git. Azione di infrastruttura, non di codice.
+**Cosa**: cambiare la password dell'utente MySQL `Desuzakiddo` sul server, dato che è esposta in chiaro nella storia git. Azione di infrastruttura, non di codice. *(Precisazione aggiunta il 2026-09-02: riguarda il database di **sviluppo locale**. La produzione su Railway usa credenziali separate, generate dalla piattaforma e mai finite in git — il che spiega perché questo punto sia stato rimandabile a lungo senza conseguenze, ma non lo chiude.)*
 **File**: nessuno (azione esterna a questa sessione/repo).
 **Verifica**: login al DB con la vecchia password fallisce; l'app funziona con la nuova password impostata solo via variabile d'ambiente.
 **Dipende da**: nessuno — può partire subito, in parallelo a tutto il resto.
