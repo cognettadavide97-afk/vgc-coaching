@@ -21,7 +21,6 @@ from backend.services.timezone_service import utc_to_rome, ora_utc_naive
 from backend.services.calendar_service import crea_evento_calendario
 from backend.services.discord_service import invia_notifica_discord
 from backend.services.booking_service import libera_slot_prenotazione
-from backend.routers.admin import get_admin
 from backend.routers.users import get_studente, get_studente_opzionale
 from backend.rate_limit import limiter
 from typing import List, Optional
@@ -48,9 +47,11 @@ TABELLA_PREZZI = {1: 2000, 2: 4000}
 ORE_INIZIO_VALIDE_2H = {15, 17}
 
 
-@router.get("/", response_model=List[BookingResponse])
-def get_bookings(admin: str = Depends(get_admin), db: Session = Depends(get_db)):
-    return db.query(Booking).all()
+# Qui esisteva un GET /bookings/ (admin) che restituiva tutte le prenotazioni
+# di sempre, senza paginazione. Rimosso: nessuna pagina del frontend lo
+# chiamava e nessun test lo copriva — il pannello admin usa
+# GET /admin/prenotazioni, che è paginato e restituisce anche i dati del
+# cliente e dello slot. Vedi REVISIONE_2026-09-01.md, ritrovamento R11.
 
 
 @router.post("/", response_model=BookingResponse)

@@ -16,8 +16,8 @@
 # senza nessuna modifica lì.
 #
 # get_admin è importato da vari altri file del progetto AL DI FUORI di
-# questo pacchetto (backend/routers/booking.py, backend/routers/users.py,
-# backend/routers/slots.py) con "from backend.routers.admin import
+# questo pacchetto (backend/routers/users.py, backend/routers/slots.py) con
+# "from backend.routers.admin import
 # get_admin" — quella riga continua a funzionare identica: un pacchetto
 # Python espone tramite il proprio __init__.py esattamente come farebbe un
 # modulo singolo, chi lo importa da fuori non vede alcuna differenza.
