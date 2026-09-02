@@ -135,6 +135,18 @@ def create_booking(
     if studente:
         user = studente
     else:
+        # L'email resta Optional nello schema di proposito (lo studente
+        # loggato non la manda: la sua identità viene dal token), ma sul ramo
+        # guest è obbligatoria — è l'unica prova che chi prenota sia davvero
+        # il proprietario di quello user_id. Senza questo controllo il
+        # confronto qui sotto sarebbe sempre vero e la richiesta finirebbe
+        # nel 403 "user_id and email do not match", che descrive un problema
+        # diverso da quello reale: manca un campo, non "i due non combaciano".
+        if not booking.email:
+            raise HTTPException(
+                status_code=422,
+                detail="email is required when booking without logging in"
+            )
         user = db.query(User).filter(User.id == booking.user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")

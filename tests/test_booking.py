@@ -230,6 +230,42 @@ def test_prenotazione_guest_a_nome_di_un_altro_utente_viene_rifiutata(client, db
     assert db.query(Booking).count() == 0
 
 
+def test_prenotazione_guest_senza_email_restituisce_422(client, db):
+    """
+    REVISIONE_2026-09-01.md, ritrovamento R14: BookingCreate.email è
+    dichiarata Optional, ma per il guest checkout è di fatto obbligatoria —
+    senza, il confronto "user.email != booking.email" è sempre vero e la
+    richiesta veniva rifiutata con un 403 "user_id and email do not match".
+
+    Quel 403 descriveva un problema diverso da quello reale: chi integra
+    l'API leggeva "le due cose non combaciano" mentre il vero motivo era
+    "manca un campo obbligatorio", e su /docs vedeva un campo facoltativo
+    che facoltativo non è. Deve invece arrivare un 422, il codice che
+    FastAPI usa per un input malformato.
+
+    Nota: l'email resta opzionale nello SCHEMA di proposito, perché lo
+    studente loggato con Discord legittimamente non la manda — la sua
+    identità viene dal token. L'obbligo vale solo sul ramo guest, quindi va
+    espresso nel router e non in Pydantic.
+    """
+    utente = crea_utente(client, email="guest-senza-email@example.com")
+    slot = crea_slot(db, INIZIO)
+
+    res = client.post("/bookings/", json={
+        "user_id": utente["id"],
+        # "email" deliberatamente assente
+        "slot_id": slot.id,
+        "duration_hours": 1,
+        "service_type": "vod_review"
+    })
+
+    assert res.status_code == 422, (
+        f"atteso 422 per email mancante, ricevuto {res.status_code}: {res.text}"
+    )
+    assert "email" in res.json()["detail"].lower()
+    assert db.query(Booking).count() == 0
+
+
 def test_redenzione_pacchetto_azzera_prezzo_e_scala_credito(client, db):
     utente = crea_utente(client)
     slot_a = crea_slot(db, INIZIO)
