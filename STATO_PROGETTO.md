@@ -1,6 +1,6 @@
 # STATO_PROGETTO.md — VGC Coaching App
 
-> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-02** (sezione 13), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. *Il riferimento è una data e non un hash di commit: inseguire l'hash a ogni modifica aveva già prodotto due disallineamenti — gli hash li tiene `git log`.* Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), fino al commit `61d4554` — pushato su `origin/master` e verificato: CI verde su quel push specifico (run GitHub Actions `33529945237`, non solo sulla suite locale). **Attenzione: i commit successivi a `61d4554` non sono ancora stati pushati** e non sono mai passati dalla CI — vedi §13.4. Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
+> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-03** (sezione 13), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. *Il riferimento è una data e non un hash di commit: inseguire l'hash a ogni modifica aveva già prodotto due disallineamenti — gli hash li tiene `git log`.* Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), fino al commit `61d4554` — pushato su `origin/master` e verificato: CI verde su quel push specifico (run GitHub Actions `33529945237`, non solo sulla suite locale). Aggiornato infine dopo la revisione documentale in tre sessioni del 01–03/09 (sezione 13), fino al commit `1e17319` — pushato su `origin/master` il 2026-09-03 e verificato: CI verde su quel push (run `33690855235`). Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
 
 ---
 
@@ -395,7 +395,7 @@ Aggiunte rilevanti dopo il 19/08:
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
 - **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-02: **83 test, coverage 77%** (era 82/80% prima che il codice di avvio uscisse dall'import, vedi §13).
-- **CI verde** su ogni push/PR (GitHub Actions) — riconfermato sul push del 01/09 (18 commit, `1732fc2..61d4554`, run `33529945237`), non solo assunto dalla suite locale. **Attenzione**: i commit successivi a `61d4554` non sono ancora stati pushati, quindi non sono mai passati dalla CI (vedi §13).
+- **CI verde** su ogni push/PR (GitHub Actions) — riconfermato sul push del 01/09 (18 commit, `1732fc2..61d4554`, run `33529945237`), non solo assunto dalla suite locale. Riconfermato di nuovo sul push del 03/09 (8 commit, `61d4554..1e17319`, run `33690855235`), che ha portato in remoto tutto il lavoro della revisione (vedi §13.4).
 - Backup su Google Drive verificato end-to-end con un dump reale, **e confermato il 2026-09-02 che la cartella Drive contiene backup prodotti dalla produzione**, non solo dalle prove in locale.
 - Login admin con la nuova password hashata, verificato live dopo il deploy.
 - **Login Discord studente end-to-end in produzione, verificato il 2026-09-02** — con cookie `student_token` marcato `Secure` e `HttpOnly`, controllato da DevTools. Da annotare perché non era solo "non verificato": **non poteva funzionare**, mancavano `DISCORD_CLIENT_ID`/`DISCORD_CLIENT_SECRET` su entrambi i servizi Railway (vedi §13).
@@ -621,24 +621,42 @@ cui si riferiscono: restano storici di proposito e non sono stati allineati al p
 `ANALISI_2026-08-31.md` ne ha ricevuto uno che dichiara i findings chiusi — un lettore che lo
 apriva senza contesto concludeva che l'app avesse due vulnerabilità Alta severità aperte.
 
-### 13.4 Push e deploy — NON EFFETTUATI
+### 13.4 Push e CI — EFFETTUATI il 2026-09-03
 
-**Non c'è stato nessun push e nessun deploy in questa sessione, per scelta esplicita.** Il
-coach ha deciso di **collaudare prima in locale** e pushare solo dopo (confermato il
-2026-09-03). Il lavoro su git resta comunque all'umano; `Bash(git push:*)` è nella lista `deny` di
-`.claude/settings.local.json` per tutta la durata delle tre sessioni.
+**Push eseguito il 2026-09-03**: `61d4554..1e17319` su `origin/master`, **8 commit** — quello
+documentale rimasto indietro dalla sessione del 01/09 (`5c495cb`), i 5 della sessione sul
+codice, e i 2 del riallineamento documentale.
 
-Al 2026-09-02 restano quindi **6 commit non pushati**: `5c495cb` (documentale, dalla sessione
-del 01/09, mai partito) più i 5 della sessione sul codice. `origin/master` è fermo a
-`61d4554`. **Nessuno di questi commit è mai passato dalla CI**, che gira solo su push.
+**CI verde sul push reale**, non solo sulla suite locale: run GitHub Actions
+[`33690855235`](https://github.com/cognettadavide97-afk/vgc-coaching/actions/runs/33690855235),
+`conclusion: success` sul commit `1e17319`. È la prima volta che questi commit passano dalla
+CI: gira solo su push, e fino a quel momento erano rimasti tutti in locale.
 
-Da tenere d'occhio al primo push: `tests/test_avvio.py` avvia un sottoprocesso, ed è il primo
-test del progetto a farlo — se in CI si comportasse diversamente dal locale, è lì che guardare.
+Superata anche la preoccupazione che ci si era posti prima di pushare: `tests/test_avvio.py`
+avvia un **sottoprocesso** ed è il primo test del progetto a farlo — poteva comportarsi
+diversamente su un runner Linux rispetto al Windows locale. Non è successo.
 
-L'intervento su Railway descritto in §13.1 **è invece già in produzione**: sono modifiche alle
-variabili d'ambiente fatte dalla dashboard, che hanno provocato un redeploy dell'immagine
-esistente. Il codice in esecuzione su Railway è quindi ancora quello di `61d4554`: **le
-correzioni di §13.2 non sono in produzione** finché non viene fatto il push.
+**Prima del push**, l'ordine dei fatti era questo, e vale la pena ricordarlo perché è la
+distinzione che questo progetto ha già faticato a tenere: l'intervento su Railway descritto in
+§13.1 era **già in produzione** dal 2026-09-02 (sono modifiche alle variabili d'ambiente fatte
+dalla dashboard, che hanno provocato un redeploy dell'immagine esistente), mentre il codice in
+esecuzione era ancora quello di `61d4554`. Le correzioni di §13.2 sono arrivate in produzione
+solo con questo push, e solo nella misura in cui l'auto-deploy di Railway lo ha raccolto.
+
+> ⚠️ **Da confermare in dashboard Railway**: che il deploy automatico agganciato a
+> `origin/master` sia effettivamente partito su `1e17319` e sia andato a buon fine. Il push e
+> la CI sono verificati; il deploy no — è fuori dal repository e non osservabile da qui.
+
+**Collaudo locale prima del push**, eseguito il 2026-09-03 con il `.env` reale: app avviata con
+uvicorn contro il MySQL di sviluppo, avvio pulito (`Migrazioni eseguite con successo`, nessuna
+migrazione in sospeso quindi nessun backup tentato, scheduler partito con tutti e 8 i job,
+nessun errore nei log). Verificati: le 5 pagine pubbliche, `/health`, `/slots/`,
+`/bookings/recensioni/pubbliche`, `/docs` → 200; `/users/me`, `/users/`, `/admin/dashboard`
+senza token → 401; `GET /bookings/` → **405** e `GET /slots/{id}` → **404**, cioè le due
+rimozioni di §13.2 senza danni collaterali su `POST /bookings/`, che valida ancora
+correttamente. **Non verificato dal vivo** il nuovo 422 sull'email mancante: il database di
+sviluppo non aveva slot futuri disponibili e `create_booking` valida lo slot per primo, quindi
+non si arriva al controllo. Resta coperto dal test automatico.
 
 ### 13.5 Backlog / follow-up ancora aperti
 - **Schermata di consenso OAuth Google da "Testing" a "In production".** Ora è più urgente di
@@ -653,8 +671,14 @@ correzioni di §13.2 non sono in produzione** finché non viene fatto il push.
   usa credenziali separate generate dalla piattaforma. Non è una dimenticanza: è una decisione
   presa con l'informazione giusta, che prima mancava. Da riconsiderare se quel database locale
   dovesse mai diventare raggiungibile da fuori.
-- **Push dei 6 commit** e verifica che la CI resti verde — previsto dopo il collaudo in
-  locale (§13.4).
+- ~~Push dei 6 commit e verifica che la CI resti verde.~~ **Fatto il 2026-09-03**, CI verde
+  (§13.4). Resta da confermare in dashboard che l'auto-deploy di Railway sia partito.
+- **Azioni GitHub su Node.js 20 deprecato.** La CI del 2026-09-03 ha prodotto questa
+  annotazione: `actions/checkout@v4` e `actions/setup-python@v5` puntano a Node.js 20 e
+  vengono forzate su Node.js 24. Oggi funziona e il run è verde; quando GitHub ritirerà il
+  fallback, la CI si fermerà. Si risolve alzando la versione delle due action in
+  `.github/workflows/tests.yml` — non urgente, ma è il tipo di cosa che rompe senza
+  preavviso in un momento a caso.
 - **Consolidamento delle variabili Railway** su un solo servizio (§13.1).
 - **Uptime monitor esterno** su `/health`, mai configurato.
 

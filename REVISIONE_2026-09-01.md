@@ -45,11 +45,17 @@ pagamento fuori app, guest checkout come percorso normale.
       5 commit (`1d2c850`, `886b10b`, `d3a0f32`, `a8bc99d`, `23544db`)
 - [x] Fase 7 — sessione 3, riallineamento dei documenti → **COMPLETATA il 2026-09-02**
 
-**La revisione in tre sessioni è conclusa.** Cosa resta, e dove: il **push dei 6 commit**
-(`G1`, mai fatto per scelta — vedi `STATO_PROGETTO.md` §13.4), il consolidamento delle
-variabili Railway (`P9`), le domande ancora aperte `U2`/`U3`/`U9`, la decisione su
-`ANALISI_2026-08-31.md` in coda alla Fase 5, e i ritrovamenti classificati **NON TOCCARE**
-nella Fase 6, che restano debito noto e non sono spariti.
+**La revisione in tre sessioni è conclusa.** Tutto il lavoro è stato **pushato il 2026-09-03**
+(`61d4554..1e17319`, 8 commit) con **CI verde** (run `33690855235`): `G1` è chiuso, vedi
+`STATO_PROGETTO.md` §13.4.
+
+Cosa resta, e dove: la conferma che l'**auto-deploy di Railway** sia partito su `1e17319`
+(fuori dal repository, solo l'umano può vederlo); il consolidamento delle variabili Railway
+(`P9`); le domande ancora aperte `U2` (schermata OAuth ancora in "Testing", rimandata) e `U9`
+(link nell'email di recensione, mai verificato); la rotazione della password MySQL (`U3`,
+**rimandata deliberatamente**, non dimenticata); la decisione su `ANALISI_2026-08-31.md` in
+coda alla Fase 5; e i ritrovamenti classificati **NON TOCCARE** nella Fase 6, che restano
+debito noto e non sono spariti.
 
 **Stato del repository al momento della fotografia:** branch `master`, working tree pulito,
 ultimo commit `5c495cb` — *"docs: registra push+CI reali e correggi la cronologia 31/08 vs
@@ -1135,7 +1141,11 @@ trappola domani.
 cosa. Consolidare tutte le variabili **applicative** sul servizio app, lasciando su quello
 MySQL solo ciò che Railway genera da sé, eliminerebbe alla radice la classe di problema di P8.
 
-### G1 — Un commit non è mai stato pushato
+### G1 — Un commit non è mai stato pushato — **CHIUSO il 2026-09-03**
+> Risolto: il push del 2026-09-03 (`61d4554..1e17319`, 8 commit, CI verde sul run
+> `33690855235`) ha portato in remoto sia `5c495cb` sia tutto il lavoro delle sessioni 2 e 3.
+> Il testo qui sotto resta com'era: descrive la situazione al 2026-09-01.
+
 **Gravità: media.** `git status` → `master...origin/master [ahead 1]`. Il commit **`5c495cb`**
 esiste solo su questa macchina; `origin/master` è fermo a `61d4554`. Nessun commit remoto
 manca in locale, e **nessun codice è coinvolto**: `5c495cb` tocca solo `STATO_PROGETTO.md`
