@@ -84,9 +84,12 @@ def elimina_slot(
     db: Session = Depends(get_db)
 ):
     """
-    Elimina uno slot. Se ha prenotazioni collegate
-    (anche cancellate) non può essere eliminato fisicamente
-    per preservare lo storico — viene invece disattivato.
+    Elimina uno slot. Se ha prenotazioni collegate (anche cancellate, anche
+    come slot secondario di una sessione da 2h) la richiesta viene RIFIUTATA
+    con un 400 e lo slot resta esattamente com'è: si preserva lo storico non
+    toccandolo. Nessuna "disattivazione" automatica — per rendere uno slot
+    non prenotabile senza cancellarlo esiste il blocco eccezionale
+    (POST /admin/disponibilita/blocchi).
     """
     slot = db.query(Slot).filter(Slot.id == slot_id).first()
     if not slot:

@@ -106,9 +106,11 @@ def _template_admin(titolo: str, corpo: str) -> str:
 # (con una versione testuale semplice + quella HTML vera e propria, così i
 # client di posta che non mostrano HTML hanno comunque un contenuto
 # leggibile), lo autentica scambiando il refresh_token con un token di
-# accesso valido (Credentials.refresh() fa una chiamata HTTPS a Google per
-# ottenerlo — dura poco, per questo va rifatta ad ogni invio invece di
-# essere salvata), e lo invia tramite l'API Gmail. L'API vuole il
+# accesso valido, e lo invia tramite l'API Gmail. Lo scambio NON avviene a
+# ogni invio: credenziali_oauth_google (backend/services/google_oauth_service.py)
+# tiene in cache le Credentials per refresh_token e chiama .refresh() solo
+# quando l'access token non è più valido — vedi il commento in quel file per
+# il perché (era un giro HTTPS a Google in più per ogni email). L'API vuole il
 # messaggio codificato in base64 (formato "raw" richiesto da
 # users.messages.send), non l'oggetto EmailMessage direttamente.
 def _invia_via_gmail(destinatario: str, oggetto: str, corpo_html: str):
@@ -137,10 +139,16 @@ def verifica_credenziali_gmail() -> bool:
     scheduler.
 
     Perché serve: con l'app Google OAuth ancora in stato "Testing" (vedi
-    README.md, sezione Gmail API), il refresh token scade dopo 7 giorni di
-    inattività — un problema silenzioso, perché finché nessuno controlla
-    esplicitamente lo si scopre solo quando un'email a un cliente non
-    parte. Questo controllo lo scopre PRIMA, e avvisa il coach via Discord
+    README.md, sezione Gmail API), il refresh token scade dopo 7 giorni —
+    a prescindere dall'uso che se ne fa, non dopo 7 giorni di INATTIVITÀ come
+    si era creduto a lungo. Osservato in produzione il 2026-09-02: il token è
+    scaduto pur essendo esercitato ogni giorno proprio da questo controllo e
+    dalle email di ogni prenotazione. Questo healthcheck quindi RILEVA la
+    scadenza, non la previene: l'unico rimedio che la elimina è portare la
+    schermata di consenso a "In production". È comunque un problema
+    silenzioso, perché finché nessuno controlla esplicitamente lo si
+    scoprirebbe solo quando un'email a un cliente non parte. Questo controllo
+    lo scopre PRIMA, e avvisa il coach via Discord
     (vedi invia_alert_sistema in backend/services/discord_service.py) così
     può rifare l'autorizzazione con scripts/reauth_gmail.py.
     """

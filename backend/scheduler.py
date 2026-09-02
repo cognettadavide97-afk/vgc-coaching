@@ -381,6 +381,13 @@ def avvia_scheduler():
     # alle 03:00 (niente "day_of_week": senza quel filtro un trigger cron
     # gira tutti i giorni), un momento a basso traffico in cui non ha
     # importanza se il server è momentaneamente più lento a generare gli slot.
+    #
+    # ATTENZIONE al fuso: BackgroundScheduler() è costruito senza timezone=,
+    # quindi questi orari sono quelli LOCALI DEL PROCESSO, non Europe/Rome.
+    # Su Railway il processo gira in UTC: le "03:00" qui sotto sono le 05:00
+    # italiane d'inverno e le 06:00 d'estate. In locale sono davvero le 03:00
+    # italiane. Nessun impatto pratico (restano ore a basso traffico), ma va
+    # saputo prima di leggere un log o di aspettarsi un file a un'ora precisa.
     scheduler.add_job(
         genera_slot_giornaliero,
         "cron",

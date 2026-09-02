@@ -430,7 +430,7 @@ def test_cancellazione_self_service_libera_entrambi_gli_slot(client, db):
 
 def test_cancellazione_self_service_non_espone_note_admin(client, db):
     """
-    ANALISI_2026-08-31.md, Blocco B1: note_admin è documentato come
+    ANALISI_2026-08-31.md, Area Back-end: note_admin è documentato come
     "visibile solo al coach" (STATO_PROGETTO.md) — la risposta della
     cancellazione self-service non deve includerlo, altrimenti uno
     studente che cancella una propria prenotazione su cui il coach aveva

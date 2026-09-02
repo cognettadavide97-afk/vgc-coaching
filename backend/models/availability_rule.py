@@ -33,10 +33,13 @@ class AvailabilityRule(Base):
 
     durata_slot_ore = Column(Integer, nullable=False, default=1)
 
-    # attiva permette di "disattivare" una regola senza cancellarla (utile
-    # se in futuro si volesse aggiungere un modo per sospenderla
-    # temporaneamente) — oggi nel codice non viene ancora usata per
-    # filtrare nulla, resta pronta per un eventuale sviluppo futuro.
+    # attiva permette di "disattivare" una regola senza cancellarla. È usata
+    # davvero: il job notturno genera_slot_giornaliero (backend/scheduler.py)
+    # genera slot SOLO dalle regole con attiva=True, quindi metterla a False
+    # ferma la produzione di nuovi slot senza toccare quelli già creati.
+    # Nota però che oggi nessun endpoint permette di cambiare questo campo:
+    # una regola nasce attiva (default sotto) e per sospenderla servirebbe
+    # intervenire a mano sul database.
     attiva = Column(Boolean, default=True, nullable=False)
 
     created_at = Column(DateTime, default=func.now())

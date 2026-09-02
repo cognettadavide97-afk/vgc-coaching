@@ -109,7 +109,7 @@ def test_export_csv_contiene_le_prenotazioni(client, db):
 
 def test_analytics_esclude_prenotazioni_oltre_i_12_mesi(client, db):
     """
-    ANALISI_2026-08-31.md, Blocco B2: prima del fix, servizi_piu_richiesti/
+    ANALISI_2026-08-31.md, Area Dati: prima del fix, servizi_piu_richiesti/
     tasso_no_show_percento/clienti_nuovi-ricorrenti includevano TUTTA la
     storia delle prenotazioni (nessun limite temporale), a differenza di
     sessioni_per_mese/incasso_per_mese, già limitati alla finestra —
@@ -158,7 +158,7 @@ def test_analytics_esclude_prenotazioni_oltre_i_12_mesi(client, db):
 
 def test_analytics_calcola_correttamente_le_metriche(client, db):
     """
-    ANALISI_2026-08-31.md, Blocco C3: test_analytics_esclude_prenotazioni_oltre_i_12_mesi
+    ANALISI_2026-08-31.md, Area Test: test_analytics_esclude_prenotazioni_oltre_i_12_mesi
     copre solo il confine della finestra — questo test verifica che i
     NUMERI calcolati da dati noti siano quelli giusti (tasso di no-show,
     servizio più richiesto, clienti nuovi vs ricorrenti, incasso totale).
@@ -223,7 +223,7 @@ def test_analytics_calcola_correttamente_le_metriche(client, db):
 
 def test_aggiorna_stato_prenotazione(client, db):
     """
-    ANALISI_2026-08-31.md, Blocco D4: nuovo_stato viaggiava come query
+    ANALISI_2026-08-31.md, Area Back-end: nuovo_stato viaggiava come query
     param, ora nel body JSON (BookingStatoUpdate) — questa rotta non
     aveva nessuna copertura prima di questo cambio di contratto.
     """
@@ -277,7 +277,7 @@ def test_aggiorna_stato_rifiuta_valore_non_valido(client, db):
 
 
 def test_aggiorna_note_prenotazione(client, db):
-    """ANALISI_2026-08-31.md, Blocco D4: note viaggiava come query param, ora nel body JSON (BookingNoteUpdate)."""
+    """ANALISI_2026-08-31.md, Area Sicurezza: note viaggiava come query param, ora nel body JSON (BookingNoteUpdate)."""
     utente = crea_utente(client)
     slot = Slot(start_time=INIZIO, duration_hours=1, is_available=True)
     db.add(slot)

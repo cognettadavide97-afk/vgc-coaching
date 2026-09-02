@@ -119,7 +119,7 @@ def analytics(
     # convertito in UTC naive (stesso formato di Slot.start_time) — tutte
     # le statistiche qui sotto (non solo sessioni/incasso per mese) sono
     # calcolate SOLO su questa finestra, non sull'intera storia:
-    # ANALISI_2026-08-31.md (Blocco B2) segnalava che senza questo filtro
+    # ANALISI_2026-08-31.md (Area Dati) segnalava che senza questo filtro
     # la query scaricava in RAM tutte le prenotazioni di sempre, con un
     # costo che cresce senza limite mano a mano che lo storico si allunga.
     anno_inizio, mese_inizio = chiavi_mesi[0]

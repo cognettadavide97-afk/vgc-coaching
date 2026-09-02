@@ -20,7 +20,7 @@ router = APIRouter()
 # prenotazioni singole): l'admin lo assegna qui SOLO dopo aver ricevuto il
 # pagamento privatamente (es. su Discord), scegliendo uno dei 3 tipi fissi
 # del catalogo (backend/services/package_service.py). Da quel momento il
-# cliente vede il pacchetto attivo sul form pubblico (GET /pacchetti/attivi
+# cliente vede il pacchetto attivo sul form pubblico (GET /users/pacchetti-attivi
 # in backend/routers/users.py) e può spenderne le sessioni prenotando slot.
 @router.get("/pacchetti", response_model=List[PackageResponse])
 def lista_pacchetti(
