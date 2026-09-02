@@ -8,6 +8,7 @@
 
 import os
 import logging
+from contextlib import asynccontextmanager
 
 # Configurazione UNICA del logging per tutto il progetto: va fatta qui,
 # prima di importare qualunque altro modulo del progetto (i router, i
@@ -159,16 +160,52 @@ def run_migrations():
         )
 
 
-# Questa chiamata avviene SUBITO, appena il file viene importato — prima
-# ancora che l'app esista. È voluto: vogliamo che il database sia aggiornato
-# prima che qualunque richiesta possa arrivare.
-run_migrations()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Il "ciclo di vita" dell'applicazione: FastAPI esegue il codice PRIMA dello
+    yield quando il server parte davvero, e quello DOPO lo yield quando si
+    ferma. È il posto giusto per tutto ciò che deve accadere una volta sola
+    all'avvio — qui: allineare il database e far partire i job periodici.
+
+    ATTENZIONE, il motivo per cui queste due chiamate stanno QUI e non più a
+    livello di modulo (dove erano prima — vedi REVISIONE_2026-09-01.md,
+    ritrovamenti R1 e R17). Scritte fuori da questa funzione venivano eseguite
+    al solo "import backend.main", cioè anche quando a importare l'app non era
+    un server ma i test: tests/conftest.py fa esattamente quell'import per
+    ottenere l'oggetto "app" da testare. Il risultato era che lanciare pytest
+    su una macchina con un .env popolato applicava le migrazioni Alembic al
+    database di SVILUPPO VERO, tentava un backup su Google Drive e, se
+    qualcosa falliva, mandava un alert Discord autentico al canale del coach —
+    più un thread APScheduler vivo per tutta la durata della suite, con job
+    che usano il SessionLocal reale invece di quello dei test.
+
+    Con lifespan la differenza è netta: importare il modulo non fa più nulla,
+    avviare un server fa tutto. TestClient, se non usato come context manager
+    (come in conftest.py), non innesca il lifespan — che è precisamente il
+    comportamento voluto.
+    """
+    # Le migrazioni restano la primissima cosa: vogliamo che il database sia
+    # aggiornato prima che qualunque richiesta possa arrivare.
+    run_migrations()
+    scheduler = avvia_scheduler()
+
+    yield
+
+    # Alla chiusura del server fermiamo lo scheduler in modo ordinato, invece
+    # di lasciarlo morire insieme al processo: è ciò che rende "simmetrico" il
+    # lifespan, e prima non era possibile perché nessuno teneva il riferimento
+    # restituito da avvia_scheduler().
+    scheduler.shutdown()
+
 
 # Questa riga crea l'applicazione vera e propria. "app" è l'oggetto che
 # uvicorn userà per rispondere a ogni richiesta HTTP in arrivo — è il "cuore"
 # di FastAPI. title e version servono solo per la documentazione automatica
 # che FastAPI genera da solo (visitabile su /docs quando il server è attivo).
-app = FastAPI(title="VGC Coaching API", version="1.0")
+# lifespan collega la funzione qui sopra: FastAPI la chiamerà da sola quando
+# il server parte e quando si ferma.
+app = FastAPI(title="VGC Coaching API", version="1.0", lifespan=lifespan)
 
 # Queste tre righe collegano il rate limiter all'app:
 # - app.state.limiter salva l'oggetto limiter dove FastAPI/slowapi se lo aspettano
@@ -213,10 +250,11 @@ app.include_router(discord_auth.router)
 app.include_router(consulenza.router)
 app.include_router(pacchetti_richieste.router)
 
-# Avvia il job in background che controlla periodicamente se ci sono
-# promemoria da inviare (vedi backend/scheduler.py). Da qui in poi gira per
-# conto suo, senza bisogno che nessuno lo richiami.
-avvia_scheduler()
+# Nota: lo scheduler NON viene avviato qui. Gli 8 job periodici (promemoria,
+# richieste di recensione, sync calendario, generazione slot, controllo del
+# token Gmail, retention GDPR, pulizia slot, backup del database — vedi
+# backend/scheduler.py) partono dall'handler lifespan definito più sopra,
+# insieme alle migrazioni.
 
 # Da questa riga in poi, qualunque file dentro la cartella "frontend/" è
 # raggiungibile dal browser con il prefisso /static/... — per esempio
