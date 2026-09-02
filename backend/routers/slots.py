@@ -34,22 +34,13 @@ def get_slots(db: Session = Depends(get_db)):
     return slots
 
 
-@router.get("/{slot_id}", response_model=SlotResponse)
-def get_slot(slot_id: int, db: Session = Depends(get_db)):
-    # "{slot_id}" nel percorso dell'endpoint è un "path parameter": la
-    # parte variabile dell'URL (es. /slots/42) diventa automaticamente il
-    # parametro slot_id della funzione, già convertito al tipo giusto (int)
-    # — se qualcuno chiamasse /slots/abc, FastAPI rifiuterebbe la richiesta
-    # da solo, prima ancora di eseguire questa funzione.
-    slot = db.query(Slot).filter(Slot.id == slot_id).first()
-    if not slot:
-        # HTTPException è come si comunica un errore HTTP da un endpoint
-        # FastAPI: status_code è il codice standard (404 = "non trovato"),
-        # detail è il messaggio che il client riceverà nel corpo della
-        # risposta. Sollevarla (raise) interrompe subito l'esecuzione della
-        # funzione, la riga "return slot" più sotto non verrebbe mai raggiunta.
-        raise HTTPException(status_code=404, detail="Slot not found")
-    return slot
+# Qui esisteva un GET /slots/{slot_id} pubblico che restituiva QUALUNQUE slot
+# per id — anche già prenotato, bloccato o passato — a differenza della lista
+# qui sopra, che filtra. Rimosso: nessuna pagina del frontend lo chiamava
+# (frontend/js/admin.js:1144 chiama DELETE /admin/slots/{id}, che è un altro
+# endpoint) e l'unico test che lo copriva è stato tolto insieme a lui. Toglie
+# un'asimmetria mai documentata rispetto alla lista e un po' di superficie
+# pubblica. Vedi REVISIONE_2026-09-01.md, ritrovamento R12.
 
 
 # Qui invece admin: str = Depends(get_admin) protegge l'endpoint: solo il

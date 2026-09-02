@@ -24,15 +24,10 @@ def test_get_slots_mostra_solo_slot_futuri_e_disponibili(client, db):
     assert ids == [futuro_libero.id]
 
 
-def test_get_slot_singolo(client, db):
-    slot = crea_slot(db, INIZIO)
-
-    trovato = client.get(f"/slots/{slot.id}")
-    assert trovato.status_code == 200
-    assert trovato.json()["id"] == slot.id
-
-    non_trovato = client.get("/slots/9999")
-    assert non_trovato.status_code == 404
+# Qui c'era test_get_slot_singolo, che copriva GET /slots/{slot_id}. È stato
+# rimosso insieme all'endpoint (vedi REVISIONE_2026-09-01.md, ritrovamento
+# R12): non un test aggiustato per farlo passare, ma un test di una
+# funzionalità deliberatamente eliminata.
 
 
 def test_create_slot_richiede_admin(client, db):
