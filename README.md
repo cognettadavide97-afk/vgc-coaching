@@ -18,26 +18,26 @@ Il progetto è quindi diviso in due "facce" della stessa applicazione: una pubbl
 Prima di guardare i singoli file, è importante capire l'architettura generale — cioè come le parti si parlano tra loro.
 
 ```
-                    ┌─────────────────────────────────────┐
-                    │         IL TUO BROWSER               │
-                    │  (dove vedi le pagine web)            │
-                    └───────────────┬───────────────────────┘
-                                    │  richieste HTTP (fetch)
-                                    ▼
-                    ┌─────────────────────────────────────┐
-                    │      backend/main.py (FastAPI)        │
-                    │  Un unico programma Python che:       │
-                    │  1. Serve le pagine HTML/CSS/JS        │
-                    │  2. Risponde alle chiamate API          │
-                    └───────────────┬───────────────────────┘
-                                    │
-              ┌─────────────────────┼─────────────────────┐
-              ▼                     ▼                     ▼
-      ┌───────────────┐   ┌────────────────┐    ┌──────────────────┐
-      │  Database MySQL │   │ Servizi esterni │    │  Scheduler         │
-      │  (dati salvati) │   │ Email, Google,  │    │  (promemoria       │
-      │                 │   │ Discord         │    │  automatici)       │
-      └─────────────────┘   └────────────────┘    └──────────────────┘
+                 ┌───────────────────────────────────────┐
+                 │            IL TUO BROWSER             │
+                 │       (dove vedi le pagine web)       │
+                 └───────────────────┬───────────────────┘
+                                     │  richieste HTTP (fetch)
+                                     ▼
+                 ┌───────────────────────────────────────┐
+                 │       backend/main.py (FastAPI)       │
+                 │  Un unico programma Python che:       │
+                 │  1. Serve le pagine HTML/CSS/JS       │
+                 │  2. Risponde alle chiamate API        │
+                 └───────────────────┬───────────────────┘
+                                     │
+             ┌───────────────────────┼───────────────────────┐
+             ▼                       ▼                       ▼
+   ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
+   │  Database MySQL  │    │ Servizi esterni  │    │    Scheduler     │
+   │  (dati salvati)  │    │  Email, Google,  │    │   (promemoria    │
+   │                  │    │     Discord      │    │   automatici)    │
+   └──────────────────┘    └──────────────────┘    └──────────────────┘
 ```
 
 Questa è una scelta architetturale importante da notare: **non ci sono due programmi separati** (uno per il sito, uno per l'API). C'è un solo processo Python (`uvicorn` che esegue `backend/main.py`) che fa entrambe le cose. Questo si chiama "monolite" — è la scelta più semplice possibile per un progetto di queste dimensioni, e infatti non c'è nessun framework frontend (React, Vue...): solo HTML/CSS/JavaScript scritti a mano, che nel browser chiamano l'API con `fetch()`.
@@ -51,6 +51,8 @@ Questa è una scelta architetturale importante da notare: **non ci sono due prog
 | File | A cosa serve |
 |---|---|
 | `requirements.txt` | La lista di tutte le librerie Python di cui il progetto ha bisogno (l'equivalente di una "lista della spesa" per `pip install`). |
+| `requirements-dev.txt` | Le librerie che servono solo per sviluppare e testare (pytest, httpx, pytest-cov). Include già `requirements.txt`, quindi ne basta uno per avere tutto. |
+| `pytest.ini` | Configurazione della suite di test: dove stanno i test (`tests/`), come rendere importabile il package `backend`, e i flag di coverage attivi di default. |
 | `alembic.ini` | File di configurazione dello strumento che gestisce le "migrazioni" del database (vedi sotto, cartella `alembic/`). |
 | `.env` / `.env.example` | `.env` contiene le password e chiavi segrete reali (password del database, API key...) e **non va mai condiviso o messo su GitHub**. `.env.example` è la stessa lista ma con valori finti, serve da modello. |
 | `nixpacks.toml` | Dice al servizio di hosting (Railway) come costruire ed eseguire l'app quando la mandiamo online. |
@@ -62,7 +64,7 @@ Questa cartella contiene tutto il codice server. È organizzata in sotto-cartell
 
 #### File diretti in `backend/`
 
-- **`main.py`** — Il punto di ingresso di tutto il programma. Quando lanci `uvicorn backend.main:app`, è questo file che viene eseguito per primo. Crea l'oggetto `app` di FastAPI, ci "attacca" tutti i router (le famiglie di indirizzi web), configura la sicurezza di base (CORS, rate limiting), avvia lo scheduler dei promemoria, ed esegue le migrazioni del database a ogni avvio.
+- **`main.py`** — Il punto di ingresso di tutto il programma. Quando lanci `uvicorn backend.main:app`, è questo file che viene eseguito per primo. Configura il logging per tutto il progetto (livello da `LOG_LEVEL`), crea l'oggetto `app` di FastAPI, ci "attacca" tutti i router (le famiglie di indirizzi web), configura la sicurezza di base (CORS, rate limiting), e monta la cartella `frontend/` come file statici. Definisce anche i pochi indirizzi che restituiscono direttamente una pagina HTML (`/`, `/about`, `/privacy`, `/admin-panel`) e l'endpoint `/health` per il monitoraggio esterno. Migrazioni del database e scheduler partono invece dall'handler `lifespan`, cioè solo all'avvio di un server vero — vedi "Flusso di esecuzione" più sotto.
 - **`database.py`** — Configura la connessione al database MySQL. Definisce `Base` (la classe da cui ereditano tutti i "model", vedi sotto) e `get_db()`, una funzione che ogni pezzo di codice usa per ottenere una connessione al database in modo sicuro (e che la chiude sempre, anche in caso di errore).
 - **`rate_limit.py`** — Un file piccolissimo che crea un solo oggetto (`limiter`), usato per impedire che qualcuno mandi troppe richieste di fila allo stesso indirizzo (protezione anti-abuso).
 - **`scheduler.py`** — Gli **8 lavori automatici in background** che girano senza che nessuno li chieda: promemoria pre-sessione, richieste di recensione, sync col Google Calendar, generazione notturna degli slot dalle regole ricorrenti, controllo del token Gmail, anonimizzazione GDPR dei clienti inattivi, pulizia degli slot passati, backup del database su Drive. Partono all'avvio del server, non all'import del modulo (vedi `lifespan` in `main.py`).
@@ -89,7 +91,7 @@ Qui la libreria protagonista è **Pydantic**, non SQLAlchemy. È facile confonde
 
 Non sono la stessa cosa: per esempio, quando crei una prenotazione mandi `duration_hours` e `service_type`, ma non mandi `price_cents` (lo calcola il server) o `id` (lo assegna il database). Gli schemi Pydantic validano automaticamente i dati in arrivo (es. rifiutano una email scritta male) prima ancora che il tuo codice li tocchi.
 
-- `users.py`, `slots.py`, `booking.py`, `client_note.py`, `availability.py`, `package.py`, `review.py`, `consulenza.py`, `pacchetto_richiesta.py` — uno schema `...Create` (cosa serve per creare) e uno `...Response` (cosa viene restituito) per ciascuna area.
+- `users.py`, `slots.py`, `booking.py`, `client_note.py`, `availability.py`, `package.py`, `review.py`, `consulenza.py`, `pacchetto_richiesta.py` — di norma uno schema `...Create` (cosa serve per creare) e uno `...Response` (cosa viene restituito) per ciascuna area, ma non è una regola rigida: si segue quello che l'API fa davvero. `consulenza.py` e `pacchetto_richiesta.py` hanno solo il `...Create` (quegli endpoint restituiscono un messaggio fisso, non un oggetto); `booking.py` ne ha cinque, perché servono forme diverse per il cambio di stato, per le note e per la vista ridotta dello studente; `users.py` ha due Response distinti, uno completo per il profilo dello studente loggato e uno con il solo `id` per la creazione pubblica.
 
 #### `backend/services/` — la logica riutilizzabile
 
@@ -100,7 +102,7 @@ Ogni file qui incapsula la logica per **parlare con qualcosa di esterno o fare u
 - `calendar_service.py` — parla con le API di Google Calendar: crea/elimina eventi, legge gli eventi esistenti per la sincronizzazione.
 - `discord_service.py` — invia messaggi al canale Discord del coach tramite un "webhook" (un URL segreto su cui puoi mandare messaggi senza dover programmare un vero bot).
 - `timezone_service.py` — le conversioni e i confronti di orario condivisi da tutto il progetto: `utc_to_rome()` (UTC → ora italiana, per la visualizzazione), `formatta_data_ora_rome()`, `ora_utc_naive()` ("adesso" nella stessa forma salvata nel database) e `intervalli_si_sovrappongono()`.
-- `availability_service.py` — la logica per generare gli slot da una regola ricorrente e per applicare un blocco eccezionale.
+- `availability_service.py` — tutto ciò che riguarda la disponibilità del calendario: generare gli slot da una regola ricorrente, applicare un blocco eccezionale, controllare che un nuovo slot non si sovrapponga a uno esistente, ed eliminare gli slot passati e mai prenotati.
 - `retention_service.py` — anonimizza i clienti inattivi da troppo tempo (GDPR).
 - `backup_service.py` — genera il dump SQL del database e lo carica su Google Drive.
 - `google_oauth_service.py` — le credenziali OAuth condivise da Gmail e Drive, tenute in cache.
@@ -112,10 +114,10 @@ Ogni file qui incapsula la logica per **parlare con qualcosa di esterno o fare u
 
 Ogni file definisce un gruppo di indirizzi web (endpoint) collegati tra loro da un prefisso comune. Se hai mai usato un sito e visto un indirizzo tipo `sito.com/utenti/5`, un router è il codice che decide "cosa succede quando qualcuno visita questo indirizzo".
 
-- `users.py` → indirizzi che iniziano con `/users` (creare un utente, vedere il proprio profilo se loggato...).
-- `slots.py` → indirizzi che iniziano con `/slots` (vedere gli slot liberi, crearne uno nuovo da admin).
-- `booking.py` → indirizzi che iniziano con `/bookings` (creare una prenotazione — il cuore dell'app).
-- `admin/` → indirizzi che iniziano con `/admin` (login, dashboard, gestione prenotazioni/clienti/slot/regole/blocchi/recensioni/pacchetti). È un package, non un singolo file: `__init__.py` gestisce l'autenticazione (`get_admin`, `/login`) e assembla i sotto-router (`dashboard.py`, `bookings.py`, `clients.py`, `availability.py`, `packages.py`, `reviews.py`), separati per area così nessun file diventa enorme.
+- `users.py` → indirizzi che iniziano con `/users`: creare (o ritrovare) un utente dall'email, e — solo per chi è loggato via Discord — il proprio profilo, lo storico delle proprie prenotazioni e i propri pacchetti con crediti residui. Qui vivono anche le due dependency `get_studente_opzionale`/`get_studente`, riusate dagli altri router per riconoscere lo studente dal cookie di sessione.
+- `slots.py` → indirizzi che iniziano con `/slots`: la lista pubblica degli slot liberi e futuri, e la creazione di un singolo slot riservata all'admin.
+- `booking.py` → indirizzi che iniziano con `/bookings`: creare una prenotazione (il cuore dell'app), cancellarne una propria da studente loggato, la vetrina pubblica delle recensioni approvate, e la recensione lasciata dal link ricevuto via email.
+- `admin/` → indirizzi che iniziano con `/admin` (login, dashboard, analytics, gestione prenotazioni/clienti/slot/regole/blocchi/recensioni/pacchetti, export CSV). È un package, non un singolo file: `__init__.py` gestisce l'autenticazione (`get_admin`, `/login`) e assembla i sotto-router (`dashboard.py`, `bookings.py`, `clients.py`, `availability.py`, `packages.py`, `reviews.py`), separati per area così nessun file diventa enorme.
 - `discord_auth.py` → indirizzi che iniziano con `/auth/discord` (il flusso di login opzionale via Discord).
 - `consulenza.py` → `/consulenze` (richiesta di call conoscitiva gratuita: non crea slot né prenotazioni, manda solo i contatti al coach).
 - `pacchetti_richieste.py` → `/pacchetti-richieste` (richiesta di attivazione pacchetto: anche qui solo un contatto, il pacchetto vero lo assegna l'admin dopo il pagamento).
@@ -124,15 +126,32 @@ Ogni file definisce un gruppo di indirizzi web (endpoint) collegati tra loro da 
 
 Alembic è uno strumento che tiene traccia di come cambia la struttura del database nel tempo (aggiungere una colonna, creare una tabella...), un po' come Git tiene traccia di come cambia il codice. Ogni file dentro `alembic/versions/` è un singolo cambiamento, con un `upgrade()` (come applicarlo) e un `downgrade()` (come annullarlo). `alembic/env.py` è il file di configurazione che collega Alembic ai tuoi model SQLAlchemy.
 
+### `scripts/` — utilità da riga di comando
+
+Non fanno parte dell'app che gira in produzione: si lanciano a mano, una tantum, quando serve.
+
+- `hash_admin_password.py` — chiede la password admin in modo interattivo (senza mostrarla a schermo) e ne stampa l'hash bcrypt da mettere in `ADMIN_PASSWORD_HASH`.
+- `reauth_gmail.py` / `reauth_drive.py` — rifanno l'autorizzazione OAuth2 con Google e ottengono un nuovo `GMAIL_REFRESH_TOKEN` / `DRIVE_REFRESH_TOKEN` (vedi "Configurazione dei servizi esterni").
+- `_env_utils.py` — il pezzo condiviso da tutti e tre gli script sopra: ognuno, alla fine, offre di scrivere subito il valore ottenuto nel `.env` locale, sostituendo la riga esistente o aggiungendola in fondo senza rovinare il resto del file.
+
+### `tests/` — la suite di test automatici
+
+14 file di test (83 test in tutto) che girano con `pytest`. `conftest.py` è il file di configurazione condiviso: sostituisce il database MySQL con uno SQLite in memoria e finge le integrazioni esterne (email, Calendar, Discord), così la suite gira ovunque — anche in CI — senza toccare nessun servizio vero.
+
+### `.github/` — l'automazione su GitHub
+
+`workflows/tests.yml` esegue `pytest` a ogni push e a ogni pull request, sulla stessa versione di Python usata in produzione.
+
 ### `frontend/` — quello che vede l'utente (HTML/CSS/JavaScript)
 
 Nessun framework: HTML, CSS e JavaScript "vanilla" (cioè scritti a mano, senza librerie come React). Le pagine sono cinque, di cui due principali e completamente separate:
 
-- `index.html` + `js/app.js` + `css/style.css` → il form pubblico di prenotazione (3 step: scegli slot → i tuoi dati → conferma), più il login opzionale via Discord.
+- `index.html` + `js/app.js` + `css/style.css` → la pagina pubblica principale. Contiene il wizard di prenotazione in 3 step (scegli slot → i tuoi dati → conferma), il login opzionale via Discord (con storico prenotazioni e cancellazione self-service per chi è loggato), il form di richiesta della call conoscitiva gratuita, e la vetrina dei tre pacchetti con il relativo form di richiesta.
 - `admin.html` + `js/admin.js` + `css/admin.css` → il pannello di amministrazione (dashboard, prenotazioni, clienti, slot, pacchetti, recensioni).
 - `about.html` + `js/about.js` → la pagina "Meet the Coach", con la vetrina delle recensioni approvate.
 - `privacy.html` → l'informativa privacy/GDPR.
 - `recensione.html` + `js/recensione.js` → la pagina pubblica raggiunta dal link ricevuto via email dopo la sessione, per lasciare voto e commento.
+- `js/i18n.js` → le traduzioni italiano/inglese, condivise da `index.html`, `about.html` e `privacy.html`. Nessuna libreria di i18n: ogni testo statico nell'HTML porta un attributo `data-i18n="chiave"`, e questo file lo sostituisce con la voce corrispondente del dizionario `TRANSLATIONS`; i testi generati a runtime da `app.js` chiamano invece la funzione `t("chiave")`. La lingua di partenza è quella del browser (italiano se `navigator.language` inizia per `it`, altrimenti inglese) e la scelta dell'utente resta salvata in `localStorage`. Il pannello admin non lo usa: essendo per il solo coach, resta in italiano.
 
 Il JavaScript in questi file usa `fetch()` per chiamare gli indirizzi definiti nei router del backend, riceve JSON, e aggiorna la pagina modificando l'HTML direttamente (`document.getElementById(...).innerHTML = ...`) — senza nessun framework che lo faccia al posto tuo.
 
@@ -144,15 +163,22 @@ Il JavaScript in questi file usa `fetch()` per chiamare gli indirizzi definiti n
 
 Quando lanci `uvicorn backend.main:app`, succede questo, in ordine:
 
-1. Python importa `backend/main.py`.
-2. Crea l'oggetto `app = FastAPI(..., lifespan=lifespan)`. Il semplice import **non** esegue migrazioni né avvia lo scheduler: succede tutto all'avvio del server vero, dentro l'handler `lifespan` (vedi il punto 6).
-3. All'avvio, `lifespan` chiama `run_migrations()` — applica automaticamente ogni cambiamento del database non ancora applicato (leggendo `alembic/versions/`).
-4. Registra le protezioni di base: rate limiting (`slowapi`) e CORS (chi può chiamare l'API da un browser).
-5. "Monta" ogni router (`app.include_router(...)`) — da questo momento gli indirizzi definiti in `backend/routers/*.py` sono raggiungibili.
-6. Sempre da `lifespan`, avvia lo scheduler in background (`avvia_scheduler()`) con i suoi 8 job periodici, e alla chiusura del server lo ferma.
-7. Monta la cartella `frontend/` come file statici, così il browser può scaricare HTML/CSS/JS.
+**Prima fase — l'import del modulo.** Succede appena Python legge il file, riga per riga dall'alto verso il basso:
+
+1. Configura il logging per tutto il progetto (`logging.basicConfig`), prima ancora di importare gli altri moduli del backend — così ogni logger che nascerà dopo eredita lo stesso formato e lo stesso livello.
+2. Crea l'oggetto `app = FastAPI(..., lifespan=lifespan)`.
+3. Registra le protezioni di base: rate limiting (`slowapi`) e CORS (chi può chiamare l'API da un browser).
+4. "Monta" ogni router (`app.include_router(...)`) — da questo momento gli indirizzi definiti in `backend/routers/*.py` sono raggiungibili.
+5. Monta la cartella `frontend/` come file statici, così il browser può scaricare HTML/CSS/JS, e definisce gli endpoint che restituiscono direttamente una pagina (`/`, `/about`, `/privacy`, `/admin-panel`) più `/health`.
+
+**Seconda fase — l'avvio del server vero.** Solo ora FastAPI esegue l'handler `lifespan`:
+
+6. `run_migrations()` — applica automaticamente ogni cambiamento del database non ancora applicato (leggendo `alembic/versions/`), dopo aver tentato un backup di sicurezza se ce n'è almeno una in sospeso.
+7. `avvia_scheduler()` — fa partire lo scheduler in background con i suoi 8 job periodici. Alla chiusura del server, il codice dopo lo `yield` lo ferma in modo ordinato.
 
 Da qui in poi il programma resta "in ascolto", pronto a rispondere a richieste.
+
+La divisione in due fasi non è un dettaglio: è ciò che rende innocuo `import backend.main` fuori da un server. I test importano l'app esattamente così (`tests/conftest.py`) — se migrazioni e scheduler stessero a livello di modulo, lanciare `pytest` su una macchina con un `.env` popolato migrerebbe il database di sviluppo vero e farebbe partire job in background durante la suite.
 
 ### 2. Esempio concreto: uno studente prenota una sessione
 
@@ -163,7 +189,7 @@ Questo è il percorso più importante da capire, perché attraversa quasi tutti 
 3. Questa richiesta arriva a **`backend/routers/slots.py`**, alla funzione collegata a `GET /slots/`. Quella funzione chiede al database (tramite il model `Slot` in `backend/models/slots.py`) tutti gli slot ancora liberi (`is_available=True`) **e non ancora passati**, e li restituisce come JSON (passando per lo schema `SlotResponse` in `backend/schemas/slots.py`, che decide esattamente quali campi includere).
 4. `app.js` riceve il JSON e disegna una card per ogni slot nella pagina.
 5. Lo studente sceglie uno slot, compila i suoi dati, clicca "Conferma". `app.js` fa due chiamate in sequenza: `POST /users/` (crea o ritrova l'utente in base all'email) e poi `POST /bookings/`.
-6. La seconda chiamata arriva a **`backend/routers/booking.py`**. Qui succede la parte più "densa" del progetto: si controlla che lo slot esista e non sia già occupato (con un trucco per evitare che due persone prenotino lo stesso slot nello stesso istante — vedi i commenti nel file), si crea l'evento su Google Calendar (`calendar_service.py`), si salva la prenotazione nel database (model `Booking`), e si mandano tre notifiche **una dopo l'altra, dopo** che la prenotazione è già salvata: email al cliente, email al coach (`email_service.py`), messaggio Discord (`discord_service.py`). Se una di queste fallisce, la prenotazione resta valida lo stesso.
+6. La seconda chiamata arriva a **`backend/routers/booking.py`**. Qui succede la parte più "densa" del progetto: si controlla che lo slot esista, non sia già passato e non sia già occupato (con un trucco per evitare che due persone prenotino lo stesso slot nello stesso istante — vedi i commenti nel file); se la sessione è da 2 ore si "unisce" allo slot dell'ora successiva, perché il calendario genera solo slot da 1 ora (e allora l'orario di inizio può essere solo le 15:00 o le 17:00); si verifica che il cliente non abbia già raggiunto il limite di 2 prenotazioni attive; si crea l'evento su Google Calendar (`calendar_service.py`); si salva la prenotazione nel database (model `Booking`); e infine si mandano tre notifiche **una dopo l'altra, dopo** che la prenotazione è già salvata: email al cliente, email al coach (`email_service.py`), messaggio Discord (`discord_service.py`). Se una di queste fallisce, la prenotazione resta valida lo stesso.
 7. La risposta torna al browser, `app.js` mostra la schermata di conferma.
 8. **Più tardi, in background**: lo `scheduler.py` (avviato al punto 6 dell'avvio) controlla periodicamente se questa prenotazione si avvicina, e se sì manda un promemoria — senza che nessuno debba fare nulla.
 
@@ -224,33 +250,35 @@ uvicorn backend.main:app --reload --port 8000
 
 ## Variabili d'ambiente
 
+Nella colonna "Obbligatoria", `Sì` senza altro vuol dire che l'app non funziona senza; `Sì, per X` vuol dire che serve solo se vuoi quella funzione (senza, la funzione resta spenta ma il resto dell'app gira); `No` vuol dire che c'è già un default ragionevole nel codice.
+
 | Variabile | Obbligatoria | Descrizione |
 |---|---|---|
 | `DATABASE_URL` | Sì | Stringa di connessione MySQL (`mysql+pymysql://utente:password@host/db`). L'app non parte senza. |
 | `FRONTEND_ORIGINS` | No | Origini autorizzate via CORS, separate da virgola. Devono includere lo schema (`https://...`): un hostname nudo non combacia mai con l'header `Origin` del browser. Default locale già coperto nel codice. |
 | `LOG_LEVEL` | No | Livello minimo dei messaggi di log (default `INFO`). Portalo a `DEBUG` solo per un'indagine. |
-| `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN` | Sì (per le email) | Credenziali OAuth2 per inviare email tramite l'API Gmail (SMTP diretto è bloccato su Railway). |
-| `EMAIL_MITTENTE` | Sì (per le email) | Indirizzo email mittente di tutte le comunicazioni. |
-| `EMAIL_ADMIN` | Sì (per le email) | Indirizzo email del coach, riceve le notifiche di nuova prenotazione. |
+| `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN` | Sì, per le email | Credenziali OAuth2 per inviare email tramite l'API Gmail (SMTP diretto è bloccato su Railway). |
+| `EMAIL_MITTENTE` | Sì, per le email | Indirizzo email mittente di tutte le comunicazioni. |
+| `EMAIL_ADMIN` | Sì, per le email | Indirizzo email del coach, riceve le notifiche di nuova prenotazione. |
 | `COACH_DISCORD_TAG` | No | Tag Discord del coach, mostrato nell'email di conferma al cliente. |
 | `COACH_TELEGRAM_CONTACT` | No | Contatto Telegram del coach, mostrato nell'email di conferma al cliente. |
 | `DISCORD_WEBHOOK_URL` | No | Webhook del canale Discord del coach, per le notifiche. |
-| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | No (per il login Discord) | Credenziali dell'app OAuth2 Discord. Senza, il bottone "Accedi con Discord" non può portare a un login riuscito. |
-| `DISCORD_OAUTH_REDIRECT_URI` | No (per il login Discord) | URL di callback OAuth2. In produzione **deve** iniziare con `https://`: da questo l'app deduce di essere in produzione e marca `Secure` i cookie di sessione (Railway termina l'HTTPS a monte, quindi non è deducibile dalla richiesta). Deve inoltre coincidere carattere per carattere con il redirect URI configurato sul Discord Developer Portal. |
+| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | Sì, per il login Discord | Credenziali dell'app OAuth2 Discord. Senza, il bottone "Accedi con Discord" non può portare a un login riuscito. |
+| `DISCORD_OAUTH_REDIRECT_URI` | Sì, per il login Discord | URL di callback OAuth2. In produzione **deve** iniziare con `https://`: da questo l'app deduce di essere in produzione e marca `Secure` i cookie di sessione (Railway termina l'HTTPS a monte, quindi non è deducibile dalla richiesta). Deve inoltre coincidere carattere per carattere con il redirect URI configurato sul Discord Developer Portal. |
 | `ADMIN_USERNAME` | Sì | Username per accedere al pannello admin. |
 | `ADMIN_PASSWORD_HASH` | Sì | Hash bcrypt della password admin — **non la password in chiaro**. Genera l'hash con `python scripts/hash_admin_password.py` (chiede la password interattivamente, non va mai scritta come argomento da riga di comando o salvata in chiaro). |
 | `JWT_SECRET` | Sì | Chiave di firma dei token JWT (admin e studenti). |
 | `JWT_ALGORITHM` | No | Algoritmo di firma JWT (default `HS256`). |
 | `JWT_EXPIRE_MINUTES` | No | Durata di validità dei token in minuti (default `480`). |
-| `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_PRIVATE_KEY` / `GOOGLE_CALENDAR_ID` | No (per Google Calendar) | Credenziali del service account Google. |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_PRIVATE_KEY` / `GOOGLE_CALENDAR_ID` | Sì, per Google Calendar | Credenziali del service account Google. |
 | `REMINDER_HOURS_BEFORE` | No | Quante ore prima della sessione inviare il promemoria (default `24`). |
 | `REMINDER_CHECK_INTERVAL_MINUTES` | No | Ogni quanti minuti lo scheduler controlla i promemoria da inviare (default `5`). |
 | `PUBLIC_BASE_URL` | No | Dominio pubblico usato per costruire link assoluti nelle email (es. il link di recensione post-sessione). Se assente, si usa la prima origine di `FRONTEND_ORIGINS`. |
 | `REVIEW_CHECK_INTERVAL_MINUTES` | No | Ogni quanti minuti lo scheduler controlla se ci sono richieste di recensione da inviare (default `60`). |
 | `CALENDAR_SYNC_INTERVAL_MINUTES` | No | Ogni quanti minuti lo scheduler sincronizza automaticamente gli slot col calendario Google, oltre al bottone manuale in admin (default `60`). |
 | `GMAIL_HEALTHCHECK_INTERVAL_HOURS` | No | Ogni quante ore lo scheduler controlla che `GMAIL_REFRESH_TOKEN` sia ancora valido, avvisando su Discord se smette di funzionare (default `24`). Vedi la sezione "Gmail API" più sotto. |
-| `DRIVE_REFRESH_TOKEN` | No (per il backup automatico) | Token OAuth2 per caricare i dump del database su Google Drive. Vedi la sezione "Google Drive (backup automatico database)" più sotto. |
-| `GOOGLE_DRIVE_BACKUP_FOLDER_ID` | No (per il backup automatico) | ID della cartella Drive di destinazione dei backup. |
+| `DRIVE_REFRESH_TOKEN` | Sì, per il backup automatico | Token OAuth2 per caricare i dump del database su Google Drive. Vedi la sezione "Google Drive (backup automatico database)" più sotto. |
+| `GOOGLE_DRIVE_BACKUP_FOLDER_ID` | Sì, per il backup automatico | ID della cartella Drive di destinazione dei backup. |
 | `BACKUP_RETENTION_DAYS` | No | Dopo quanti giorni un backup viene eliminato automaticamente da Drive (default `30`). |
 | `RETENTION_MONTHS` | No | Dopo quanti mesi di inattività un cliente viene anonimizzato automaticamente, per conformità GDPR (default `24`). Vedi sezione "Conformità GDPR" più sotto. |
 
@@ -263,8 +291,8 @@ uvicorn backend.main:app --reload --port 8000
 | `python -m alembic downgrade -1` | Annulla l'ultima migrazione |
 | `python -m alembic revision -m "descrizione"` | Crea una nuova migrazione vuota (da scrivere a mano) |
 | `pip install -r requirements.txt` | Installa/aggiorna le dipendenze |
-| `pip install -r requirements-dev.txt` | Installa anche le dipendenze di test (pytest, httpx) |
-| `pytest` | Esegue la suite di test automatici (`tests/`) — usa un database SQLite in memoria e non tocca il MySQL di sviluppo o produzione. Migrazioni e scheduler partono solo all'avvio di un server vero (handler `lifespan` in `backend/main.py`), mai al semplice import: è ciò che rende innocuo lanciare la suite con un `.env` popolato |
+| `pip install -r requirements-dev.txt` | Installa anche le dipendenze di test (pytest, httpx, pytest-cov) |
+| `pytest` | Esegue gli 83 test automatici (`tests/`) — usa un database SQLite in memoria e non tocca il MySQL di sviluppo o produzione. Migrazioni e scheduler partono solo all'avvio di un server vero (handler `lifespan` in `backend/main.py`), mai al semplice import: è ciò che rende innocuo lanciare la suite con un `.env` popolato. Stampa anche il report di coverage, attivo di default via `pytest.ini` |
 | `python scripts/hash_admin_password.py` | Genera l'hash bcrypt da mettere in `ADMIN_PASSWORD_HASH` (chiede la password in modo interattivo, senza echo) |
 
 La stessa suite `pytest` gira automaticamente su ogni push/PR tramite GitHub Actions (`.github/workflows/tests.yml`), così un errore emerge prima del deploy, non dopo.
@@ -281,7 +309,7 @@ SMTP diretto è bloccato dalla rete di Railway (`OSError: Network is unreachable
 
 **⚠️ Scadenza del refresh token — leggi con attenzione.** Finché la schermata di consenso OAuth resta in stato **"Testing"**, il `GMAIL_REFRESH_TOKEN` scade dopo **7 giorni, a prescindere dall'uso che se ne fa** — non dopo 7 giorni di *inattività*, come si è creduto a lungo. Osservato in produzione il 2026-09-02: il token è scaduto pur essendo esercitato ogni giorno dall'healthcheck e dalle email di ogni prenotazione. Prima o poi le email smettono di partire, silenziosamente. Ci sono due livelli di protezione:
 - **Rete di sicurezza già attiva**: lo scheduler (`controlla_credenziali_gmail` in `backend/scheduler.py`) controlla il token ogni `GMAIL_HEALTHCHECK_INTERVAL_HOURS` ore e avvisa il coach su Discord appena smette di funzionare — a quel punto rilancia `python scripts/reauth_gmail.py` e aggiorna `GMAIL_REFRESH_TOKEN` su Railway. Attenzione: questo controllo **rileva** la scadenza, non la previene.
-- **Soluzione definitiva (consigliata)**: su Google Cloud Console, porta la schermata di consenso OAuth da "Testing" a **"In production"** (non richiede la verifica completa di Google per un solo scope non sensibile come `gmail.send`). Fatto questo, il token smette di scadere per inattività e il controllo automatico/lo script restano solo una rete di sicurezza, non una necessità periodica.
+- **Soluzione definitiva (consigliata)**: su Google Cloud Console, porta la schermata di consenso OAuth da "Testing" a **"In production"** (non richiede la verifica completa di Google per un solo scope non sensibile come `gmail.send`). Fatto questo, il token smette del tutto di scadere dopo 7 giorni, e il controllo automatico/lo script restano solo una rete di sicurezza, non una necessità periodica.
 
 ### Google Calendar (sync disponibilità)
 1. Crea un progetto su [Google Cloud Console](https://console.cloud.google.com), abilita la "Google Calendar API".
