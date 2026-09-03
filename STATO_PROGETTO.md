@@ -1,6 +1,8 @@
 # STATO_PROGETTO.md — VGC Coaching App
 
-> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-03** (sezione 13), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. *Il riferimento è una data e non un hash di commit: inseguire l'hash a ogni modifica aveva già prodotto due disallineamenti — gli hash li tiene `git log`.* Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), fino al commit `61d4554` — pushato su `origin/master` e verificato: CI verde su quel push specifico (run GitHub Actions `33529945237`, non solo sulla suite locale). Aggiornato infine dopo la revisione documentale in tre sessioni del 01–03/09 (sezione 13), fino al commit `6348fa1`, oggi HEAD di `origin/master`. Il push del 2026-09-03 si è fermato a `1e17319`, su cui la CI è verde (run `33690855235`); `6348fa1` è il commit documentale che registra quel push, e ha viaggiato con un push successivo. Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
+> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-03** (sezioni 13 e 14), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), e infine dopo la revisione documentale del 01–03/09 (sezioni 13 e 14). Ogni sessione è stata pushata su `origin/master` con la CI verificata verde sul push reale, non solo sulla suite locale: run GitHub Actions `33529945237` sul commit `61d4554` (01/09) e `33690855235` sul commit `1e17319` (03/09). *Questi due riferimenti sono eventi, e come tali non invecchiano; per sapere dove sia la punta del ramo si guarda `git log`, non questo paragrafo — inseguire l'hash di HEAD a ogni modifica aveva già prodotto tre disallineamenti.* Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
+
+> **Come si aggiorna questo documento.** Le sezioni **1–9 descrivono il presente**: non portano date di sessione e vanno corrette ogni volta che il codice cambia. Le sezioni **10 in poi sono un diario**: si scrivono una volta, si chiudono, e non si riaprono se non per barrare una voce con la data. Ogni punto ancora aperto vive in **un posto solo**, §9.1 — i backlog dentro le sezioni-diario sono congelati e valgono come fotografia del momento in cui furono scritti, non come elenco da consultare. Vale la pena rispettarla: quasi tutti gli errori trovati nelle revisioni del 01–03/09 stavano esattamente sulla cucitura fra le due nature — un fatto di sessione rimasto congelato in una sezione di stato (§7.2 dava il cookie per non verificato mesi dopo la verifica), o un fatto di stato mai propagato all'indietro (il backlog di §11 elencava come aperte due voci chiuse altrove).
 
 ---
 
@@ -14,9 +16,12 @@ Monolite Python/FastAPI che serve sia le API REST sia i file statici del fronten
 ├── .env.example             # template dei nomi di variabile, riverificato allineato al codice il 2026-09-02
 ├── .gitignore
 ├── .github/workflows/tests.yml  # CI: pytest su ogni push/PR, verde
+├── ANALISI_2026-08-31.md      # referto della review indipendente del 31/08 — findings tutti chiusi (storico)
 ├── ANALYSIS.md               # audit di una sessione di sviluppo molto precedente (storico)
-├── README.md                 # guida setup/deploy, riallineata al codice il 2026-09-03 (vedi §13.7)
+├── RAILWAY_RIALLINEAMENTO_2026-09-02.md  # runbook dell'intervento sulle variabili Railway (storico)
+├── README.md                 # guida setup/deploy, riallineata al codice il 2026-09-03 (vedi §14)
 ├── ROADMAP.md                 # piano di lavoro P0→P3 di quella stessa sessione, tutto "fatto" (storico)
+├── REVISIONE_2026-09-01.md    # referto completo della revisione documentale del 01/09 (storico)
 ├── STATO_PROGETTO.md          # questo file
 ├── alembic.ini                # config Alembic (sqlalchemy.url vuoto, popolato a runtime da env.py)
 ├── nixpacks.toml               # comando di avvio per il deploy Railway (unica fonte di verità)
@@ -32,7 +37,7 @@ Monolite Python/FastAPI che serve sia le API REST sia i file statici del fronten
 │   ├── hash_admin_password.py      # genera ADMIN_PASSWORD_HASH da una password digitata
 │   ├── reauth_gmail.py              # rinnova GMAIL_REFRESH_TOKEN (OAuth2, apre il browser)
 │   └── reauth_drive.py               # rinnova DRIVE_REFRESH_TOKEN (OAuth2, apre il browser)
-├── tests/                      # 83 test, SQLite in-memory, tutte le integrazioni esterne mockate
+├── tests/                      # suite pytest, SQLite in-memory, integrazioni esterne mockate (per il conteggio vedi §9)
 │   ├── conftest.py                # fixture condivise: DB isolato, mock Gmail/Discord/Calendar sui router, helper auth
 │   │                                (Drive è mockato localmente in test_backup_service.py, non qui)
 │   ├── test_admin.py, test_booking.py, test_slots.py, test_richieste.py, test_discord_auth.py,
@@ -323,22 +328,18 @@ Per verificare quale revisione è applicata a un database: `SELECT * FROM alembi
 
 ---
 
-## 5. Variabili d'ambiente richieste
+## 5. Variabili d'ambiente
 
-Vedi `.env.example` (riverificato allineato al codice il 2026-09-02: tolta `SECRET_KEY`, mai letta da nessuna riga; aggiunta `LOG_LEVEL`, che invece lo era) per l'elenco completo con commenti — qui solo le differenze rilevanti rispetto alla versione precedente di questo documento:
+**L'elenco completo sta in un posto solo: la tabella di `README.md`**, che riporta tutte e 32 le variabili lette dal codice con obbligatorietà, default e descrizione. `.env.example` ne è il calco eseguibile (riverificato allineato il 2026-09-02: tolta `SECRET_KEY`, che nessuna riga leggeva; aggiunta `LOG_LEVEL`, che invece lo era).
 
-| Nome | Cambiato | Note |
-|---|---|---|
-| **`ADMIN_PASSWORD_HASH`** | sostituisce `ADMIN_PASSWORD` | hash bcrypt, mai la password in chiaro — genera con `scripts/hash_admin_password.py` |
-| **`DRIVE_REFRESH_TOKEN`** | nuova | OAuth account reale del coach per il backup su Google Drive (non un service account — vedi sezione 6) |
-| **`GOOGLE_DRIVE_BACKUP_FOLDER_ID`** | nuova | cartella Drive di destinazione dei backup |
-| **`BACKUP_RETENTION_DAYS`** | nuova (default 30) | dopo quanti giorni un backup viene eliminato da Drive |
-| **`RETENTION_MONTHS`** | nuova (default 24) | dopo quanti mesi di inattività un cliente viene anonimizzato |
-| **`LOG_LEVEL`** | nuova (default INFO) | livello del logging strutturato (sostituisce i vecchi `print()`) |
-| **`PUBLIC_BASE_URL`** | nuova | dominio usato per costruire il link assoluto di recensione nelle email |
-| **`REVIEW_CHECK_INTERVAL_MINUTES`**, **`CALENDAR_SYNC_INTERVAL_MINUTES`**, **`GMAIL_HEALTHCHECK_INTERVAL_HOURS`** | nuove | intervalli dei job schedulati aggiunti dopo il 19/08 |
+Qui non se ne tiene una seconda copia di proposito. Due tabelle della stessa cosa divergono — è una certezza, non un rischio — ed è lo stesso principio per cui `nixpacks.toml` è dichiarato unica fonte di verità per il comando di avvio (§1). Prima questa sezione elencava "le differenze rispetto alla versione precedente di questo documento": una colonna leggibile solo da chi avesse sotto mano un testo che esiste solo nella storia git, cioè lo stesso difetto che §2 e §7 hanno già eliminato riportando per intero ciò che delegavano.
 
-Tutte le altre variabili (`DATABASE_URL`, `GMAIL_*`, `EMAIL_*`, `DISCORD_*`, `JWT_*`, `GOOGLE_SERVICE_ACCOUNT_*`, `REMINDER_*`, `FRONTEND_ORIGINS`) sono invariate rispetto a prima.
+Restano qui, perché sono fatti sullo **stato del deploy** e non documentazione delle variabili:
+
+- La configurazione su Railway è **divisa fra i due servizi senza un criterio**, ed è quell'asimmetria ad aver prodotto la copia divergente di `GMAIL_REFRESH_TOKEN` trovata il 2026-09-02. Consolidamento ancora aperto: §9.1, voce 8. Dettaglio in §13.1 e in `RAILWAY_RIALLINEAMENTO_2026-09-02.md`.
+- Le variabili `MYSQL*` del servizio database **non vanno toccate**: le genera e consuma Railway (`MYSQL_ROOT_PASSWORD` e `MYSQL_DATABASE` sono lette dal container all'avvio, rimuoverle romperebbe il database).
+- `ADMIN_PASSWORD_HASH` ha sostituito `ADMIN_PASSWORD` in agosto, ma la vecchia variabile in chiaro è rimasta sul servizio MySQL fino al 2026-09-02, quando è stata rimossa insieme a `SECRET_KEY` e `PAYPAL_EMAIL` (§13.1).
+- `DRIVE_REFRESH_TOKEN` usa l'account Google **reale** del coach, non il service account di Calendar: un service account non ha quota di storage propria su Drive (§6).
 
 ---
 
@@ -362,7 +363,7 @@ I quattro punti ereditati dalle versioni precedenti di questo documento, riporta
 - **Le migrazioni girano a ogni avvio e non bloccano il boot**: `run_migrations()` è dentro un `try/except` che, se fallisce, lascia partire l'app registrando l'errore e mandando un alert Discord. Scelta deliberata: un deploy con migrazione fallita si nota subito, invece che al primo cliente che usa la funzione nuova.
 - **SMTP diretto è bloccato dalla rete di Railway** (`OSError: Network is unreachable`): le email passano dall'API Gmail via HTTPS con OAuth2, non da una password SMTP.
 
-Aggiunte rilevanti dopo il 19/08:
+Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrove nel documento come §7.1, §7.2 e così via, pur non essendo sottosezioni con un proprio titolo:
 
 1. **Prenotazioni da 2 ore ora uniscono due slot da 1h** (`slot_id_secondario`), non un unico slot da 2h come generato in origine — il calendario genera solo slot da 1h; vedi §4.
 2. **Token JWT studente in cookie httpOnly**, non più in `localStorage`/header `Authorization` — `secure` derivato da `DISCORD_OAUTH_REDIRECT_URI` (inizia con `https://`?), non da `request.url.scheme` (Railway strip-a HTTPS prima che l'app veda la richiesta). Verificato end-to-end in produzione il 2026-09-02 con un vero login Discord: `student_token` risulta marcato `Secure` e `HttpOnly` in DevTools (vedi §9 e §13.1).
@@ -388,13 +389,13 @@ Aggiunte rilevanti dopo il 19/08:
 
 **Audit di sicurezza (2026-08-25)**: 1 HIGH (furto credito pacchetto via IDOR, vedi §7.3) + 4 MEDIUM (info-disclosure su pacchetti attivi, profilo esposto da `POST /users/`, CSRF su Discord OAuth, HTML injection nelle email admin) — tutti corretti.
 
-**Enterprise-hardening, 13 item (2026-08-25)**: rifiuto slot passati, `pool_pre_ping`, indici su colonne calde, fix N+1 nello scheduler, logging strutturato al posto di 38 `print()`, coverage test (64%→67%), test sui router prima scoperti, backup automatico su Drive, CI GitHub Actions, backup pre-migrazione, `/health` reale, cookie httpOnly, split di `admin.py` in package. Vedi dettagli completi nella cronologia del progetto (non ripetuti qui per brevità).
+**Enterprise-hardening, 13 item (2026-08-25)**: rifiuto slot passati, `pool_pre_ping`, indici su colonne calde, fix N+1 nello scheduler, logging strutturato al posto di 38 `print()`, coverage test (64%→67%), test sui router prima scoperti, backup automatico su Drive, CI GitHub Actions, backup pre-migrazione, `/health` reale, cookie httpOnly, split di `admin.py` in package.
 
 **Fix CI (2026-08-26)**: `pythonpath = .` in `pytest.ini`, `DATABASE_URL`/`JWT_SECRET` fittizie nel workflow — CI verde end-to-end.
 
 ---
 
-## 9. Cosa funziona e cosa no, ad oggi (aggiornato 2026-09-01)
+## 9. Cosa funziona e cosa no, ad oggi
 
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
@@ -406,11 +407,34 @@ Aggiunte rilevanti dopo il 19/08:
 - **Schema di produzione allineato**: `alembic_version` risulta `2eac6f32b19b`, la head della catena in §2.
 - **Variabili d'ambiente su Railway verificate** su entrambi i servizi il 2026-09-02, e riallineate (§13).
 
-**Non ancora verificato**:
-- Le due correzioni di sicurezza Alta severità della sessione 31/08 (§7.7): verificate dalla suite automatica (test che riproducono l'abuso e lo dimostrano bloccato), non ancora con un vero tentativo contro l'ambiente di produzione.
-- Che il link nell'email di richiesta recensione sia ora cliccabile: serve una sessione già conclusa e al 2026-09-02 non ce n'erano (vedi §13).
-- Un uptime monitor esterno puntato su `/health` non risulta ancora configurato — confermato osservativamente il 2026-09-02: nei log di Railway non compare nessuna chiamata a quell'endpoint. L'endpoint funziona (interrogato a mano risponde), semplicemente nessuno lo interroga.
-- Dominio personalizzato non acquistato — resta su `*.up.railway.app`, scelta consapevole.
+### 9.1 Backlog aperto — elenco unico
+
+Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e una voce chiusa in una sessione restava "aperta" in quello di un'altra: è successo davvero, con il login Discord e il backup notturno. **Questo è l'unico elenco da consultare**; quelli dentro le sezioni-diario sono congelati. Nessuna voce è bloccante e nessuna richiede di scrivere codice applicativo.
+
+**Con una data d'innesco**
+
+1. **Schermata di consenso OAuth Google da "Testing" a "In production"** (Google Cloud Console). Aperta dal 25/08. Finché resta in "Testing", `GMAIL_REFRESH_TOKEN` e `DRIVE_REFRESH_TOKEN` scadono dopo **7 giorni a prescindere dall'uso** — non per inattività: il 2026-09-02 il token Gmail è scaduto pur essendo esercitato ogni giorno, ed è stato rinnovato a mano. **Verificato il 2026-09-03: lo stato è ancora "Testing"**, quindi il prossimo scadere è atteso **entro il 2026-09-09**. È l'unica voce di questo elenco con una scadenza vera. Origine §12, dettaglio §13.5.
+
+**Rischi silenziosi — si scoprono a danno avvenuto**
+
+2. **`DRIVE_REFRESH_TOKEN` non ha nessun healthcheck.** Quello schedulato controlla solo Gmail (`controlla_credenziali_gmail`): un token Drive morto si scopre dall'alert di backup fallito, cioè a copia di sicurezza già saltata, fino a 24 ore dopo. Al 2026-09-03 il file più recente nella cartella Drive è del **2 settembre** e non risulta nessun alert Discord — il token era valido a quell'esecuzione, il che non dice nulla sulla successiva. Origine §13.6.
+3. **Uptime monitor esterno su `/health`, mai configurato.** Confermato osservativamente il 2026-09-02: nei log Railway non compare nessuna chiamata a quell'endpoint. L'endpoint funziona (interrogato a mano risponde), semplicemente nessuno lo interroga — quindi un sito giù si scopre da un cliente che si lamenta. Origine §11, riconfermato §13.5.
+4. **Azioni GitHub su Node.js 20 deprecato.** `actions/checkout@v4` e `actions/setup-python@v5` vengono forzate su Node.js 24 con un'annotazione. Oggi la CI è verde; quando GitHub ritirerà il fallback si fermerà, senza preavviso e in un momento a caso. Si risolve alzando la versione delle due action in `.github/workflows/tests.yml`. Origine §13.5.
+
+**Verifica ricorrente, non evento singolo**
+
+5. **Che l'auto-deploy Railway abbia raccolto la punta di `origin/master`** — da confermare in dashboard **a ogni push**, non una volta sola. È l'unica cosa che separa "il codice è su GitHub" da "il codice è in produzione", e questo progetto quella distinzione l'ha già persa due volte. Il push del 2026-09-03 (`1e17319`) non è mai stato confermato in dashboard, e da allora sono arrivati `6348fa1` e `8c3dd56`. Origine §13.4.
+
+**Da provare quando si presenta l'occasione**
+
+6. **Che il link nell'email di richiesta recensione sia cliccabile.** Serve una sessione già conclusa; al 2026-09-02 non ce n'erano. La correzione vale solo per le email future: le richieste già inviate non verranno rimandate, perché il job filtra su `review_email_sent == False`. Origine §13.1, §13.6.
+7. **Le due correzioni di sicurezza Alta severità del 31/08** (§7.7): coperte dalla suite automatica, con test che riproducono l'abuso e lo dimostrano bloccato, ma mai provate con un vero tentativo contro l'ambiente di produzione. Origine §12.
+
+**Facoltative, o già decise**
+
+8. **Consolidamento delle variabili Railway su un solo servizio.** Oggi sono divise fra i due senza un criterio, ed è proprio quell'asimmetria ad aver prodotto la copia divergente di `GMAIL_REFRESH_TOKEN` trovata il 02/09. Origine §13.1.
+9. **Rotazione della password MySQL** esposta in git dal commit `15f536d` (giugno). **Rimandata deliberatamente**, non dimenticata: decisione presa il 2026-09-03 con l'informazione giusta, cioè che riguarda il database di **sviluppo locale**, mentre la produzione usa credenziali generate da Railway e mai finite in git. Da riconsiderare se quel database locale diventasse raggiungibile da fuori. Origine §12, §13.5.
+10. **Dominio personalizzato** non acquistato — resta su `*.up.railway.app`, scelta consapevole. Da riconsiderare se servisse un'immagine più professionale o SPF/DKIM/DMARC veri. Origine §11.
 
 ---
 
@@ -431,7 +455,10 @@ Sessione dedicata a portare il progetto da "funzionante" a "pronto per traffico 
 5. Deploy in produzione: variabili Railway aggiornate (incluso lo scambio `ADMIN_PASSWORD`→`ADMIN_PASSWORD_HASH`, con una breve finestra di login admin rotto tra l'update delle variabili e il deploy del codice, risolta subito), verificato live.
 6. Il giorno dopo (26/08): la CI, mai verificata end-to-end fino a quel momento, risultava rotta silenziosamente dal primo run — tre fix in sequenza (`pythonpath`, `DATABASE_URL` fittizia, `JWT_SECRET` fittizia) fino al verde.
 
-### Backlog / follow-up manuali ancora aperti (nessuno bloccante, nessun codice da scrivere)
+### Backlog / follow-up al 2026-08-26 (chiuso)
+
+> *Elenco congelato: fotografia di com'era alla chiusura di questa sessione. Le voci ancora aperte oggi stanno tutte in **§9.1**, che è l'unico da consultare.*
+
 - ~~Login Discord OAuth reale in produzione, per confermare il flusso cookie httpOnly end-to-end.~~ **Fatto il 2026-09-02**: mancavano `DISCORD_CLIENT_ID`/`DISCORD_CLIENT_SECRET` su Railway — aggiunte, flusso provato end-to-end, cookie `Secure`+`HttpOnly` confermato (§13.1).
 - Uptime monitor esterno (UptimeRobot/Better Uptime) su `/health`. **Ancora aperto al 2026-09-03** (§13.5).
 - ~~Conferma che il backup notturno (04:00) produca davvero un file in produzione, non solo in locale.~~ **Fatto il 2026-09-02**: la cartella Drive contiene backup prodotti dalla produzione (§9).
@@ -510,7 +537,10 @@ cosa è stato corretto in questa sessione, in ordine cronologico:
    l'area non è coperta indipendentemente dalla percentuale di coverage
    totale.
 
-### Backlog / follow-up manuali ancora aperti (nessuno bloccante, nessun codice da scrivere)
+### Backlog / follow-up al 2026-09-01 (chiuso)
+
+> *Elenco congelato: fotografia di com'era alla chiusura di questa sessione. Le voci ancora aperte oggi stanno tutte in **§9.1**, che è l'unico da consultare.*
+
 - Screen di consenso OAuth Google: portarlo da "Testing" a "In production"
   (Google Cloud Console) — elimina la scadenza dei refresh token Gmail/Drive
   invece di limitarsi all'alert automatico. **Ancora aperto al 2026-09-03**, e
@@ -526,7 +556,7 @@ cosa è stato corretto in questa sessione, in ordine cronologico:
 
 ---
 
-## 13. Sessione 2026-09-01/02 — revisione documentale in tre parti
+## 13. Sessione 2026-09-01/03 — revisione documentale in tre parti
 
 Revisione strutturata in tre sessioni con un obiettivo dichiarato: **rendere i documenti
 markdown un ritratto fedele del codice**, perché chi apre il progetto fra tre mesi possa
@@ -626,7 +656,7 @@ cui si riferiscono: restano storici di proposito e non sono stati allineati al p
 apriva senza contesto concludeva che l'app avesse due vulnerabilità Alta severità aperte.
 
 Le 29 correzioni riguardavano i rilievi di `REVISIONE_2026-09-01.md`, non una rilettura integrale:
-una passata successiva sul solo README (§13.7) ha trovato altri disallineamenti che quell'elenco
+una passata successiva sul solo README (§14) ha trovato altri disallineamenti che quell'elenco
 non copriva. Da qui in avanti conviene leggere "allineato" come "allineato per i rilievi di quella
 revisione", mai come una garanzia generale.
 
@@ -667,7 +697,10 @@ correttamente. **Non verificato dal vivo** il nuovo 422 sull'email mancante: il 
 sviluppo non aveva slot futuri disponibili e `create_booking` valida lo slot per primo, quindi
 non si arriva al controllo. Resta coperto dal test automatico.
 
-### 13.5 Backlog / follow-up ancora aperti
+### 13.5 Backlog / follow-up al 2026-09-03 (chiuso)
+
+> *Elenco congelato: fotografia di com'era alla chiusura di questa sessione. Le voci ancora aperte oggi stanno tutte in **§9.1**, che è l'unico da consultare.*
+
 - **Schermata di consenso OAuth Google da "Testing" a "In production".** Ora è più urgente di
   prima: il 2026-09-02 il `GMAIL_REFRESH_TOKEN` **è scaduto davvero**, pur essendo esercitato
   ogni giorno — la scadenza è a 7 giorni a prescindere dall'uso, non per inattività come si era
@@ -691,7 +724,10 @@ non si arriva al controllo. Resta coperto dal test automatico.
 - **Consolidamento delle variabili Railway** su un solo servizio (§13.1).
 - **Uptime monitor esterno** su `/health`, mai configurato.
 
-### 13.6 Non verificato
+### 13.6 Non verificato al 2026-09-03 (chiuso)
+
+> *Elenco congelato: fotografia di com'era alla chiusura di questa sessione. Le voci ancora aperte oggi stanno tutte in **§9.1**, che è l'unico da consultare.*
+
 - Che il link nell'email di richiesta recensione sia ora cliccabile: al 2026-09-02 non
   esistevano sessioni concluse su cui provarlo. **Nota**: la correzione vale per le email
   future; le richieste già inviate non verranno rimandate, perché il job filtra su
@@ -703,7 +739,9 @@ non si arriva al controllo. Resta coperto dal test automatico.
   Discord — il che conferma che il token era valido a quell'esecuzione, ma **non** dice nulla
   sull'esecuzione successiva.
 
-### 13.7 Sessione 2026-09-03 — riallineamento README e correzioni a questo file
+---
+
+## 14. Sessione 2026-09-03 — riallineamento README e correzioni a questo file
 
 Passata di verifica sul `README.md` contro il codice, indipendente dai 29 rilievi di §13.3.
 Nessuna riga di codice toccata: solo i due markdown.
@@ -741,6 +779,40 @@ l'esito reale. Stessa sorte per due voci del backlog di §11 (login Discord, bac
 chiuse altrove nel documento ma ancora elencate come aperte: ora barrate con la data, come già si
 faceva in §12.
 
+**Seconda passata, stesso giorno — riordino strutturale.** La prima passata aveva corretto errori
+puntuali; il check-up successivo ha mostrato che quasi tutti nascevano dallo stesso punto, e cioè
+che il documento mescola **due nature**: §1–9 descrivono lo stato presente, §10 in poi sono un
+diario di sessioni. Ogni errore stava sulla cucitura — un fatto di sessione congelato in una
+sezione di stato (§7.2), o un fatto di stato mai propagato all'indietro (il backlog di §11). Da qui:
+
+- **Regola di manutenzione dichiarata in testa al documento**, così la prossima sessione ha un
+  controllo meccanico invece di un giudizio: le sezioni di stato non portano date di sessione, le
+  sezioni-diario non si riaprono.
+- **Backlog unificato in §9.1.** Prima le voci aperte erano sparse in cinque elenchi (§9, §11, §12,
+  §13.5, §13.6): chiudere una voce richiedeva di ricordarsi di barrarla anche negli elenchi delle
+  sessioni precedenti, un incrocio manuale che era già fallito. Ora l'elenco è uno; gli altri
+  quattro restano al loro posto ma **congelati**, con una riga che lo dichiara, perché come
+  fotografia storica hanno ancora valore.
+- **Questa sezione, che nasceva come sottosezione di §13, promossa a §14.** Correggeva
+  un'affermazione di §13.3: annidata lì dentro, il lettore la
+  trovava solo arrivando in fondo alla sezione che conteneva l'errore. §13 è stata rititolata
+  `01/03` perché conteneva già §13.4 e §13.5, datate 03/09.
+- **§5 riscritta.** Elencava "le differenze rispetto alla versione precedente di questo documento",
+  cioè un testo consultabile solo nella storia git — lo stesso difetto che §2 e §7 avevano già
+  eliminato. Ora rimanda alla tabella del README come fonte unica (verificata: copre esattamente
+  le 32 variabili lette dal codice) e tiene solo i fatti sullo stato del deploy. Due tabelle della
+  stessa cosa divergono, ed è il principio per cui `nixpacks.toml` è già dichiarato fonte unica
+  per il comando di avvio.
+- **Minori**: tolta la data dall'intestazione di §9 (le singole voci ne hanno già una propria, e una
+  data di sezione dichiara freschezza per righe che non si sono mosse); censiti nell'albero i tre
+  referti in root che il testo cita ma l'indice ometteva; tolto da §1 il conteggio "83 test", che
+  contraddiceva la politica dichiarata da §9; tolta da §8 la frase che rimandava "alla cronologia
+  del progetto" senza indicare né un commit né un file.
+- **L'intestazione contraddiceva se stessa**: dichiarava che "il riferimento è una data e non un
+  hash di commit, inseguire l'hash aveva già prodotto due disallineamenti" e poi inseguiva l'hash
+  di HEAD, con un valore già falso poche ore dopo. Restano i due run CI, che sono eventi legati a
+  un commit preciso e quindi non invecchiano.
+
 **Cosa è stato ricontrollato e risulta corretto**, perché valga anche come referto positivo: lo
 schema di §2 combacia con i model colonna per colonna; la catena delle 18 migrazioni, ricostruita
 dai `down_revision`, è esattamente quella stampata e la HEAD è `2eac6f32b19b`; tutti e 24 gli
@@ -748,4 +820,8 @@ endpoint admin hanno `Depends(get_admin)` tranne `/admin/login`; prezzi, catalog
 ore di inizio ammesse, limite prenotazioni attive e lista degli endpoint con rate limit sono
 esatti; `.env.example` coincide con le 32 variabili davvero lette dal codice; i cinque commit
 citati in §13.2 esistono con quegli hash, e i conteggi (8 commit `61d4554..1e17319`, 18 commit
-`1732fc2..61d4554`) tornano.
+`1732fc2..61d4554`) tornano. Ricontrollati a macchina alla fine della seconda passata: i 13 hash
+citati nel documento esistono tutti in `git log`; i numeri affermati (18 migrazioni, 8 job
+scheduler, 14 file di test, 8 tabelle applicative, 32 variabili d'ambiente) combaciano con il
+codice; tutti i rimandi `§x` puntano a sezioni esistenti; nessun `.md` in root manca dall'albero
+di §1 e nessuno di quelli citati nell'albero manca dal disco.
