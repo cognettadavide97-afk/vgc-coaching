@@ -1,7 +1,4 @@
-# Numeri riassuntivi per il pannello admin: la dashboard (poche cifre
-# chiave) e gli analytics (andamento negli ultimi mesi). Vedi
-# backend/routers/admin/__init__.py per la spiegazione generale di come
-# questo pacchetto è organizzato e perché get_admin si importa da lì.
+"""Metriche del pannello: dashboard sintetica e analytics sugli ultimi mesi."""
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, contains_eager
@@ -23,35 +20,31 @@ def dashboard(
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Restituisce i numeri principali per la dashboard:
-    totale prenotazioni, prenotazioni di oggi,
-    totale incassato, prossimi slot liberi.
+    """Numeri di sintesi: prenotazioni, incassato, media voti, prossimi slot.
+
+    La media dei voti considera tutte le recensioni ricevute, comprese
+    quelle non ancora approvate: è un dato interno, diverso da quello
+    mostrato nella vetrina pubblica.
     """
     totale_prenotazioni = db.query(Booking).count()
 
-    # "oggi" è il giorno solare a Roma, non quello del server: calcoliamo
-    # i confini del giorno in ora italiana e li convertiamo in UTC per il filtro.
+    # "Oggi" è il giorno solare italiano, non quello del server: i confini
+    # si calcolano in ora locale e si convertono in UTC per il confronto.
     oggi_rome_inizio = datetime.now(timezone.utc).astimezone(ROME_TZ).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
     oggi_utc_inizio = oggi_rome_inizio.astimezone(timezone.utc).replace(tzinfo=None)
     oggi_utc_fine = (oggi_rome_inizio + timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
 
-    # .join(Booking.slot) e non solo ".join(Slot)": da quando Booking ha due
-    # colonne che puntano a slots (slot_id e slot_id_secondario, vedi
-    # backend/models/booking.py), un join generico sarebbe ambiguo.
+    # .join(Booking.slot) e non .join(Slot): con due colonne verso slots il
+    # join generico è ambiguo.
     prenotazioni_oggi = db.query(Booking).join(Booking.slot).filter(
         Slot.start_time >= oggi_utc_inizio,
         Slot.start_time < oggi_utc_fine
     ).count()
 
-    # func.sum(...) chiede al DATABASE di sommare la colonna price_cents,
-    # invece di scaricare tutte le righe in Python e sommarle noi — molto
-    # più efficiente quando i dati crescono. .scalar() estrae il singolo
-    # numero risultante dalla query (che altrimenti restituirebbe una
-    # struttura più complessa). "or 0" gestisce il caso "nessuna
-    # prenotazione confermata ancora": la somma di zero righe è None, non 0.
+    # Somma calcolata dal database invece che in Python. "or 0" copre il
+    # caso senza prenotazioni: la somma di zero righe è None.
     totale_incassato = db.query(
         func.sum(Booking.price_cents)
     ).filter(
@@ -80,8 +73,7 @@ def dashboard(
 # ─── ANALYTICS ─────────────────────────────────────────────────
 MESI_ITALIANI = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
 
-# Ampiezza della finestra temporale di /admin/analytics — un anno solare
-# mobile, non il calendario fisso: "12 mesi fa da oggi", non "da gennaio".
+# Finestra mobile: "12 mesi da oggi", non l'anno solare corrente.
 MESI_FINESTRA_ANALYTICS = 12
 
 @router.get("/analytics")
@@ -89,21 +81,15 @@ def analytics(
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
+    """Metriche sull'ultimo anno: sessioni, incassi, servizi, no-show, clienti.
+
+    Tutte condividono la stessa finestra temporale, così i numeri restano
+    confrontabili fra loro. Restituisce valori grezzi: la resa grafica è
+    responsabilità del frontend.
     """
-    Analytics essenziali, tutte sulla stessa finestra degli ultimi 12 mesi
-    (calendario italiano): sessioni e incasso per mese, servizi più
-    richiesti, tasso di no-show, clienti nuovi vs ricorrenti. Niente
-    grafici decorativi: solo numeri e semplici barre proporzionali,
-    calcolate lato client dai valori qui.
-    """
-    # Calcola le "chiavi" (anno, mese) degli ultimi MESI_FINESTRA_ANALYTICS
-    # mesi, dal più vecchio al più recente. range(11, -1, -1) produce
-    # 11, 10, ..., 1, 0 — il terzo argomento -1 è il "passo" (si va
-    # all'indietro). Il ciclo while dentro gestisce il caso in cui
-    # sottraendo mesi si scenda sotto gennaio: "m -= 12" e "a -= 1" fanno
-    # tornare indietro di un anno, esattamente come contare le ore oltre la
-    # mezzanotte. Calcolato PRIMA della query qui sotto perché ci serve per
-    # costruire il filtro sulla finestra.
+    # Chiavi (anno, mese) della finestra, dalla più vecchia. Il while
+    # gestisce il passaggio all'anno precedente. Calcolate prima della
+    # query perché servono a costruirne il filtro.
     oggi_rome = datetime.now(timezone.utc).astimezone(ROME_TZ)
     chiavi_mesi = []
     anno, mese = oggi_rome.year, oggi_rome.month
@@ -115,40 +101,25 @@ def analytics(
             a -= 1
         chiavi_mesi.append((a, m))
 
-    # Primo giorno del mese più vecchio della finestra, in ora italiana
-    # convertito in UTC naive (stesso formato di Slot.start_time) — tutte
-    # le statistiche qui sotto (non solo sessioni/incasso per mese) sono
-    # calcolate SOLO su questa finestra, non sull'intera storia:
-    # ANALISI_2026-08-31.md (Area Dati) segnalava che senza questo filtro
-    # la query scaricava in RAM tutte le prenotazioni di sempre, con un
-    # costo che cresce senza limite mano a mano che lo storico si allunga.
+    # Il filtro sulla finestra vale per tutte le metriche, non solo per
+    # quelle mensili: senza, la query caricherebbe in memoria l'intero
+    # storico delle prenotazioni, con un costo che cresce senza limite.
     anno_inizio, mese_inizio = chiavi_mesi[0]
     inizio_finestra_rome = datetime(anno_inizio, mese_inizio, 1, tzinfo=ROME_TZ)
     inizio_finestra_utc = inizio_finestra_rome.astimezone(timezone.utc).replace(tzinfo=None)
 
-    # A differenza della dashboard sopra (che usa query aggregate SQL come
-    # func.sum), qui scarichiamo le prenotazioni della finestra in una volta
-    # sola e facciamo i calcoli in Python. È una scelta deliberata: i
-    # calcoli servono (mese per mese, per servizio, per stato...) sono
-    # complessi da esprimere in SQL puro, e per un progetto di queste
-    # dimensioni (poche centinaia di prenotazioni, non milioni) è più
-    # semplice e leggibile farlo con un ciclo Python piuttosto che con SQL
-    # molto elaborato.
-    # contains_eager(Booking.slot): il .join(Booking.slot) qui sotto serve
-    # comunque solo a FILTRARE/ordinare — senza dirlo esplicitamente a
-    # SQLAlchemy, il ciclo poco più sotto (p.slot.start_time, due volte per
-    # ogni prenotazione) farebbe ripartire una query separata per ogni
-    # Slot, invece di riusare quello già preso col JOIN. Stessa tecnica già
-    # usata per lo stesso motivo in backend/scheduler.py.
+    # Qui, a differenza della dashboard, i calcoli avvengono in Python su
+    # un solo caricamento: le aggregazioni richieste (per mese, servizio e
+    # stato insieme) sarebbero SQL elaborato, e su questi volumi il ciclo
+    # è più leggibile. contains_eager evita che il ciclo rilegga lo slot
+    # riga per riga.
     prenotazioni = db.query(Booking).join(Booking.slot).options(contains_eager(Booking.slot)).filter(
         Slot.start_time >= inizio_finestra_utc
     ).all()
     ora_utc = ora_utc_naive()
 
-    # Dizionari "accumulatori": inizializziamo ogni mese a 0, poi il ciclo
-    # sotto li riempie mano a mano. {k: 0 for k in chiavi_mesi} è una "dict
-    # comprehension" — come la list comprehension vista altrove, ma per
-    # costruire un dizionario invece di una lista.
+    # Accumulatori inizializzati a zero su tutti i mesi della finestra: i
+    # mesi senza attività devono comparire comunque nel risultato.
     sessioni_per_mese = {k: 0 for k in chiavi_mesi}
     incasso_per_mese = {k: 0 for k in chiavi_mesi}
     servizi_conteggio = {}
@@ -156,9 +127,7 @@ def analytics(
     confirmed_passate_count = 0
     prenotazioni_per_utente = {}
 
-    # Un solo ciclo attraversa tutte le prenotazioni una volta sola,
-    # aggiornando più statistiche insieme — più efficiente che fare cinque
-    # cicli separati, uno per ogni statistica.
+    # Un solo passaggio aggiorna tutte le metriche insieme.
     for p in prenotazioni:
         rome_dt = utc_to_rome(p.slot.start_time)
         chiave_mese = (rome_dt.year, rome_dt.month)
@@ -167,10 +136,6 @@ def analytics(
             sessioni_per_mese[chiave_mese] += 1
             incasso_per_mese[chiave_mese] += p.price_cents
 
-        # .get(chiave, 0) legge un valore dal dizionario, o restituisce 0 se
-        # la chiave non c'è ancora — evita un errore "KeyError" al primo
-        # servizio mai incontrato, e permette di scrivere il conteggio in
-        # una riga sola invece di un if/else.
         servizi_conteggio[p.service_type] = servizi_conteggio.get(p.service_type, 0) + 1
 
         if p.status == "no_show":
@@ -180,25 +145,16 @@ def analytics(
 
         prenotazioni_per_utente[p.user_id] = prenotazioni_per_utente.get(p.user_id, 0) + 1
 
-    # Il "tasso di no-show" è calcolato solo sulle sessioni già CONCLUSE
-    # (passate): una prenotazione confermata ma ancora nel futuro non è né
-    # un successo né un no-show, è "in sospeso" — non ha senso includerla.
+    # Il tasso considera solo le sessioni già concluse: una prenotazione
+    # futura non è né un successo né un no-show.
     totale_per_tasso = no_show_count + confirmed_passate_count
-    # L'espressione condizionale "... if totale_per_tasso > 0 else 0" evita
-    # una divisione per zero (che in Python solleverebbe un errore) quando
-    # non c'è ancora nessuna sessione conclusa.
     tasso_no_show = round((no_show_count / totale_per_tasso) * 100, 1) if totale_per_tasso > 0 else 0
 
-    # "sum(1 for c in ... if c == 1)" è una list comprehension usata dentro
-    # sum(): per ogni valore che soddisfa la condizione, conta 1 — il
-    # risultato è semplicemente "quanti elementi soddisfano la condizione".
     clienti_nuovi = sum(1 for c in prenotazioni_per_utente.values() if c == 1)
     clienti_ricorrenti = sum(1 for c in prenotazioni_per_utente.values() if c > 1)
 
     def etichetta_mese(chiave):
-        # Una funzione "nidificata", definita dentro un'altra funzione: ha
-        # senso qui perché serve solo qui dentro, per trasformare una
-        # chiave (2026, 8) nel testo "Ago 2026" da mostrare nel grafico.
+        # Trasforma una chiave (2026, 8) nell'etichetta "Ago 2026".
         a, m = chiave
         return f"{MESI_ITALIANI[m - 1]} {a}"
 
@@ -213,12 +169,7 @@ def analytics(
         ],
         "servizi_piu_richiesti": sorted(
             [{"servizio": k, "conteggio": v} for k, v in servizi_conteggio.items()],
-            # sorted(..., key=lambda x: -x["conteggio"]) ordina la lista in
-            # base al conteggio, dal più alto al più basso. "lambda" è un
-            # modo per scrivere una funzione piccola e "usa e getta", senza
-            # doverla definire con "def" a parte — qui dice "per ordinare,
-            # guarda x['conteggio']", e il meno davanti inverte l'ordine
-            # (normalmente sorted() ordina dal più piccolo al più grande).
+            # Ordine decrescente per conteggio.
             key=lambda x: -x["conteggio"]
         ),
         "tasso_no_show_percento": tasso_no_show,

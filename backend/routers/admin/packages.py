@@ -1,6 +1,4 @@
-# Assegnazione pacchetti sessioni dal pannello admin. Vedi
-# backend/routers/admin/__init__.py per la spiegazione generale del
-# pacchetto.
+"""Assegnazione e consultazione dei pacchetti di sessioni."""
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -15,13 +13,9 @@ from typing import List
 router = APIRouter()
 
 
-# ─── PACCHETTI SESSIONI ────────────────────────────────────────
-# Il pagamento di un pacchetto avviene fuori dall'app (come per le
-# prenotazioni singole): l'admin lo assegna qui SOLO dopo aver ricevuto il
-# pagamento privatamente (es. su Discord), scegliendo uno dei 3 tipi fissi
-# del catalogo (backend/services/package_service.py). Da quel momento il
-# cliente vede il pacchetto attivo sul form pubblico (GET /users/pacchetti-attivi
-# in backend/routers/users.py) e può spenderne le sessioni prenotando slot.
+# Il pagamento avviene fuori dall'applicazione: il pacchetto va assegnato
+# solo dopo averlo incassato. Da quel momento il cliente lo vede fra i
+# propri pacchetti attivi e può spenderne le sessioni.
 @router.get("/pacchetti", response_model=List[PackageResponse])
 def lista_pacchetti(
     admin: str = Depends(get_admin),
@@ -36,11 +30,11 @@ def crea_pacchetto(
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Assegna a un cliente esistente un pacchetto del catalogo fisso.
-    Sessioni totali, durata e prezzo NON arrivano dal client: vengono presi
-    dal catalogo in base a "tipo", esattamente come TABELLA_PREZZI in
-    backend/routers/booking.py per le prenotazioni singole.
+    """Assegna a un cliente un pacchetto del catalogo.
+
+    Sessioni, durata e prezzo sono letti dal catalogo in base al tipo, mai
+    accettati dal client: le condizioni del pacchetto non sono alterabili
+    da una richiesta.
     """
     utente = db.query(User).filter(User.id == pacchetto.user_id).first()
     if not utente:

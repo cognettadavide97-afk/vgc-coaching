@@ -1,9 +1,10 @@
-# Gestisce la richiesta di una call conoscitiva gratuita di 20 minuti.
-# Deliberatamente NON passa dal sistema di slot/prenotazioni (backend/
-# routers/booking.py): "da accordare in privato" vuol dire che il cliente
-# non sceglie un orario fisso sul sito, manda solo i suoi contatti e il
-# coach lo ricontatta per fissare l'orario a mano — nessuno Slot bloccato,
-# nessuna riga in "bookings", nessun evento sul calendario.
+"""Richiesta di call conoscitiva gratuita.
+
+Deliberatamente fuori dal sistema di slot e prenotazioni: il cliente
+lascia solo i propri contatti e l'orario viene concordato in privato.
+Nessuno slot viene occupato, nessuna prenotazione creata, nessun evento
+sul calendario.
+"""
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
@@ -24,9 +25,8 @@ router = APIRouter(prefix="/consulenze", tags=["Consulenze"])
 @router.post("/")
 @limiter.limit("5/minute")
 def richiedi_consulenza(request: Request, richiesta: ConsulenzaCreate, db: Session = Depends(get_db)):
-    # get_or_create_user (backend/routers/users.py) tiene traccia del
-    # cliente anche per questo canale — se in futuro prenota una sessione
-    # vera con la stessa email, lo ritrova invece di duplicarlo.
+    # Registra comunque il contatto: se in seguito prenoterà con la stessa
+    # email verrà ritrovato invece di essere duplicato.
     get_or_create_user(db, UserCreate(nome=richiesta.nome, email=richiesta.email, discord_tag=richiesta.discord_tag))
 
     invia_conferma_richiesta_consulenza(email_cliente=richiesta.email, nome_cliente=richiesta.nome)

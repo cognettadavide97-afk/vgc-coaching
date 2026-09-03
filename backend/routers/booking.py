@@ -1,7 +1,10 @@
-# Questo è il file più importante del progetto: gestisce la creazione di
-# una prenotazione, l'operazione che mette insieme praticamente tutti gli
-# altri pezzi dell'app (database, calendario, email, Discord). Vedi
-# backend/routers/users.py per la spiegazione generale di un router FastAPI.
+"""Endpoint delle prenotazioni.
+
+La creazione è l'operazione più delicata dell'applicazione: coordina
+database, calendario, email e notifiche, e concentra i controlli di
+sicurezza sull'identità di chi prenota. Contiene inoltre gli endpoint di
+cancellazione self-service e di gestione delle recensioni.
+"""
 
 import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -29,29 +32,16 @@ MAX_PRENOTAZIONI_ATTIVE = 2
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
-# I prezzi sono fissi e decisi dal server, non dal client (vedi il commento
-# in backend/schemas/booking.py sul perché BookingCreate non ha un campo
-# prezzo). Questo dizionario associa "quante ore" a "quanti centesimi".
-# 20€/ora lineare: 1h = 2000 cent, 2h = 4000 cent (le sessioni singole sono
-# limitate a 1-2 ore; per sessioni più lunghe esistono i pacchetti, vedi
-# backend/models/package.py).
+# Listino deciso dal server: il client non invia mai un prezzo. 20 EUR/ora
+# lineare; le sessioni singole sono limitate a 1-2 ore, oltre esistono i
+# pacchetti.
 TABELLA_PREZZI = {1: 2000, 2: 4000}
 
-# Una sessione da 2 ore può iniziare SOLO alle 15:00 o alle 17:00 (ora
-# italiana) — con l'orario di ricevimento 15:00-19:00 (4 slot da 1h: 15,
-# 16, 17, 18), permettere anche 16:00 come inizio spezzerebbe la giornata
-# in blocchi che si accavallano (15-17 e 16-18 non possono coesistere) e
-# lascerebbe più facilmente un singolo slot da 1h isolato e difficile da
-# vendere. Con solo 15 e 17 come inizio, i due possibili blocchi da 2h
-# (15-17 e 17-19) coprono l'intera giornata senza sovrapposizioni.
+# Orari di inizio ammessi per le sessioni da 2 ore (ora italiana). Con
+# ricevimento 15:00-19:00, ammettere anche le 16:00 creerebbe blocchi
+# incompatibili fra loro (15-17 e 16-18) e lascerebbe ore isolate
+# difficili da vendere. Vincolo di prodotto, non tecnico.
 ORE_INIZIO_VALIDE_2H = {15, 17}
-
-
-# Qui esisteva un GET /bookings/ (admin) che restituiva tutte le prenotazioni
-# di sempre, senza paginazione. Rimosso: nessuna pagina del frontend lo
-# chiamava e nessun test lo copriva — il pannello admin usa
-# GET /admin/prenotazioni, che è paginato e restituisce anche i dati del
-# cliente e dello slot. Vedi REVISIONE_2026-09-01.md, ritrovamento R11.
 
 
 @router.post("/", response_model=BookingResponse)
@@ -62,35 +52,26 @@ def create_booking(
     db: Session = Depends(get_db),
     studente: Optional[User] = Depends(get_studente_opzionale)
 ):
-    # Questo endpoint NON richiede login: chiunque può prenotare (guest
-    # checkout) — è una scelta di prodotto esplicita del progetto ("il
-    # pagamento non è gestito in-app, quindi non serve un vero account").
+    # Il login non è richiesto: i pagamenti non passano dall'applicazione,
+    # quindi non serve un account per prenotare.
 
     slot = db.query(Slot).filter(Slot.id == booking.slot_id).first()
     if not slot:
         raise HTTPException(status_code=404, detail="Slot not found")
 
-    # Uno slot resta is_available=True per sempre finché nessuno lo prenota
-    # o lo blocca — anche dopo che il suo orario è passato (nessun job lo
-    # marca automaticamente scaduto). Senza questo controllo, chi manda una
-    # richiesta HTTP diretta (scavalcando il form, che mostra solo slot
-    # futuri) potrebbe prenotare un orario già passato: la sessione verrebbe
-    # confermata, l'evento calendario creato, l'email di conferma inviata,
-    # ma per un appuntamento che non potrà mai avvenire.
+    # Nessun processo marca gli slot come scaduti: senza questo controllo
+    # una richiesta diretta potrebbe confermare un appuntamento nel passato,
+    # generando evento ed email per una sessione impossibile.
     if slot.start_time <= ora_utc_naive():
         raise HTTPException(status_code=400, detail="This slot is in the past")
 
-    # Controllo di coerenza sulla durata. Il calendario (vedi
-    # backend/services/availability_service.py) genera SOLO slot da 1 ora:
-    # una prenotazione da 2 ore non ha quindi un vero slot da 2h ad
-    # aspettarla — "unisce" lo slot scelto con quello immediatamente
-    # successivo (stessa giornata, un'ora dopo), a patto che esista e sia
-    # ancora libero. slot_secondario resta None per le prenotazioni da 1h
-    # (il caso semplice: la durata richiesta combacia già con quella dello
-    # slot). Il server non si fida MAI solo del client: anche se il
-    # frontend (frontend/js/app.js) mostra solo combinazioni valide,
-    # ricontrolliamo sempre qui, perché chiunque può mandare una richiesta
-    # HTTP direttamente, scavalcando l'interfaccia grafica.
+    # Il calendario genera solo slot da 1 ora: una sessione da 2 ore occupa
+    # lo slot scelto e quello successivo, se esiste ed è libero.
+    # slot_secondario resta None per le sessioni da 1 ora.
+    #
+    # Il controllo è ripetuto qui anche se il frontend propone solo
+    # combinazioni valide: l'interfaccia è scavalcabile con una richiesta
+    # diretta. Vale per tutti i controlli di questa funzione.
     slot_secondario = None
     if booking.duration_hours != slot.duration_hours:
         if booking.duration_hours == 2 and slot.duration_hours == 1:
@@ -115,34 +96,24 @@ def create_booking(
                 detail=f"The requested duration ({booking.duration_hours}h) does not match the selected slot's duration ({slot.duration_hours}h)"
             )
 
-    # L'identità di chi prenota non va mai presa a scatola chiusa da
-    # booking.user_id (un intero qualsiasi che chiunque può scrivere in una
-    # richiesta HTTP diretta, in produzione una PK sequenziale banale da
-    # indovinare): senza un controllo, chiunque potrebbe creare prenotazioni
-    # "confirmed" a nome di un altro cliente esistente, consumandogli il
-    # limite di prenotazioni attive e generandogli un evento Calendar e
-    # un'email di conferma che non ha richiesto.
+    # Identità del prenotante. `booking.user_id` da solo non è una prova:
+    # è un intero sequenziale che chiunque può scrivere in una richiesta
+    # diretta, e permetterebbe di creare prenotazioni a nome di terzi,
+    # consumando il loro limite di prenotazioni attive e generando eventi
+    # ed email non richiesti.
     #
-    # Se lo studente è loggato (JWT verificato dal server), l'identità è la
-    # sua e basta: booking.user_id/booking.email dal body non contano più.
-    # Per il guest checkout (nessun account, scelta di prodotto esplicita)
-    # non esiste un token da cui derivarla — l'unico controllo possibile è
-    # verificare che l'email dichiarata nella stessa richiesta corrisponda
-    # davvero all'utente di quello user_id: non elimina il rischio (un
-    # attaccante che conosce già l'email vera di qualcuno può ancora
-    # impersonarlo, come già oggi per POST /users/), ma alza il costo
-    # dell'attacco da "indovina un intero sequenziale" a "conosci già
-    # l'email vera della vittima".
+    # Con login, l'identità viene dal token e i campi del corpo sono
+    # ignorati. Senza login non esiste un token, quindi l'unica verifica
+    # possibile è la corrispondenza fra email dichiarata e utente indicato.
+    # Non elimina il rischio, ma alza il costo dell'attacco da "indovina un
+    # id" a "conosci già l'email della vittima".
     if studente:
         user = studente
     else:
-        # L'email resta Optional nello schema di proposito (lo studente
-        # loggato non la manda: la sua identità viene dal token), ma sul ramo
-        # guest è obbligatoria — è l'unica prova che chi prenota sia davvero
-        # il proprietario di quello user_id. Senza questo controllo il
-        # confronto qui sotto sarebbe sempre vero e la richiesta finirebbe
-        # nel 403 "user_id and email do not match", che descrive un problema
-        # diverso da quello reale: manca un campo, non "i due non combaciano".
+        # L'email è opzionale nello schema perché lo studente autenticato
+        # non la invia, ma su questo ramo è obbligatoria. Senza questo
+        # controllo la richiesta finirebbe nel 403 sottostante, che
+        # descriverebbe un problema diverso da quello reale.
         if not booking.email:
             raise HTTPException(
                 status_code=422,
@@ -154,25 +125,16 @@ def create_booking(
         if user.email != booking.email:
             raise HTTPException(status_code=403, detail="user_id and email do not match")
 
-    # Redenzione pacchetto (opzionale): se il client indica un package_id
-    # non ci fidiamo del prezzo "gratis" mostrato in UI — ricontrolliamo qui
-    # che il pacchetto esista davvero, appartenga a QUESTO utente, abbia
-    # ancora sessioni residue e che la sua durata combaci con quella
-    # richiesta (tutti i pacchetti del catalogo attuale sono da 2 ore, vedi
-    # backend/services/package_service.py, ma il controllo resta generico).
+    # Redenzione di un pacchetto. Esistenza, proprietà, capienza e durata
+    # sono riverificate qui: il prezzo azzerato mostrato dall'interfaccia
+    # non è una prova.
     #
-    # ATTENZIONE, dettaglio di sicurezza importante: la proprietà del
-    # pacchetto va verificata contro studente.id (dal token JWT, verificato
-    # dal server), MAI contro booking.user_id (dichiarato dal client nel
-    # body della richiesta). booking.user_id è un intero qualsiasi che
-    # chiunque può scrivere in una richiesta HTTP diretta — controllare
-    # "package.user_id != booking.user_id" da solo non protegge nulla, se
-    # l'attaccante può scegliere ENTRAMBI i valori nella stessa richiesta
-    # (es. scoprendo user_id/package_id di un cliente vero da
-    # GET /users/pacchetti-attivi?email=...). Per questo l'uso di un
-    # pacchetto richiede login Discord: senza un token studente valido, non
-    # c'è nessuna identità verificata a cui legare "questo pacchetto è
-    # tuo".
+    # La proprietà va confrontata con l'id preso dal token, mai con
+    # `booking.user_id`. Confrontare due valori entrambi scelti dal
+    # chiamante non protegge nulla: sarebbe sufficiente inviare insieme
+    # l'id del pacchetto e quello del suo proprietario. Per questo l'uso di
+    # un pacchetto richiede il login: senza, non esiste un'identità
+    # verificata a cui legarne la proprietà.
     package = None
     if booking.package_id is not None:
         if not studente:
@@ -188,9 +150,9 @@ def create_booking(
                 detail=f"This package covers {package.durata_sessione_ore}h sessions, not {booking.duration_hours}h"
             )
 
-    # limite anti-abuso: senza pagamento anticipato, niente impedisce a una
-    # stessa persona di occupare più slot contemporaneamente. Contiamo solo
-    # le prenotazioni confermate con slot ancora futuro (quelle "attive").
+    # Limite anti-abuso: senza pagamento anticipato nulla impedirebbe a una
+    # sola persona di occupare più slot. Contano solo le prenotazioni
+    # confermate con slot ancora futuro.
     prenotazioni_attive = db.query(Booking).join(Booking.slot).filter(
         Booking.user_id == user.id,
         Booking.status == "confirmed",
@@ -202,54 +164,31 @@ def create_booking(
             detail=f"You already have {MAX_PRENOTAZIONI_ATTIVE} active bookings. Cancel or complete a session before booking another one."
         )
 
-    # ─────────────────────────────────────────────────────────────
-    # QUESTA È LA PARTE PIÙ DELICATA DI TUTTO IL PROGETTO. Spieghiamola con
-    # calma perché il "perché" è più importante del "come".
+    # Riserva atomica dello slot.
     #
-    # Immagina che due studenti clicchino "Conferma" nello stesso identico
-    # istante sullo stesso slot. Se il codice facesse semplicemente:
+    # Un controllo seguito da una scrittura ("se è libero, occupalo")
+    # lascerebbe una finestra fra lettura e scrittura in cui una seconda
+    # richiesta troverebbe lo slot ancora libero, producendo due
+    # prenotazioni sullo stesso orario. È una race condition, e si
+    # manifesta solo sotto concorrenza reale.
     #
-    #   if slot.is_available:        # 1. leggi
-    #       slot.is_available = False  # 2. scrivi
-    #
-    # esiste una finestra di tempo, piccolissima ma reale, tra il momento
-    # in cui LEGGIAMO che lo slot è libero e il momento in cui SCRIVIAMO che
-    # non lo è più. Se la seconda richiesta arriva a leggere lo slot proprio
-    # in quella finestra — prima che la prima richiesta abbia scritto il suo
-    # cambiamento — anche lei lo troverebbe ancora "libero", e finiremmo con
-    # DUE prenotazioni sullo stesso slot. Questo si chiama "race condition"
-    # (condizione di gara): il risultato dipende da chi "vince la gara" ad
-    # arrivare per primo, in un modo imprevedibile e potenzialmente rotto.
-    #
-    # La soluzione qui è un UPDATE condizionale: invece di leggere e poi
-    # scrivere in due passi separati, chiediamo al database di fare "leggi
-    # e scrivi" come UNA SINGOLA operazione atomica (indivisibile). La
-    # query dice letteralmente: "aggiorna questo slot mettendo is_available
-    # a False, MA SOLO SE è ancora True in questo momento". MySQL garantisce
-    # che, quando due richieste provano a fare questo nello stesso istante,
-    # una delle due (chiunque arrivi fisicamente prima al database) blocca
-    # temporaneamente quella riga finché non ha finito, e SOLO DOPO lascia
-    # che l'altra richiesta proceda — che a quel punto troverà già
-    # is_available=False, e quindi non modificherà nulla.
+    # L'UPDATE condizionale sposta la verifica dentro la scrittura: il
+    # database garantisce che una sola richiesta possa trovare la
+    # condizione vera.
     esito = db.execute(
         update(Slot)
         .where(Slot.id == booking.slot_id, Slot.is_available == True)
         .values(is_available=False)
     )
-    # esito.rowcount dice quante righe sono state DAVVERO modificate da
-    # questo UPDATE. Se è 0, vuol dire che la condizione "is_available ==
-    # True" non era più vera quando la nostra richiesta è arrivata — cioè
-    # qualcun altro ci ha preceduto. In quel caso rifiutiamo la richiesta.
+    # rowcount a zero significa che la condizione non era più vera: un'altra
+    # richiesta ha riservato lo slot per prima.
     if esito.rowcount == 0:
         db.rollback()  # annulla qualunque modifica non ancora salvata in questa sessione
         raise HTTPException(status_code=400, detail="Slot not available")
 
-    # Stesso identico claim atomico, ripetuto per il secondo slot quando la
-    # prenotazione da 2 ore ne unisce due (vedi sopra). Se questo secondo
-    # claim fallisse (qualcun altro l'ha appena preso), il rollback annulla
-    # ANCHE il primo claim già fatto sopra in questa stessa transazione —
-    # non ancora salvato per sempre, dato che db.commit() non è stato
-    # ancora chiamato: o si riservano entrambi gli slot, o nessuno dei due.
+    # Stessa riserva per il secondo slot delle sessioni da 2 ore. Il
+    # rollback annulla anche la prima, non ancora committata: o si
+    # riservano entrambi gli slot, o nessuno.
     if slot_secondario:
         esito_secondario = db.execute(
             update(Slot)
@@ -261,18 +200,16 @@ def create_booking(
             raise HTTPException(status_code=400, detail="Slot not available")
     # ─────────────────────────────────────────────────────────────
 
-    # Se la prenotazione usa un pacchetto, la sessione è già stata pagata in
-    # blocco al momento dell'acquisto del pacchetto: prezzo 0 qui, per non
-    # farla contare due volte negli incassi.
+    # Prezzo zero se la sessione scala un pacchetto: l'importo è già stato
+    # incassato all'acquisto e conteggiarlo di nuovo falserebbe gli incassi.
     price = 0 if package else TABELLA_PREZZI[booking.duration_hours]
 
     slot_rome = utc_to_rome(slot.start_time)
     data_slot = slot_rome.strftime("%d/%m/%Y")
     ora_slot = slot_rome.strftime("%H:%M")
 
-    # crea l'evento sul calendario Google del coach subito alla prenotazione,
-    # dato che ora la conferma è immediata (nessun passaggio manuale admin dopo).
-    # In caso di errore l'evento è semplicemente assente (non blocca la prenotazione).
+    # La conferma è immediata, quindi l'evento si crea subito. Un errore
+    # qui lascia la prenotazione senza evento, senza farla fallire.
     event_id = crea_evento_calendario(
         nome_cliente=user.nome,
         email_cliente=user.email,
@@ -296,9 +233,8 @@ def create_booking(
         status="confirmed",
         calendar_event_id=event_id,
         package_id=package.id if package else None,
-        # token_urlsafe genera una stringa casuale non indovinabile: è
-        # quello che autentica il link di recensione post-sessione (vedi
-        # backend/scheduler.py) senza richiedere un vero login cliente.
+        # Stringa casuale che autentica il link di recensione inviato dopo
+        # la sessione, senza richiedere un login.
         review_token=secrets.token_urlsafe(32)
     )
     db.add(db_booking)
@@ -309,12 +245,8 @@ def create_booking(
     db.commit()
     db.refresh(db_booking)
 
-    # Le tre notifiche seguenti vengono mandate DOPO che la prenotazione è
-    # già salvata (db.commit() sopra) — così, anche se una di queste
-    # dovesse fallire (vedi i commenti try/except in email_service.py e
-    # discord_service.py), la prenotazione resta comunque valida: le
-    # notifiche sono un "di più", non una condizione per il successo della
-    # prenotazione stessa.
+    # Notifiche dopo il commit: sono accessorie, e un loro fallimento non
+    # deve invalidare una prenotazione già salvata.
     invia_conferma_cliente(
         email_cliente=user.email,
         nome_cliente=user.nome,
@@ -352,14 +284,11 @@ def cancella_prenotazione_cliente(
     studente: User = Depends(get_studente),
     db: Session = Depends(get_db)
 ):
-    """
-    Cancellazione self-service: lo studente loggato via Discord cancella da
-    solo una propria prenotazione futura, senza dover scrivere al coach.
-    Nessun rischeduling qui, solo cancellazione (scelta di prodotto
-    esplicita) — per prenotare un altro orario, il cliente rifà il wizard
-    da capo. Stessa logica di liberazione slot/calendario usata anche
-    dall'admin, vedi libera_slot_prenotazione in
-    backend/services/booking_service.py.
+    """Cancellazione self-service di una propria prenotazione futura.
+
+    Solo cancellazione, senza riprogrammazione: per un altro orario il
+    cliente ripete la prenotazione. Verifica che la prenotazione appartenga
+    allo studente autenticato, sia ancora attiva e non sia già passata.
     """
     prenotazione = db.query(Booking).filter(Booking.id == booking_id).first()
     if not prenotazione:
@@ -380,19 +309,14 @@ def cancella_prenotazione_cliente(
 
 @router.get("/recensioni/pubbliche", response_model=List[ReviewPubblica])
 def recensioni_pubbliche(db: Session = Depends(get_db)):
+    """Vetrina pubblica delle recensioni approvate, più recenti prima.
+
+    Espone solo voto, commento, data e nome di battesimo: nessun contatto
+    né riferimento interno, così una recensione resta attribuibile senza
+    rivelare l'identità completa di chi l'ha scritta.
     """
-    Vetrina pubblica delle recensioni (pagina About, frontend/about.html):
-    solo quelle che il coach ha approvato (vedi PATCH /admin/recensioni/{id}
-    in backend/routers/admin/reviews.py), più recenti prima. Nessun dato interno
-    esposto (niente email, niente booking_id) — solo il nome di battesimo
-    del cliente, così una recensione resta riconoscibile come "vera" senza
-    rivelare il cognome o il contatto di chi l'ha scritta.
-    """
-    # joinedload(Review.booking).joinedload(Booking.user): senza questo, la
-    # list comprehension sotto (r.booking.user.nome, per ogni recensione)
-    # rifarebbe due query separate per riga invece di prenderle entrambe
-    # con due JOIN nella stessa query — endpoint pubblico, quindi ancora
-    # più importante non lasciarlo N+1.
+    # Endpoint pubblico e potenzialmente molto chiamato: joinedload evita
+    # due query aggiuntive per ogni recensione.
     recensioni = db.query(Review).options(
         joinedload(Review.booking).joinedload(Booking.user)
     ).filter(
@@ -404,9 +328,7 @@ def recensioni_pubbliche(db: Session = Depends(get_db)):
             "id": r.id,
             "voto": r.voto,
             "commento": r.commento,
-            # .split(" ")[0]: solo il primo "pezzo" del nome, es. "Mario" da
-            # "Mario Rossi" — se il cliente ha scritto un solo nome resta
-            # invariato.
+            # Solo il nome di battesimo.
             "nome_cliente": r.booking.user.nome.split(" ")[0],
             "created_at": r.created_at
         }
@@ -417,21 +339,18 @@ def recensioni_pubbliche(db: Session = Depends(get_db)):
 @router.post("/{booking_id}/recensione", response_model=ReviewResponse)
 @limiter.limit("5/minute")
 def lascia_recensione(request: Request, booking_id: int, recensione: ReviewCreate, db: Session = Depends(get_db)):
-    """
-    Endpoint pubblico raggiunto dal link mandato via email dopo la sessione
-    (vedi backend/scheduler.py). Non richiede login: l'autenticazione è il
-    "token" — una stringa casuale generata alla creazione della
-    prenotazione (vedi create_booking sopra) che solo chi ha ricevuto
-    quell'email può conoscere.
+    """Registra la recensione di una sessione.
+
+    Pubblico, raggiunto dal link inviato per email. L'autenticazione è il
+    token casuale generato alla prenotazione: solo chi ha ricevuto quella
+    email può conoscerlo. Una sola recensione per prenotazione.
     """
     booking = db.query(Booking).filter(Booking.id == booking_id).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    # secrets.compare_digest confronta due stringhe in "tempo costante": a
-    # differenza di "==", il tempo impiegato non rivela quanti caratteri
-    # iniziali combaciano, il che rende più difficile indovinare il token
-    # provando molte richieste (attacco a tempistica).
+    # compare_digest e non ==: il confronto a tempo costante non rivela
+    # quanti caratteri iniziali coincidono, chiudendo un attacco a tempo.
     if not booking.review_token or not secrets.compare_digest(recensione.token, booking.review_token):
         raise HTTPException(status_code=403, detail="Invalid token")
 

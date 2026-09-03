@@ -1,7 +1,4 @@
-# Gestione clienti dal pannello admin: lista con statistiche, cancellazione
-# (diritto all'oblio GDPR), e note tecniche (mini-CRM). Vedi
-# backend/routers/admin/__init__.py per la spiegazione generale del
-# pacchetto.
+"""Gestione clienti: elenco con statistiche, cancellazione e note tecniche."""
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
@@ -28,19 +25,12 @@ def get_clienti(
     pagina: int = 1,
     per_pagina: int = 20
 ):
+    """Elenca i clienti paginati, con sessioni effettuate e totale speso.
+
+    Le statistiche sono calcolate con tre query aggregate sull'intera
+    pagina, non con una query per cliente: quest'ultima soluzione
+    costerebbe una query in più per ogni riga mostrata.
     """
-    Restituisce i clienti, paginati, con il numero di sessioni
-    effettuate e il totale speso. Le statistiche per cliente sono
-    calcolate con query aggregate (GROUP BY), non con un ciclo
-    Python che interroga il DB una volta per cliente (N+1).
-    """
-    # Il problema "N+1" che il commento sopra nomina è un classico errore
-    # di prestazioni: se per ogni cliente (N clienti) facessimo una query
-    # separata per contare le sue prenotazioni, otterremmo 1 query per la
-    # lista clienti PIÙ N query aggiuntive (una per cliente) — con 100
-    # clienti, 101 query invece di poche. La soluzione sotto fa UNA query
-    # che raggruppa e conta tutto insieme, per tutti i clienti della pagina
-    # contemporaneamente.
     pagina, per_pagina, offset = pagina_e_offset(pagina, per_pagina)
 
     totale = db.query(User).count()
@@ -52,16 +42,8 @@ def get_clienti(
 
     id_clienti_pagina = [c.id for c in clienti]
 
-    # .group_by(Booking.user_id) raggruppa tutte le prenotazioni per
-    # cliente, e func.count(Booking.id) conta quante righe ci sono in ogni
-    # gruppo — è l'equivalente SQL di "per ogni cliente, quante
-    # prenotazioni ha". Il risultato è una lista di coppie (user_id,
-    # conteggio); dict(...) la trasforma in un dizionario {user_id:
-    # conteggio}, comodo da consultare subito dopo con .get(cliente.id).
-    #
-    # .filter(Booking.user_id.in_(id_clienti_pagina)) limita il calcolo
-    # solo ai clienti della pagina corrente — non ha senso calcolare le
-    # statistiche di TUTTI i clienti se ne stiamo mostrando solo 20.
+    # Il filtro sugli id della pagina evita di calcolare le statistiche
+    # per l'intero archivio clienti quando ne vengono mostrati venti.
     stats_prenotazioni = dict(
         db.query(
             Booking.user_id,
@@ -92,9 +74,8 @@ def get_clienti(
             "categoria": c.categoria,
             "discord": c.discord_tag,
             "telefono": c.telefono,
-            # .get(c.id, 0): se questo cliente non compare nel dizionario
-            # (perché non ha nessuna prenotazione, quindi group_by non
-            # produce nessuna riga per lui), il default 0 evita un errore.
+            # Un cliente senza prenotazioni non compare nei raggruppamenti:
+            # il default copre quel caso.
             "sessioni_totali": stats_prenotazioni.get(c.id, 0),
             "totale_speso_euro": (spesa_prenotazioni.get(c.id, 0) or 0) / 100,
             "note_totali": conteggio_note.get(c.id, 0),
@@ -112,43 +93,32 @@ def elimina_cliente(
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Cancella definitivamente un cliente e tutti i dati collegati:
-    recensioni, prenotazioni, note tecniche e pacchetti. Prima di
-    cancellare, libera lo slot (ed elimina l'evento Google Calendar) di
-    ogni prenotazione ancora "confirmed" — stessa funzione già usata da
-    PATCH /admin/prenotazioni/{id}/stato quando una prenotazione viene
-    cancellata singolarmente.
+    """Cancella definitivamente un cliente e tutti i dati collegati.
 
-    Da usare quando un cliente esercita il diritto alla cancellazione dei
-    propri dati (vedi frontend/privacy.html, sezione "I tuoi diritti") —
-    finora l'unico modo per farlo era intervenire a mano sul database.
+    Rimuove recensioni, prenotazioni, note e pacchetti. Le prenotazioni
+    ancora confermate vengono prima liberate, così slot ed eventi sul
+    calendario non restano occupati.
+
+    Implementa il diritto alla cancellazione dichiarato nell'informativa
+    privacy: è un'azione irreversibile, senza conferma lato server.
     """
     cliente = db.query(User).filter(User.id == user_id).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente non trovato")
 
-    # joinedload(Booking.review): senza questo, "p.review" nel ciclo sotto
-    # rifarebbe una query separata per OGNI prenotazione del cliente
-    # (N+1) invece di prenderle tutte con un solo JOIN in più — stessa
-    # tecnica già usata per lo stesso motivo in admin/bookings.py.
+    # joinedload evita una query per prenotazione nel ciclo sottostante.
     prenotazioni = db.query(Booking).options(joinedload(Booking.review)).filter(Booking.user_id == user_id).all()
     for p in prenotazioni:
         if p.status == "confirmed":
             libera_slot_prenotazione(p, db)
-        # Una recensione ha una ForeignKey verso la sua prenotazione (vedi
-        # backend/models/review.py): va cancellata PRIMA della prenotazione
-        # a cui appartiene, altrimenti il database rifiuterebbe di
-        # eliminare una riga ancora referenziata da un'altra.
+        # La recensione referenzia la prenotazione: va eliminata prima,
+        # altrimenti il vincolo di chiave esterna blocca la cancellazione.
         if p.review:
             db.delete(p.review)
         db.delete(p)
 
-    # Stesso motivo per cui le prenotazioni vanno cancellate prima dei
-    # pacchetti: Booking.package_id referenzia packages.id (vedi
-    # backend/models/booking.py) — a questo punto le prenotazioni sono già
-    # state eliminate sopra, quindi i pacchetti si possono rimuovere senza
-    # violare nessun vincolo.
+    # I pacchetti si possono rimuovere solo ora: erano referenziati dalle
+    # prenotazioni, eliminate al passo precedente.
     db.query(ClientNote).filter(ClientNote.user_id == user_id).delete()
     db.query(Package).filter(Package.user_id == user_id).delete()
 
@@ -158,17 +128,13 @@ def elimina_cliente(
     return {"message": f"Cliente {nome_cliente} e tutti i dati collegati sono stati eliminati"}
 
 
-# ─── NOTE TECNICHE CLIENTE (MINI-CRM) ────────────────────────
 @router.get("/clienti/{user_id}/note", response_model=List[ClientNoteResponse])
 def get_note_cliente(
     user_id: int,
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Restituisce lo storico delle note tecniche di un cliente,
-    in ordine cronologico (dalla più vecchia alla più recente).
-    """
+    """Restituisce lo storico delle note di un cliente, dalla più vecchia."""
     cliente = db.query(User).filter(User.id == user_id).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente non trovato")
@@ -184,18 +150,15 @@ def crea_nota_cliente(
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Aggiunge una nuova nota tecnica allo storico di un cliente
-    (es. "Fatica a gestire i team Trick Room") — non sostituisce
-    le note precedenti, si accumulano nel tempo.
+    """Aggiunge una nota allo storico di un cliente.
+
+    Le note si accumulano: questa non sostituisce le precedenti.
     """
     cliente = db.query(User).filter(User.id == user_id).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente non trovato")
 
-    # .strip() rimuove spazi bianchi/a-capo all'inizio e alla fine di una
-    # stringa — una nota fatta solo di spazi non deve contare come "non
-    # vuota".
+    # Una nota di soli spazi non è una nota valida.
     if not nota.nota.strip():
         raise HTTPException(status_code=400, detail="La nota non può essere vuota")
 

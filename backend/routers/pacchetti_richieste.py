@@ -1,12 +1,10 @@
-# Gestisce la richiesta di attivazione di un pacchetto di sessioni dal
-# sito pubblico (bottone "Select this package" su ogni card in
-# frontend/index.html). Stesso spirito di backend/routers/consulenza.py:
-# il progetto non gestisce pagamenti in-app (vedi TABELLA_PREZZI in
-# booking.py e CATALOGO_PACCHETTI in package_service.py), quindi questo
-# endpoint NON crea un pacchetto vero — manda solo i contatti del cliente
-# al coach, che poi lo assegna davvero da POST /admin/pacchetti
-# (backend/routers/admin/packages.py) dopo aver ricevuto il pagamento concordato
-# privatamente.
+"""Richiesta di attivazione di un pacchetto dal sito pubblico.
+
+Non crea alcun pacchetto: i pagamenti non passano dall'applicazione,
+quindi l'endpoint si limita a inoltrare la richiesta di contatto. Il
+pacchetto viene assegnato dal pannello di amministrazione una volta
+incassato.
+"""
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
@@ -28,8 +26,7 @@ router = APIRouter(prefix="/pacchetti-richieste", tags=["Pacchetti"])
 @router.post("/")
 @limiter.limit("5/minute")
 def richiedi_pacchetto(request: Request, richiesta: PacchettoRichiestaCreate, db: Session = Depends(get_db)):
-    # get_or_create_user (backend/routers/users.py) tiene traccia del
-    # cliente anche per questo canale, come già fa consulenza.py.
+    # Registra il contatto, come per la richiesta di consulenza.
     get_or_create_user(db, UserCreate(nome=richiesta.nome, email=richiesta.email, discord_tag=richiesta.discord_tag))
 
     nome_pacchetto = CATALOGO_PACCHETTI[richiesta.tipo]["nome"]

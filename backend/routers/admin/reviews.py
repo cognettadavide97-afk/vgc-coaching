@@ -1,6 +1,4 @@
-# Approvazione recensioni dal pannello admin. Vedi
-# backend/routers/admin/__init__.py per la spiegazione generale del
-# pacchetto.
+"""Moderazione delle recensioni lasciate dai clienti."""
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
@@ -14,27 +12,20 @@ from typing import Optional
 router = APIRouter()
 
 
-# ─── RECENSIONI ──────────────────────────────────────────────
-# Una recensione lasciata dal cliente (vedi POST /bookings/{id}/recensione
-# in backend/routers/booking.py) non è subito pubblica: il coach la vede
-# qui, e decide se approvarla prima che compaia nella vetrina pubblica
-# (GET /bookings/recensioni/pubbliche, mostrata in frontend/about.html).
+# Una recensione non è pubblica finché non viene approvata da qui: solo le
+# approvate compaiono nella vetrina pubblica.
 @router.get("/recensioni")
 def lista_recensioni(
     approvata: Optional[bool] = None,
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
+    """Elenca le recensioni, più recenti prima, con il contesto del cliente.
+
+    Il parametro `approvata` filtra per stato di moderazione; se omesso le
+    restituisce tutte.
     """
-    Tutte le recensioni, più recenti prima — con il contesto del cliente e
-    della sessione, per aiutare il coach a decidere se approvarle.
-    approvata=true/false filtra solo quelle già approvate/in attesa; senza
-    il parametro le mostra tutte.
-    """
-    # joinedload(Review.booking).joinedload(Booking.user): senza questo, il
-    # ciclo sotto (r.booking.user.*, per ogni recensione) rifarebbe due
-    # query separate per riga (una per il booking, una per lo user) invece
-    # di prenderli entrambi con due JOIN nella stessa query.
+    # joinedload evita due query aggiuntive per ogni recensione nel ciclo.
     query = db.query(Review).options(
         joinedload(Review.booking).joinedload(Booking.user)
     )

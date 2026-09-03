@@ -1,8 +1,8 @@
-# Gestione della disponibilità dal pannello admin: slot singoli (vederli,
-# sincronizzarli col calendario Google, eliminarli), regole ricorrenti
-# ("ogni martedì 18-22") e blocchi eccezionali (ferie). Vedi
-# backend/routers/admin/__init__.py per la spiegazione generale del
-# pacchetto.
+"""Gestione della disponibilità: slot, regole ricorrenti e blocchi.
+
+Tre livelli distinti: gli slot concreti, le regole che li generano
+("ogni martedì 18-22") e i blocchi eccezionali che li sospendono (ferie).
+"""
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
@@ -64,15 +64,10 @@ def sincronizza_calendario(
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Legge il calendario Google del coach e blocca automaticamente
-    (is_available=False, blocked_external=True) gli slot liberi che si
-    sovrappongono a un evento esterno (torneo, stream, altro impegno).
-    La logica vera vive in sincronizza_slot_con_calendario
-    (backend/services/calendar_service.py), riusata anche dal job
-    automatico periodico in backend/scheduler.py — questo endpoint resta
-    per il bottone manuale nel pannello admin, comportamento identico a
-    prima.
+    """Blocca gli slot sovrapposti a impegni esterni sul calendario Google.
+
+    Attivazione manuale dal pannello. La stessa logica gira anche in un job
+    periodico: le due strade condividono l'implementazione.
     """
     bloccati = sincronizza_slot_con_calendario(db)
     return {"slot_bloccati": bloccati}
@@ -83,37 +78,25 @@ def elimina_slot(
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Elimina uno slot. Se ha prenotazioni collegate (anche cancellate, anche
-    come slot secondario di una sessione da 2h) la richiesta viene RIFIUTATA
-    con un 400 e lo slot resta esattamente com'è: si preserva lo storico non
-    toccandolo. Nessuna "disattivazione" automatica — per rendere uno slot
-    non prenotabile senza cancellarlo esiste il blocco eccezionale
-    (POST /admin/disponibilita/blocchi).
+    """Elimina uno slot privo di prenotazioni collegate.
+
+    Restituisce 400 se lo slot compare in qualsiasi prenotazione, anche
+    cancellata o come slot secondario di una sessione da 2 ore: lo storico
+    va preservato. Per sospendere uno slot senza eliminarlo si usa un
+    blocco eccezionale.
     """
     slot = db.query(Slot).filter(Slot.id == slot_id).first()
     if not slot:
         raise HTTPException(status_code=404, detail="Slot non trovato")
 
-    # controlla se esistono prenotazioni collegate a questo slot — anche
-    # come slot_id_secondario, cioè la "seconda ora" di una sessione da 2h
-    # (vedi backend/models/booking.py): entrambe le colonne sono una
-    # ForeignKey verso slots.id, quindi il database rifiuterebbe comunque
-    # la cancellazione con un errore tecnico se controllassimo solo
-    # slot_id — questo controllo dà invece il messaggio chiaro sotto.
+    # Entrambe le colonne che referenziano slots vanno controllate: il
+    # vincolo di chiave esterna bloccherebbe comunque la cancellazione, ma
+    # con un errore tecnico invece del messaggio esplicito qui sotto.
     prenotazioni_collegate = db.query(Booking).filter(
         or_(Booking.slot_id == slot_id, Booking.slot_id_secondario == slot_id)
     ).count()
 
     if prenotazioni_collegate > 0:
-        # Perché non permettere comunque l'eliminazione? Perché slot_id in
-        # Booking è una ForeignKey (vedi backend/models/booking.py): il
-        # database stesso impedirebbe di eliminare uno slot ancora
-        # referenziato da qualche prenotazione (per non lasciare
-        # prenotazioni "orfane", che puntano a uno slot inesistente).
-        # Controllarlo qui PRIMA di provare a cancellare permette di dare
-        # un messaggio d'errore chiaro, invece di un errore tecnico del
-        # database poco comprensibile.
         raise HTTPException(
             status_code=400,
             detail=f"Impossibile eliminare: questo slot ha {prenotazioni_collegate} prenotazione/i collegate nello storico. Non può essere rimosso per preservare i dati."
@@ -158,20 +141,13 @@ def crea_regola_disponibilita(
     db.commit()
     db.refresh(db_regola)
 
-    # Dopo aver salvato LA REGOLA, chiamiamo la funzione di
-    # availability_service.py che genera DAVVERO gli slot concreti a
-    # partire da essa — vedi i commenti dettagliati in quel file per capire
-    # come funziona il calcolo.
+    # Salvare la regola non crea slot: la generazione è un passo separato,
+    # eseguito subito qui e poi ripetuto ogni notte dal job schedulato.
     slot_creati = genera_slot_da_regola(db_regola, db)
 
     return {
-        # AvailabilityRuleResponse.model_validate(db_regola) trasforma
-        # manualmente l'oggetto SQLAlchemy in uno schema Pydantic — di
-        # solito questo lo fa FastAPI da solo tramite response_model, ma
-        # qui la risposta è un dizionario con DUE cose diverse dentro
-        # (la regola e il conteggio degli slot creati), quindi va costruito
-        # a mano invece di lasciare che FastAPI usi un response_model
-        # singolo.
+        # Conversione manuale: la risposta combina due valori, quindi non
+        # può essere dichiarata con un singolo response_model.
         "regola": AvailabilityRuleResponse.model_validate(db_regola),
         "slot_creati": slot_creati
     }
@@ -240,9 +216,10 @@ def elimina_blocco_eccezionale(
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    Elimina un blocco eccezionale. Non riapre automaticamente gli slot
-    che aveva bloccato — va fatto manualmente se necessario.
+    """Elimina un blocco eccezionale.
+
+    Gli slot che aveva bloccato non vengono riaperti: vanno sbloccati a
+    mano se necessario.
     """
     blocco = db.query(AvailabilityException).filter(AvailabilityException.id == blocco_id).first()
     if not blocco:
