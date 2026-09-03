@@ -1,26 +1,13 @@
-# Questo file si occupa di UNA cosa sola: costruire e inviare le email
-# dell'app (conferma prenotazione, promemoria, notifica al coach), usando
-# l'API Gmail di Google come "postino" — un programma normale non può
-# "inviare email" da solo: ha bisogno di appoggiarsi al server di
-# qualcuno, in questo caso lo stesso account Gmail del coach.
-#
-# Perché l'API via HTTPS e non SMTP diretto (che sarebbe più semplice)?
-# Perché Railway (come molte piattaforme cloud) blocca le connessioni SMTP
-# in uscita per evitare che i suoi server vengano usati per spam — un
-# tentativo reale di invio SMTP da lì fallisce con "Network is
-# unreachable". L'API Gmail invece è una normale chiamata HTTPS (stessa
-# porta 443 di qualunque sito web), mai bloccata. Il prezzo da pagare è
-# l'autenticazione: non basta una password, serve OAuth2 — un
-# "refresh token" ottenuto una tantum autorizzando l'app dal browser (vedi
-# lo script usato in fase di setup), che l'API di Google scambia ad ogni
-# invio con un token di accesso temporaneo tramite Credentials.refresh().
-# google-auth e google-api-python-client sono già dipendenze del progetto
-# (usate anche da calendar_service.py per lo stesso tipo di autenticazione).
-#
-# Pattern che vedrai ripetuto in ogni funzione di questo file: costruire il
-# contenuto, provare a inviarlo, e se qualcosa va storto stampare l'errore
-# invece di far fallire tutta la richiesta. Guarda il commento dentro
-# invia_conferma_cliente per il perché di questa scelta.
+"""Composizione e invio delle email transazionali, tramite API Gmail.
+
+L'invio passa dall'API HTTPS e non da SMTP perché l'hosting blocca le
+connessioni SMTP in uscita (`Network is unreachable`). Il costo di questa
+scelta è l'autenticazione OAuth2: serve un refresh token ottenuto una
+tantum autorizzando l'app dal browser, non una password.
+
+Nessuna funzione di invio propaga eccezioni: un problema con Gmail non
+deve far fallire l'operazione che ha generato l'email.
+"""
 
 import os
 import html
@@ -44,33 +31,22 @@ COACH_TELEGRAM_CONTACT = os.getenv("COACH_TELEGRAM_CONTACT")
 logger = logging.getLogger(__name__)
 
 
-# Ogni funzione di questo file costruisce il corpo dell'email con una
-# f-string HTML, interpolando direttamente campi testo libero scritti dal
-# cliente (nome, note, messaggio della consulenza...) — senza questa
-# funzione, quel testo finirebbe nell'HTML COSÌ COM'È: un cliente che
-# scrivesse `<a href="sito-di-phishing.com">Clicca qui</a>` come nota
-# vedrebbe il coach ricevere un link vero e cliccabile nella sua casella
-# (non JavaScript eseguibile — i client email lo filtrano — ma un vettore
-# di phishing/tracking concreto). html.escape() trasforma i caratteri
-# speciali dell'HTML (<, >, &, ...) nella loro forma "innocua" (&lt;,
-# &gt;, &amp;...): il testo compare identico a come l'ha scritto il
-# cliente, ma il client email lo mostra come TESTO, non lo interpreta più
-# come markup. Va applicata qui, al momento di costruire l'HTML — non
-# dove il dato viene raccolto, perché lo stesso testo libero (es.
-# note_cliente) viene riusato altrove (pannello admin, webhook Discord)
-# dove HTML-escaparlo sarebbe sbagliato o inutile.
 def _escape(testo: str, default: str = "") -> str:
+    """Neutralizza il markup nel testo scritto dal cliente.
+
+    I corpi delle email sono costruiti per interpolazione, quindi un campo
+    libero non filtrato diventerebbe HTML attivo: una nota contenente un
+    tag `<a>` arriverebbe al coach come link cliccabile.
+
+    L'escape va applicato qui e non alla raccolta del dato: lo stesso testo
+    viene riusato nel pannello e nelle notifiche Discord, dove servono
+    trattamenti diversi.
+    """
     return html.escape(testo) if testo else default
 
 
-# Le due funzioni sotto factorizzano lo "scheletro" HTML (header/footer col
-# logo, pannello grigio chiaro per il contenuto) che PRIMA veniva riscritto
-# per intero in ogni singola funzione invia_*: 5 email al cliente
-# condividevano lo stesso wrapper a tre blocchi (header + pannello + footer),
-# 3 email al coach lo stesso wrapper più semplice (titolo + pannello). Ogni
-# funzione invia_* qui sotto costruisce solo il proprio frammento di
-# contenuto (corpo) e lo passa a una di queste due — un cambio di stile
-# (es. il colore del footer) va fatto una volta sola invece che in 8 punti.
+# Scheletro HTML condiviso: le funzioni di invio producono solo il proprio
+# frammento di contenuto, così una modifica di stile si fa in un punto solo.
 def _template_cliente(corpo: str) -> str:
     return f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -102,18 +78,13 @@ def _template_admin(titolo: str, corpo: str) -> str:
     """
 
 
-# Funzione condivisa da tutte le email qui sotto: costruisce il messaggio
-# (con una versione testuale semplice + quella HTML vera e propria, così i
-# client di posta che non mostrano HTML hanno comunque un contenuto
-# leggibile), lo autentica scambiando il refresh_token con un token di
-# accesso valido, e lo invia tramite l'API Gmail. Lo scambio NON avviene a
-# ogni invio: credenziali_oauth_google (backend/services/google_oauth_service.py)
-# tiene in cache le Credentials per refresh_token e chiama .refresh() solo
-# quando l'access token non è più valido — vedi il commento in quel file per
-# il perché (era un giro HTTPS a Google in più per ogni email). L'API vuole il
-# messaggio codificato in base64 (formato "raw" richiesto da
-# users.messages.send), non l'oggetto EmailMessage direttamente.
 def _invia_via_gmail(destinatario: str, oggetto: str, corpo_html: str):
+    """Invia un messaggio multipart via API Gmail. Punto unico di invio.
+
+    Include una versione testuale oltre a quella HTML, per i client che non
+    interpretano il markup. L'API richiede il messaggio codificato in
+    base64 url-safe.
+    """
     messaggio = EmailMessage()
     messaggio["From"] = EMAIL_MITTENTE
     messaggio["To"] = destinatario
@@ -128,29 +99,17 @@ def _invia_via_gmail(destinatario: str, oggetto: str, corpo_html: str):
 
 
 def verifica_credenziali_gmail() -> bool:
-    """
-    Controllo di salute, richiamato periodicamente dallo scheduler (vedi
-    controlla_credenziali_gmail in backend/scheduler.py): prova a scambiare
-    il refresh token per un token di accesso e a fare UNA chiamata Gmail
-    che non manda nessuna email (users.getProfile — restituisce solo dati
-    sull'account, tipo diagnostico "sono ancora autorizzato?"). Restituisce
-    True se tutto ok, False altrimenti — non solleva mai un'eccezione verso
-    il chiamante, così un fallimento qui non può mai far crashare lo
-    scheduler.
+    """Verifica che le credenziali Gmail siano ancora valide.
 
-    Perché serve: con l'app Google OAuth ancora in stato "Testing" (vedi
-    README.md, sezione Gmail API), il refresh token scade dopo 7 giorni —
-    a prescindere dall'uso che se ne fa, non dopo 7 giorni di INATTIVITÀ come
-    si era creduto a lungo. Osservato in produzione il 2026-09-02: il token è
-    scaduto pur essendo esercitato ogni giorno proprio da questo controllo e
-    dalle email di ogni prenotazione. Questo healthcheck quindi RILEVA la
-    scadenza, non la previene: l'unico rimedio che la elimina è portare la
-    schermata di consenso a "In production". È comunque un problema
-    silenzioso, perché finché nessuno controlla esplicitamente lo si
-    scoprirebbe solo quando un'email a un cliente non parte. Questo controllo
-    lo scopre PRIMA, e avvisa il coach via Discord
-    (vedi invia_alert_sistema in backend/services/discord_service.py) così
-    può rifare l'autorizzazione con scripts/reauth_gmail.py.
+    Interroga il profilo dell'account senza inviare nulla. Restituisce
+    l'esito invece di sollevare, così un fallimento non interrompe lo
+    scheduler che la richiama.
+
+    Finché la schermata di consenso OAuth resta in stato "Testing", il
+    refresh token scade dopo 7 giorni **a prescindere dall'uso** — non per
+    inattività: verificato in produzione il 2026-09-02, con il token
+    esercitato ogni giorno. Questo controllo rileva la scadenza ma non può
+    prevenirla; l'unico rimedio è portare la schermata "In production".
     """
     try:
         credenziali = credenziali_oauth_google(GMAIL_REFRESH_TOKEN, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET)
@@ -172,10 +131,6 @@ def invia_conferma_cliente(
 ):
     prezzo_euro = prezzo / 100
 
-    # {"e" if durata > 1 else ""} è un'espressione condizionale (l'"if" in
-    # una riga sola, equivalente a scrivere "e" if durata > 1 else "")
-    # dentro la f-string: serve solo per scrivere "1 ora" ma "2 ore" — una
-    # piccola concordanza grammaticale automatica.
     corpo = f"""
             <h2 style="color: #1a1a2e;">Booking confirmed!</h2>
             <p>Hi <strong>{_escape(nome_cliente)}</strong>,</p>
@@ -200,16 +155,6 @@ def invia_conferma_cliente(
     """
     corpo_email = _template_cliente(corpo)
 
-    # Perché try/except invece di lasciare che un errore fermi tutto? Perché
-    # l'invio di un'email dipende da un servizio ESTERNO (il server SMTP di
-    # Gmail), che può avere un problema temporaneo, un timeout di rete, una
-    # password per le app revocata... Se quell'errore facesse fallire
-    # l'intera richiesta, un'email non consegnata bloccherebbe anche il
-    # salvataggio della prenotazione nel database — anche se il vero
-    # problema è solo "email non partita". Meglio "provare, e se fallisce
-    # solo segnalarlo nei log (qui: stampandolo in console)", lasciando che
-    # il resto dell'operazione vada comunque a buon fine. Ritrovi lo stesso
-    # ragionamento in calendar_service.py e discord_service.py.
     try:
         _invia_via_gmail(email_cliente, "Booking confirmed", corpo_email)
         logger.info(f"Email inviata a {email_cliente}")
@@ -224,9 +169,7 @@ def invia_promemoria_cliente(
     ora_slot: str,
     durata: int
 ):
-    # Stesso contenuto/struttura di invia_conferma_cliente qui sopra, solo
-    # con testo diverso — mandata da backend/scheduler.py quando una
-    # sessione si avvicina, invece che al momento della prenotazione.
+    # Inviata dallo scheduler quando la sessione si avvicina.
     corpo = f"""
             <h2 style="color: #1a1a2e;">Session reminder</h2>
             <p>Hi <strong>{_escape(nome_cliente)}</strong>,</p>

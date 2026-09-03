@@ -1,9 +1,9 @@
-# Questo è probabilmente il file con la logica più "matematica" del
-# progetto: genera gli slot concreti a partire da una regola ricorrente
-# (es. "ogni martedì 18-22, slot da 1 ora" → 4 slot per ogni martedì fino
-# alla fine del mese corrente), e applica i blocchi eccezionali (ferie).
-# Vale la pena leggerlo con calma perché mischia più concetti insieme:
-# cicli, aritmetica sulle date, e conversioni di fuso orario.
+"""Gestione della disponibilità: generazione slot, blocchi, pulizia.
+
+Trasforma le regole ricorrenti in slot concreti, applica i blocchi
+eccezionali e rimuove gli slot obsoleti. È il punto in cui le date in ora
+italiana delle regole vengono convertite in UTC per il salvataggio.
+"""
 
 import calendar
 from datetime import date, datetime, time, timedelta, timezone
@@ -16,45 +16,31 @@ from backend.services.timezone_service import ROME_TZ, ora_utc_naive, intervalli
 
 
 def slot_si_sovrappone(db: Session, start_time: datetime, duration_hours: int, escludi_id: int = None) -> bool:
+    """Indica se l'intervallo indicato si sovrappone a uno slot esistente.
+
+    Considera gli slot in qualsiasi stato. Il claim atomico applicato in
+    fase di prenotazione protegge un singolo slot dalla doppia
+    prenotazione, ma non impedisce che due slot *distinti* si accavallino
+    nel tempo, producendo un doppio impegno reale per il coach.
+
+    `escludi_id` esclude uno slot dal confronto, per poterlo verificare
+    contro tutti gli altri senza che risulti sovrapposto a sé stesso.
+    Nessun chiamante attuale lo usa.
     """
-    True se l'intervallo [start_time, start_time + duration_hours) si
-    sovrappone a un qualsiasi slot già esistente (indipendentemente dal
-    suo stato — libero, prenotato o bloccato). Il claim atomico su un
-    singolo slot (P0-5) non basta: due slot DIVERSI che si sovrappongono
-    nel tempo potrebbero comunque essere prenotati entrambi, generando
-    un doppio impegno reale per il coach.
-    """
-    # Il modo standard per capire se due intervalli di tempo [A, B) e
-    # [C, D) si sovrappongono è controllare "A < D e C < B" (ognuno inizia
-    # prima che l'altro finisca). Qui calcoliamo prima "fine" (quando finirebbe
-    # il nostro slot candidato) per poter fare questo confronto più sotto.
     fine = start_time + timedelta(hours=duration_hours)
 
-    # Invece di controllare OGNI slot mai creato (che con un database grande
-    # sarebbe lento e inutile — uno slot di 3 mesi fa non può mai
-    # sovrapporsi a uno di oggi), limitiamo la ricerca a una finestra
-    # "generosa" di 6 ore prima dell'inizio: nessuna sessione di coaching
-    # dura così tanto, quindi qualsiasi slot che potrebbe sovrapporsi ricade
-    # per forza in questo intervallo.
+    # Finestra di ricerca limitata invece di scorrere l'intera tabella:
+    # nessuna sessione dura più di 6 ore, quindi uno slot che inizia prima
+    # di questo margine non può sovrapporsi.
     margine = timedelta(hours=6)
 
     query = db.query(Slot).filter(
         Slot.start_time < fine,
         Slot.start_time > start_time - margine
     )
-    # escludi_id serve per un caso specifico: se stessimo controllando "lo
-    # slot X si sovrappone a se stesso?" (es. mentre lo si modifica), non
-    # avrebbe senso che risultasse sovrapposto al proprio stesso record.
-    # Nel codice attuale questo parametro non viene mai passato, ma la
-    # funzione è scritta per essere pronta a quel caso d'uso.
     if escludi_id is not None:
         query = query.filter(Slot.id != escludi_id)
 
-    # Qui il confronto vero e proprio: per ogni slot "candidato" trovato
-    # nella finestra di ricerca, controlliamo la condizione di sovrapposizione
-    # esatta (vedi intervalli_si_sovrappongono in timezone_service.py per il
-    # dettaglio del confronto). Appena ne troviamo uno, restituiamo True e
-    # usciamo subito dalla funzione (non serve controllare gli altri).
     for s in query.all():
         s_fine = s.start_time + timedelta(hours=s.duration_hours)
         if intervalli_si_sovrappongono(start_time, fine, s.start_time, s_fine):
@@ -63,31 +49,21 @@ def slot_si_sovrappone(db: Session, start_time: datetime, duration_hours: int, e
 
 
 def genera_slot_da_regola(regola: AvailabilityRule, db: Session) -> int:
-    """
-    Genera gli slot concreti corrispondenti a una regola di disponibilità
-    ricorrente, dalla prossima occorrenza fino alla FINE DEL MESE CORRENTE
-    (non un numero fisso di settimane) — il calendario pubblico mostra
-    quindi solo le settimane del mese in corso, mai il mese successivo in
-    anticipo. Il job automatico genera_slot_giornaliero (vedi
-    backend/scheduler.py) richiama questa stessa funzione ogni notte:
-    appena inizia un nuovo mese, la finestra "fine mese" si allarga da
-    sola e vengono generati anche i giorni del mese nuovo, senza bisogno
-    di ricreare la regola a mano. Salta gli orari già passati, gli slot
-    già esistenti allo stesso orario (idempotente) e le occorrenze che si
-    sovrapporrebbero a uno slot già esistente. Restituisce il numero di
-    slot effettivamente creati.
+    """Crea gli slot previsti da una regola, fino alla fine del mese corrente.
 
-    Genera SOLO slot da 1 ora: il calendario non supporta uno slot reale da
-    2h, perché bypasserebbe il vincolo "una sessione da 2h parte solo alle
-    15:00 o alle 17:00" (ORE_INIZIO_VALIDE_2H in backend/routers/booking.py
-    si applica solo quando due slot da 1h vengono uniti, non a uno slot già
-    da 2h). AvailabilityRuleCreate rifiuta già durata_slot_ore != 1 in
-    scrittura (vedi backend/schemas/availability.py), ma questo controllo
-    resta qui come seconda barriera: protegge anche il job notturno
-    genera_slot_giornaliero (backend/scheduler.py) contro una regola con
-    durata_slot_ore=2 creata prima che quel controllo esistesse — una
-    regola così resta nel database ma da qui in poi non genera più nulla,
-    invece di continuare a produrre slot da 2h prenotabili a qualsiasi ora.
+    Restituisce il numero di slot creati. È idempotente: salta gli orari
+    già passati, gli slot già esistenti allo stesso orario e quelli che si
+    sovrapporrebbero a slot esistenti, quindi può essere rieseguita senza
+    produrre duplicati. Il job notturno la richiama ogni giorno: la
+    finestra "fine mese" si allarga da sola all'inizio di ogni mese.
+
+    Genera esclusivamente slot da 1 ora. Uno slot da 2 ore aggirerebbe il
+    vincolo sugli orari di inizio ammessi per le sessioni lunghe, che si
+    applica solo all'unione di due slot da 1 ora. Lo schema di creazione
+    delle regole rifiuta già durate diverse; questo controllo è la seconda
+    barriera, e neutralizza eventuali regole salvate prima che il vincolo
+    esistesse — smettono di generare invece di continuare a produrre slot
+    non conformi.
     """
     if regola.durata_slot_ore != 1:
         return 0
@@ -95,30 +71,16 @@ def genera_slot_da_regola(regola: AvailabilityRule, db: Session) -> int:
     oggi = date.today()
     ora_utc_adesso = ora_utc_naive()
 
-    # calendar.monthrange(anno, mese) restituisce una coppia (giorno della
-    # settimana del 1°, numero di giorni nel mese) — ci serve solo il
-    # secondo valore, per costruire "l'ultimo giorno di questo mese" senza
-    # dover gestire a mano casi come "aprile ha 30 giorni, dicembre 31".
     ultimo_giorno_mese = date(oggi.year, oggi.month, calendar.monthrange(oggi.year, oggi.month)[1])
 
-    # Questa riga calcola "quanti giorni mancano da oggi al prossimo giorno
-    # della settimana della regola" (es. se oggi è giovedì e la regola è
-    # per martedì, mancano 5 giorni). L'operatore % (modulo, resto della
-    # divisione) è il trucco: se il numero venisse negativo (il giorno
-    # target è "prima" nella settimana rispetto a oggi), % 7 lo riporta
-    # comunque in un intervallo 0-6 corretto, facendo automaticamente il
-    # "giro" alla settimana successiva. Prova a fare il conto a mano con
-    # oggi=giovedì (weekday=3) e regola=martedì (giorno_settimana=1):
-    # (1 - 3) % 7 = -2 % 7 = 5 — corretto, mancano 5 giorni.
+    # Distanza in giorni dalla prossima occorrenza del giorno della regola.
+    # Il modulo gestisce il passaggio alla settimana successiva quando il
+    # giorno target precede oggi.
     giorni_da_aggiungere = (regola.giorno_settimana - oggi.weekday()) % 7
     prima_data = oggi + timedelta(days=giorni_da_aggiungere)
 
     creati = 0
 
-    # "while True" con un "break" dentro invece di un range(...) fisso:
-    # non sappiamo in anticipo quante settimane restano nel mese corrente
-    # (dipende da che giorno è oggi), quindi il ciclo continua finché la
-    # data calcolata non supera la fine del mese, poi si ferma da solo.
     settimana = 0
     while True:
         giorno = prima_data + timedelta(weeks=settimana)
@@ -126,74 +88,42 @@ def genera_slot_da_regola(regola: AvailabilityRule, db: Session) -> int:
             break
         settimana += 1
 
-        # datetime.combine(data, ora) unisce una "data pura" (senza orario)
-        # e un "orario puro" (senza data) in un datetime completo — utile
-        # perché AvailabilityRule salva giorno e orari separatamente (vedi
-        # backend/models/availability_rule.py), ma per fare i calcoli che
-        # seguono serve un datetime unico.
         cursore = datetime.combine(giorno, regola.ora_inizio)
         fine_finestra = datetime.combine(giorno, regola.ora_fine)
 
-        # Questo "while" è il cuore della generazione: parte dall'inizio
-        # della finestra (es. le 18:00) e avanza di durata_slot_ore in
-        # durata_slot_ore (es. ogni ora), creando uno slot per ogni
-        # posizione, finché il PROSSIMO slot entrerebbe ancora dentro la
-        # finestra (es. si ferma prima di superare le 22:00). È lo stesso
-        # tipo di ciclo di un "for i in range(...)", solo che qui il numero
-        # di iterazioni non è noto in anticipo — dipende da quanto dura la
-        # finestra e quanto dura ogni slot.
+        # Avanza a passi di durata_slot_ore e si ferma quando lo slot
+        # successivo uscirebbe dalla finestra oraria della regola.
         while cursore + timedelta(hours=regola.durata_slot_ore) <= fine_finestra:
-            # cursore è ancora "ora italiana senza etichetta di fuso" — lo
-            # stesso schema già visto altrove: prima gli attacchiamo
-            # esplicitamente ROME_TZ, poi convertiamo davvero in UTC.
+            # Gli orari della regola sono ora italiana: qui vengono
+            # etichettati e convertiti in UTC per il salvataggio.
             inizio_rome = cursore.replace(tzinfo=ROME_TZ)
             inizio_utc = inizio_rome.astimezone(timezone.utc).replace(tzinfo=None)
 
-            # Creiamo lo slot solo se: è nel futuro (non ha senso generare
-            # slot per orari già passati), non esiste già uno slot
-            # identico (per non duplicare se la regola venisse rieseguita),
-            # e non si sovrapporrebbe a uno slot già esistente (usando la
-            # funzione definita sopra in questo stesso file).
             if inizio_utc > ora_utc_adesso:
                 esiste_gia = db.query(Slot).filter(Slot.start_time == inizio_utc).first()
                 if not esiste_gia and not slot_si_sovrappone(db, inizio_utc, regola.durata_slot_ore):
-                    # db.add(...) prepara l'inserimento ma non lo salva
-                    # ancora nel database — succede tutto insieme al
-                    # db.commit() finale, fuori dal ciclo, per efficienza
-                    # (una singola operazione di salvataggio invece di una
-                    # per ogni slot).
                     db.add(Slot(start_time=inizio_utc, duration_hours=regola.durata_slot_ore))
                     creati += 1
 
             cursore += timedelta(hours=regola.durata_slot_ore)
 
+    # Commit unico fuori dai cicli: un salvataggio per chiamata, non per slot.
     db.commit()
     return creati
 
 
 def elimina_slot_obsoleti(db: Session) -> int:
-    """
-    Elimina gli slot il cui orario è già passato e che non sono mai stati
-    prenotati. Prima di questa funzione uno slot non toccato restava lì per
-    sempre (vedi il commento in backend/routers/booking.py su
-    create_booking) — invisibile al pubblico (GET /slots/ filtra già gli
-    orari passati) ma ancora presente nel pannello admin, dove si accumula
-    all'infinito e finisce per intasare le prime pagine della lista slot
-    (ordinata per data crescente). Riguarda sia gli slot rimasti liberi
-    (is_available=True) sia quelli bloccati (blocked_admin/blocked_external)
-    senza mai essere stati prenotati — un blocco eccezionale passato e mai
-    toccato da nessuna prenotazione non ha più nessun valore storico da
-    preservare, esattamente come uno slot libero mai prenotato.
+    """Elimina gli slot passati che non sono mai stati prenotati.
 
-    Stesso identico controllo di sicurezza già usato dalla cancellazione
-    manuale (DELETE /admin/slots/{id} in backend/routers/admin/availability.py):
-    uno slot con almeno una prenotazione collegata — anche cancellata, anche
-    come slot_id_secondario di una sessione da 2h — non viene mai toccato,
-    per preservare lo storico. Uno slot passato SENZA nessuna prenotazione
-    collegata è per definizione uno che non è mai stato davvero usato (una
-    prenotazione poi cancellata riapre lo slot con libera_slot_prenotazione,
-    ma la riga Booking resta con status="cancelled" — non sparisce), quindi
-    il controllo qui sotto lo esclude correttamente in ogni caso.
+    Riguarda sia gli slot rimasti liberi sia quelli bloccati: senza
+    prenotazioni collegate non hanno valore storico. Senza questa pulizia
+    si accumulano indefinitamente e riempiono le prime pagine della lista
+    slot del pannello, ordinata per data crescente.
+
+    Uno slot con una prenotazione collegata non viene mai toccato, neppure
+    se la prenotazione è stata cancellata (la riga resta con
+    status="cancelled") o se lo slot è il secondario di una sessione da 2
+    ore. È lo stesso criterio della cancellazione manuale.
     """
     ora_utc = ora_utc_naive()
 
@@ -217,28 +147,22 @@ def elimina_slot_obsoleti(db: Session) -> int:
 
 
 def applica_blocco_eccezionale(eccezione: AvailabilityException, db: Session) -> int:
+    """Blocca gli slot liberi che ricadono nel periodo indicato.
+
+    Restituisce il numero di slot bloccati. Il periodo è inteso in giorni
+    italiani, estremi inclusi.
     """
-    Marca come non disponibili (is_available=False, blocked_admin=True) tutti
-    gli slot liberi il cui inizio cade nel periodo del blocco eccezionale
-    (interpretato come giorni italiani, inclusivi). Non tocca gli slot già
-    prenotati o già bloccati per altri motivi.
-    Restituisce il numero di slot bloccati.
-    """
-    # time.min e time.max sono costanti della libreria datetime: rappresentano
-    # rispettivamente "00:00:00.000000" e "23:59:59.999999" — l'inizio e la
-    # fine assolute di una giornata. Combinandole con le due date del
-    # blocco, otteniamo "dall'inizio del primo giorno alla fine dell'ultimo
-    # giorno", cioè l'intero periodo, estremi inclusi.
+    # time.min/time.max estendono le due date all'intera giornata, così il
+    # blocco copre dal primo istante del primo giorno all'ultimo dell'ultimo.
     inizio_rome = datetime.combine(eccezione.data_inizio, time.min).replace(tzinfo=ROME_TZ)
     fine_rome = datetime.combine(eccezione.data_fine, time.max).replace(tzinfo=ROME_TZ)
 
     inizio_utc = inizio_rome.astimezone(timezone.utc).replace(tzinfo=None)
     fine_utc = fine_rome.astimezone(timezone.utc).replace(tzinfo=None)
 
-    # Prendiamo SOLO gli slot ancora liberi (is_available == True) in
-    # questo intervallo: uno slot già prenotato non va toccato da un blocco
-    # eccezionale creato dopo — quella prenotazione resta valida, è
-    # responsabilità del coach gestirla separatamente.
+    # Solo gli slot ancora liberi: una prenotazione già confermata resta
+    # valida anche se il coach aggiunge un blocco successivo, e va gestita
+    # separatamente.
     slot_liberi = db.query(Slot).filter(
         Slot.is_available == True,
         Slot.start_time >= inizio_utc,

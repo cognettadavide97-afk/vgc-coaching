@@ -1,42 +1,22 @@
-# Backup del database di produzione — vedi il commento nel README (sezione
-# "Backup") per il perché esiste: il piano Railway attuale (Hobby) NON
-# include backup automatici né point-in-time recovery per il database
-# MySQL (verificato direttamente nella dashboard: "Backups and
-# point-in-time recovery (PITR) are only available for customers on the
-# Pro plan"). Senza questo file, un problema al volume del database
-# significherebbe perdere per sempre tutti i dati — nessuna rete di
-# sicurezza.
-#
-# Come funziona, in breve: una volta al giorno (vedi il job schedulato in
-# backend/scheduler.py) questo modulo genera un vero dump SQL (schema +
-# dati, restorabile con un comando "mysql < file.sql" standard, esattamente
-# come farebbe il comando mysqldump) e lo carica su Google Drive — un posto
-# DIVERSO da Railway, apposta: un backup che vive sullo stesso posto che
-# potrebbe rompersi non protegge da nulla.
-#
-# ATTENZIONE, scoperta fatta testando questo file contro Drive vero: NON usa
-# il service account già configurato per Google Calendar (vedi
-# calendar_service.py), a differenza di quanto si potrebbe pensare essendo
-# lo stesso progetto Google Cloud. Un service account NON ha una propria
-# quota di archiviazione su Drive — anche condividendo una cartella con lui
-# in modalità Editor, ogni file che CREA conta sulla SUA quota (zero), non
-# su quella del proprietario della cartella, e Google rifiuta l'upload con
-# un errore "storageQuotaExceeded" a runtime (le Shared Drive risolverebbero,
-# ma sono una funzionalità Google Workspace, non disponibile su un account
-# Gmail personale gratuito). La soluzione che funziona davvero è la stessa
-# di email_service.py: OAuth con l'account Google VERO del coach (non un
-# service account) — i file creati contano sulla sua quota reale (15GB
-# gratuiti). Il refresh token si ottiene con scripts/reauth_drive.py (stesso
-# meccanismo di scripts/reauth_gmail.py, scope diverso).
-#
-# Perché un dump scritto a mano invece della libreria mysqldump vera: il
-# progetto gira su Railway con nixpacks (vedi nixpacks.toml), che non
-# include il client MySQL di default — aggiungerlo vorrebbe dire introdurre
-# una dipendenza di sistema in più, con un nome di pacchetto Nix da
-# indovinare e verificare solo dopo un deploy reale. Usando solo PyMySQL
-# (già una dipendenza del progetto) per leggere schema e dati riga per
-# riga, il dump resta puro Python, portabile, e verificabile in locale
-# prima di fidarsene in produzione.
+"""Backup giornaliero del database su Google Drive.
+
+Il piano di hosting in uso non include backup né point-in-time recovery
+per il database: senza questo modulo un guasto al volume significherebbe
+perdita totale dei dati. La destinazione è deliberatamente esterna
+all'hosting — un backup sullo stesso sistema che può rompersi non protegge.
+
+Due scelte non ovvie, entrambe imposte dall'ambiente:
+
+- **Non usa il service account** configurato per Google Calendar. Un
+  service account non ha quota di archiviazione propria su Drive: i file
+  che crea vengono rifiutati con `storageQuotaExceeded` anche dentro una
+  cartella condivisa in scrittura. Serve OAuth con un account reale, il
+  cui refresh token si ottiene con `scripts/reauth_drive.py`.
+- **Il dump è scritto in Python** anziché delegato a `mysqldump`, che non
+  è presente nell'immagine di produzione. Usare solo PyMySQL, già
+  dipendenza del progetto, evita di introdurre una dipendenza di sistema
+  verificabile solo dopo un deploy.
+"""
 
 import os
 import io
@@ -49,17 +29,9 @@ from backend.services.google_oauth_service import credenziali_oauth_google
 
 load_dotenv()
 
-# OAuth con l'account Google vero del coach (non un service account — vedi
-# il commento in cima al file sul perché). Riusa lo stesso client OAuth già
-# creato per Gmail (GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET, vedi
-# email_service.py): è la stessa app registrata su Google Cloud, a cui
-# aggiungiamo solo lo scope Drive (https://www.googleapis.com/auth/drive.file
-# — concesso una volta sola al momento dell'autorizzazione via
-# scripts/reauth_drive.py, non ripetuto ad ogni chiamata) nella schermata di
-# consenso — non serve creare un secondo client OAuth. DRIVE_REFRESH_TOKEN è
-# invece un token SEPARATO da GMAIL_REFRESH_TOKEN, non lo stesso riusato:
-# tenerli separati significa che se uno dei due scade o va revocato, l'altro
-# continua a funzionare indipendentemente.
+# Riusa il client OAuth di Gmail (stessa app registrata, con in più lo
+# scope Drive), ma un refresh token distinto: se uno dei due viene revocato
+# o scade, l'altra integrazione continua a funzionare.
 GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
 GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
 DRIVE_REFRESH_TOKEN = os.getenv("DRIVE_REFRESH_TOKEN")
@@ -67,9 +39,8 @@ DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_BACKUP_FOLDER_ID")
 
 BACKUP_RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS", "30"))
 
-# Quante righe raggruppare in un solo statement INSERT durante il dump
-# (vedi crea_dump_sql) — non configurabile da env, è un dettaglio
-# implementativo del dump, non una scelta operativa come le due sopra.
+# Dettaglio implementativo del dump, non una scelta operativa: per questo
+# non è configurabile da variabile d'ambiente.
 RIGHE_PER_INSERT = 500
 
 logger = logging.getLogger(__name__)
@@ -81,15 +52,11 @@ def _get_drive_service():
 
 
 def crea_dump_sql(engine) -> str:
-    """
-    Genera un dump SQL completo (schema + dati) del database collegato a
-    "engine" — un vero file .sql, restorabile con un client MySQL standard
-    (`mysql nome_db < backup.sql`), non un formato proprietario.
+    """Genera un dump SQL completo (schema e dati) del database.
 
-    engine è un parametro esplicito (non importato direttamente da
-    backend.database) apposta per poter passare un motore diverso nei
-    test, invece di dipendere sempre dal database reale configurato in
-    produzione.
+    Il risultato è un file .sql standard, ripristinabile con
+    `mysql nome_db < backup.sql`. `engine` è un parametro esplicito e non
+    un import diretto per poter passare un motore diverso nei test.
     """
     connessione = engine.raw_connection()
     try:
@@ -104,11 +71,8 @@ def crea_dump_sql(engine) -> str:
             ""
         ]
 
-        # I nomi delle tabelle vengono da SHOW TABLES sul NOSTRO stesso
-        # database (mai da input di un utente) — interpolarli direttamente
-        # nell'SQL qui sotto è sicuro esattamente per lo stesso motivo per
-        # cui lo è nel resto del progetto: non è un dato esterno non
-        # fidato, viene dallo schema del database stesso.
+        # I nomi delle tabelle provengono da SHOW TABLES sullo schema
+        # stesso, mai da input esterno: l'interpolazione è sicura.
         for tabella in tabelle:
             cursore.execute(f"SHOW CREATE TABLE `{tabella}`")
             _, create_stmt = cursore.fetchone()
@@ -122,23 +86,12 @@ def crea_dump_sql(engine) -> str:
 
             if righe:
                 colonne_sql = ", ".join(f"`{c}`" for c in colonne)
-                # RIGHE_PER_INSERT righe per ogni statement INSERT, invece
-                # di uno statement per riga: un mysqldump vero fa lo
-                # stesso, per un motivo concreto — un ripristino
-                # (`mysql < backup.sql`) con uno statement per riga
-                # obbligherebbe il database a un giro di andata/ritorno per
-                # ogni singola riga della tabella; raggruppandole, lo
-                # stesso ripristino richiede una frazione delle query.
+                # INSERT multi-riga: con uno statement per riga il
+                # ripristino richiederebbe un round-trip per ogni record.
                 for inizio in range(0, len(righe), RIGHE_PER_INSERT):
                     blocco = righe[inizio:inizio + RIGHE_PER_INSERT]
-                    # connessione.escape() (metodo di PyMySQL) trasforma
-                    # ogni valore Python nel suo letterale SQL sicuro:
-                    # stringhe tra apici con i caratteri speciali
-                    # "scappati", None diventa NULL, date/numeri formattati
-                    # correttamente — stesso compito di mysqldump, scritto
-                    # a mano qui perché il binario mysqldump non è
-                    # disponibile nell'ambiente di produzione (vedi il
-                    # commento in cima al file).
+                    # connessione.escape() converte ogni valore Python nel
+                    # letterale SQL corretto (quoting, NULL, date).
                     valori_blocco = ", ".join(
                         "(" + ", ".join(connessione.escape(v) for v in riga) + ")"
                         for riga in blocco
@@ -165,12 +118,10 @@ def _carica_su_drive(servizio, contenuto: str, nome_file: str):
 
 
 def _elimina_backup_scaduti(servizio):
-    """
-    Cancella dalla cartella Drive i backup più vecchi di BACKUP_RETENTION_DAYS
-    giorni — senza questo, i backup si accumulerebbero all'infinito (un file
-    nuovo ogni giorno, per sempre), esattamente il tipo di crescita
-    illimitata già evitato altrove nel progetto (vedi
-    backend/services/retention_service.py).
+    """Elimina dalla cartella Drive i backup oltre la retention configurata.
+
+    Senza, i file si accumulerebbero indefinitamente al ritmo di uno al
+    giorno.
     """
     soglia = (datetime.now(timezone.utc) - timedelta(days=BACKUP_RETENTION_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
     risultato = servizio.files().list(
@@ -184,13 +135,11 @@ def _elimina_backup_scaduti(servizio):
 
 
 def esegui_backup_database(engine) -> bool:
-    """
-    Orchestratore chiamato dallo scheduler (vedi backend/scheduler.py):
-    genera il dump, lo carica su Drive, ripulisce i backup scaduti.
-    Restituisce True/False invece di sollevare l'eccezione — il chiamante
-    decide se e come avvisare il coach in caso di fallimento (stesso
-    pattern di verifica_credenziali_gmail in
-    backend/services/email_service.py).
+    """Esegue dump, upload e pulizia dei backup scaduti.
+
+    Restituisce l'esito invece di propagare l'eccezione: è il chiamante a
+    decidere come segnalare un fallimento. Restituisce False anche quando
+    l'integrazione non è configurata.
     """
     if not DRIVE_FOLDER_ID or not DRIVE_REFRESH_TOKEN:
         logger.warning("GOOGLE_DRIVE_BACKUP_FOLDER_ID o DRIVE_REFRESH_TOKEN non configurati — salto il backup")

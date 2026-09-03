@@ -1,9 +1,12 @@
-# Questo file manda messaggi al canale Discord del coach usando un
-# "webhook" — il modo più semplice per un programma di mandare messaggi in
-# un canale Discord, SENZA dover creare e gestire un vero bot Discord (che
-# richiederebbe login persistenti, gestione di eventi, ecc.). Un webhook è
-# semplicemente un URL segreto: qualunque richiesta HTTP mandata a
-# quell'indirizzo diventa un messaggio nel canale collegato.
+"""Notifiche verso il canale Discord del coach, tramite webhook.
+
+Il webhook è un URL segreto su cui una semplice richiesta HTTP diventa un
+messaggio nel canale: evita di dover registrare e mantenere un bot.
+
+Nessuna funzione di questo modulo solleva eccezioni verso il chiamante: le
+notifiche sono accessorie e un problema con Discord non deve mai far
+fallire l'operazione che le ha generate.
+"""
 
 import os
 import logging
@@ -16,11 +19,9 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 logger = logging.getLogger(__name__)
 
-# Un piccolo dizionario che traduce i valori "tecnici" salvati nel database
-# (es. "vod_review") in etichette leggibili da un umano (es. "VOD Review").
-# .get(chiave, default) restituisce il valore "grazioso" se lo trova nel
-# dizionario, altrimenti restituisce la chiave originale così com'è — non
-# fallisce mai, anche se in futuro comparisse un valore non previsto qui.
+# Etichette leggibili per i valori salvati nel database. La lettura usa
+# .get(chiave, chiave), quindi un servizio non previsto viene mostrato con
+# il suo valore grezzo invece di sollevare un errore.
 SERVICE_LABELS = {
     "vod_review": "VOD Review",
     "team_building": "Team Building",
@@ -29,36 +30,24 @@ SERVICE_LABELS = {
 }
 
 
-# Ogni funzione invia_* qui sotto costruisce solo il proprio "embed"
-# (il dizionario con titolo/colore/campi del messaggio Discord) e lo passa
-# a questa funzione condivisa — PRIMA ognuna ripeteva per intero lo stesso
-# controllo "webhook configurato?" e lo stesso blocco try/requests.post/
-# raise_for_status/except, cambiando solo il messaggio di log. Un cambio a
-# come vengono mandati i messaggi (es. un timeout diverso) va fatto qui una
-# volta sola, non in 6 punti diversi.
 def _invia_embed(embed: dict, msg_ok: str, msg_errore: str):
+    """Invia un embed al webhook. Punto unico di uscita verso Discord.
+
+    Le funzioni pubbliche costruiscono solo il proprio embed: modifiche al
+    trasporto (timeout, retry, formato) si fanno qui una volta sola.
+    """
     if not DISCORD_WEBHOOK_URL:
         logger.warning(f"DISCORD_WEBHOOK_URL non configurato — salto: {msg_ok}")
         return
 
     try:
-        # requests.post(url, json=..., timeout=5) manda una richiesta HTTP
-        # POST con il nostro dizionario convertito automaticamente in JSON.
-        # timeout=5 vuol dire "se Discord non risponde entro 5 secondi,
-        # considera la richiesta fallita" — senza un timeout, un servizio
-        # esterno lento potrebbe far restare il nostro programma "in attesa"
-        # per un tempo indefinito, bloccando anche il resto della richiesta
-        # di prenotazione in corso.
+        # Il timeout è obbligatorio: questa chiamata avviene dentro la
+        # richiesta di prenotazione, e senza limite un Discord lento la
+        # terrebbe appesa a tempo indeterminato.
         response = requests.post(DISCORD_WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
-        # raise_for_status() controlla il codice di risposta HTTP: se è un
-        # codice di errore (4xx o 5xx), solleva un'eccezione da sola — così
-        # non serve controllare manualmente "if response.status_code >= 400".
         response.raise_for_status()
         logger.info(msg_ok)
     except Exception:
-        # Stessa filosofia di email_service.py e calendar_service.py: un
-        # problema con Discord non deve mai bloccare la prenotazione,
-        # quindi cattura l'errore e limitati a segnalarlo.
         logger.exception(msg_errore)
 
 
@@ -71,21 +60,11 @@ def invia_notifica_discord(
     durata_ore: int,
     note_cliente: str = None
 ):
-    """
-    Invia una notifica sul canale Discord del coach (via webhook)
-    a ogni nuova prenotazione. Non blocca la prenotazione in caso
-    di errore o se il webhook non è configurato.
-    """
+    """Notifica il coach di una nuova prenotazione."""
     servizio_label = SERVICE_LABELS.get(service_type, service_type)
 
-    # "embed" è il formato che Discord usa per i messaggi con un aspetto più
-    # curato (un riquadro colorato con titolo e campi separati, invece di
-    # un semplice testo). Anche qui, come per Google Calendar, è "solo" un
-    # dizionario con la struttura che Discord si aspetta — non c'è nessuna
-    # libreria Discord coinvolta, mandiamo direttamente una richiesta HTTP.
-    # 0xE74C3C è un numero scritto in esadecimale (il prefisso 0x lo dice a
-    # Python): rappresenta un colore, lo stesso sistema usato nei codici
-    # colore CSS (#E74C3C) che vedrai nel frontend.
+    # "embed" è il formato dei messaggi formattati di Discord; il colore è
+    # un intero esadecimale, come i codici colore CSS.
     embed = {
         "title": "📅 Nuova prenotazione",
         "color": 0xE74C3C,
@@ -108,10 +87,7 @@ def invia_promemoria_discord(
     data_slot: str,
     ora_slot: str
 ):
-    """
-    Avvisa il coach sul suo canale Discord che una sessione prenotata
-    si avvicina. Non blocca nulla in caso di errore o webhook mancante.
-    """
+    """Notifica il coach che una sessione prenotata si avvicina."""
     embed = {
         "title": "⏰ Promemoria sessione in arrivo",
         "color": 0xF39C12,
@@ -131,11 +107,10 @@ def invia_richiesta_consulenza_discord(
     discord_tag: str,
     messaggio: str = None
 ):
-    """
-    Avvisa il coach sul suo canale Discord di una richiesta di call
-    conoscitiva gratuita (20 minuti) — vedi backend/routers/consulenza.py.
-    A differenza di invia_notifica_discord, qui non c'è nessuno slot/data:
-    l'orario va accordato privatamente col cliente dopo questo avviso.
+    """Notifica il coach di una richiesta di call conoscitiva gratuita.
+
+    Non esiste né slot né data: l'orario viene concordato privatamente
+    dopo questo avviso.
     """
     embed = {
         "title": "🎁 Richiesta call gratuita (20 min)",
@@ -151,15 +126,10 @@ def invia_richiesta_consulenza_discord(
 
 
 def invia_alert_sistema(titolo: str, descrizione: str):
-    """
-    Avviso TECNICO per il coach, non per un cliente: usato per problemi che
-    richiedono un intervento manuale, come un GMAIL_REFRESH_TOKEN scaduto
-    (vedi controlla_credenziali_gmail in backend/scheduler.py) o una
-    migrazione del database fallita all'avvio (vedi run_migrations in
-    backend/main.py). Stesso canale/webhook delle altre notifiche — un
-    progetto di queste dimensioni non ha bisogno di un canale separato —
-    ma un rosso acceso e l'emoji 🚨 lo rendono riconoscibile a colpo
-    d'occhio in mezzo alle notifiche di prenotazione normali.
+    """Avviso tecnico al coach su un problema che richiede un intervento.
+
+    Usato per credenziali scadute o migrazioni fallite. Condivide il canale
+    delle notifiche ordinarie, ma colore e icona lo rendono distinguibile.
     """
     embed = {
         "title": f"🚨 {titolo}",
@@ -176,11 +146,10 @@ def invia_richiesta_pacchetto_discord(
     nome_pacchetto: str,
     messaggio: str = None
 ):
-    """
-    Avvisa il coach sul suo canale Discord di una richiesta di attivazione
-    pacchetto — vedi backend/routers/pacchetti_richieste.py. Nessun
-    pagamento avviene qui: il pacchetto vero va assegnato a mano da
-    /admin/pacchetti dopo aver ricevuto il pagamento.
+    """Notifica il coach di una richiesta di attivazione pacchetto.
+
+    Nessun pagamento passa dall'applicazione: il pacchetto va assegnato a
+    mano dal pannello dopo averlo incassato.
     """
     embed = {
         "title": f"📦 Richiesta pacchetto — {nome_pacchetto}",

@@ -1,10 +1,14 @@
-# Questo file parla con le API di Google Calendar: crea/elimina eventi
-# quando una prenotazione viene confermata/cancellata, e legge gli eventi
-# esistenti per sapere se il calendario del coach ha già impegni che
-# dovrebbero bloccare uno slot (tornei, stream...). Come email_service.py,
-# ogni funzione che chiama Google avvolge la chiamata in un try/except: un
-# problema con Google Calendar non deve mai impedire il resto dell'app di
-# funzionare.
+"""Integrazione con Google Calendar.
+
+In scrittura crea ed elimina l'evento associato a una prenotazione; in
+lettura recupera gli impegni esistenti per bloccare gli slot sovrapposti.
+
+Nessuna funzione propaga eccezioni: un'indisponibilità di Google non deve
+impedire una prenotazione né interrompere la sincronizzazione.
+
+Autenticazione tramite service account, con il calendario del coach
+condiviso esplicitamente con la sua email.
+"""
 
 import os
 import logging
@@ -17,34 +21,18 @@ from backend.services.timezone_service import ROME_TZ, ora_utc_naive, intervalli
 
 load_dotenv()
 
-# Un "service account" è un account Google speciale pensato per essere
-# usato da un PROGRAMMA (non da una persona che fa login a mano). Ha una
-# sua email e una sua chiave privata, e per potervi accedere il calendario
-# del coach deve essere condiviso esplicitamente con quest'email (istruzioni
-# nel README). SCOPES dice quali permessi stiamo chiedendo — qui, accesso
-# completo al calendario.
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID")
 SERVICE_ACCOUNT_EMAIL = os.getenv("GOOGLE_SERVICE_ACCOUNT_EMAIL")
-# La chiave privata, nel file .env, è scritta su una sola riga con "\n"
-# letterali al posto degli a capo veri (è un vincolo del formato .env, che
-# non gestisce bene il testo multi-riga). .replace("\\n", "\n") converte
-# quei caratteri letterali "\" + "n" in un vero carattere di a-capo, così la
-# chiave torna ad avere il formato che Google si aspetta.
+# Il formato .env non gestisce valori multi-riga: la chiave privata è
+# salvata con "\n" letterali, che vanno riconvertiti in a capo reali.
 PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY", "").replace("\\n", "\n")
 
 logger = logging.getLogger(__name__)
 
 
 def get_calendar_service():
-    """
-    Crea e restituisce il client autenticato
-    per le Google Calendar API.
-    """
-    # service_account.Credentials.from_service_account_info() costruisce le
-    # credenziali a partire da un dizionario con la forma esatta che
-    # Google si aspetta (lo stesso formato del file JSON che si scarica
-    # dalla Google Cloud Console).
+    """Costruisce il client autenticato per le API di Google Calendar."""
     credenziali = service_account.Credentials.from_service_account_info(
         {
             "type": "service_account",
@@ -54,9 +42,6 @@ def get_calendar_service():
         },
         scopes=SCOPES
     )
-    # build("calendar", "v3", ...) crea il "client" vero e proprio: un
-    # oggetto con dei metodi (come .events()) che corrispondono uno a uno
-    # alle azioni disponibili nell'API di Google Calendar versione 3.
     return build("calendar", "v3", credentials=credenziali)
 
 
@@ -69,19 +54,16 @@ def crea_evento_calendario(
     durata_ore: int,
     note_cliente: str = None
 ):
-    """
-    Crea un evento su Google Calendar quando una
-    prenotazione viene confermata dall'admin.
+    """Crea l'evento associato a una prenotazione.
+
+    Restituisce l'id dell'evento, da salvare su `Booking.calendar_event_id`
+    per poterlo eliminare in caso di cancellazione, oppure None se la
+    creazione fallisce: la prenotazione resta valida anche senza evento.
     """
     try:
         service = get_calendar_service()
 
-        # data_slot e ora_slot arrivano già come testo formattato (es.
-        # "12/08/2026" e "18:00" — vedi utc_to_rome in timezone_service.py).
-        # datetime.strptime(testo, formato) fa l'operazione INVERSA di
-        # strftime: legge una stringa e la trasforma in un oggetto datetime
-        # vero, secondo il formato indicato ("%d/%m/%Y %H:%M" = giorno/mese/
-        # anno ora:minuti).
+        # data_slot e ora_slot arrivano già formattati in ora italiana.
         dt_inizio = datetime.strptime(
             f"{data_slot} {ora_slot}", "%d/%m/%Y %H:%M"
         )
@@ -89,14 +71,8 @@ def crea_evento_calendario(
 
         formato = "%Y-%m-%dT%H:%M:%S"
 
-        # "evento" è un semplice dizionario Python con la struttura esatta
-        # richiesta dall'API di Google Calendar (documentata sul loro sito):
-        # non è una classe speciale, solo dati organizzati come Google si
-        # aspetta di riceverli. Notare "timeZone": "Europe/Rome" dentro
-        # start/end: qui NON serve convertire in UTC a mano come altrove nel
-        # progetto, perché l'API di Google accetta un orario "locale" più
-        # l'indicazione esplicita di quale fuso sia — è Google stesso a
-        # fare la conversione internamente.
+        # L'API accetta un orario locale accompagnato dal fuso: qui, a
+        # differenza del resto del progetto, non serve convertire in UTC.
         evento = {
             "summary": f"Coaching VGC — {nome_cliente}",
             "description": (
@@ -123,48 +99,31 @@ def crea_evento_calendario(
             }
         }
 
-        # service.events().insert(...).execute() è il pattern tipico delle
-        # librerie client di Google: ogni pezzo della catena costruisce la
-        # richiesta (calendario giusto, dati dell'evento...), e solo
-        # .execute() finale la manda davvero e aspetta la risposta.
         risultato = service.events().insert(
             calendarId=CALENDAR_ID,
             body=evento
         ).execute()
 
         logger.info(f"Evento creato: {risultato.get('htmlLink')}")
-        # Restituiamo solo l'id dell'evento (non l'intero risultato): è
-        # quello che viene salvato nel campo calendar_event_id di Booking,
-        # per poter più avanti eliminare esattamente questo evento se la
-        # prenotazione viene cancellata.
         return risultato.get("id")
 
     except Exception:
         logger.exception("Errore Google Calendar")
-        # Se qualcosa va storto restituiamo None invece di far esplodere
-        # tutta la richiesta di prenotazione: un problema con Google
-        # Calendar non deve impedire allo studente di completare la
-        # prenotazione — semplicemente, quella prenotazione non avrà un
-        # evento associato sul calendario del coach.
         return None
 
 
 def leggi_eventi_calendario(time_min: datetime, time_max: datetime):
-    """
-    Legge tutti gli eventi sul calendario del coach nell'intervallo indicato
-    (usato per bloccare automaticamente gli slot che si sovrappongono a
-    tornei, stream o altri impegni esterni). Gli eventi "tutto il giorno"
-    vengono trattati come se occupassero l'intera giornata in ora italiana.
-    Restituisce una lista di tuple (inizio_utc, fine_utc), entrambe naive.
+    """Restituisce gli intervalli occupati nel periodo indicato.
+
+    Lista di tuple (inizio_utc, fine_utc), entrambe naive. In caso di
+    errore restituisce una lista vuota: la sincronizzazione non blocca
+    nulla anziché fallire.
     """
     try:
         service = get_calendar_service()
 
-        # service.events().list(...) chiede a Google tutti gli eventi in un
-        # certo periodo. singleEvents=True dice "se un evento è ricorrente
-        # (es. 'ogni lunedì'), restituiscimi ogni singola occorrenza
-        # separatamente" invece della regola di ricorrenza grezza — molto
-        # più semplice da elaborare per noi.
+        # singleEvents espande le ricorrenze in occorrenze singole, molto
+        # più semplici da confrontare con gli slot.
         eventi = service.events().list(
             calendarId=CALENDAR_ID,
             timeMin=time_min.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -172,39 +131,26 @@ def leggi_eventi_calendario(time_min: datetime, time_max: datetime):
             singleEvents=True,
             orderBy="startTime"
         ).execute().get("items", [])
-        # .get("items", []) legge la lista di eventi dalla risposta; se la
-        # chiave "items" non ci fosse per qualche motivo, il default []
-        # (lista vuota) evita un errore invece di far scoppiare il programma.
 
         intervalli = []
         for evento in eventi:
             start_info = evento.get("start", {})
             end_info = evento.get("end", {})
 
-            # Google Calendar rappresenta un evento "con orario" (es. 18-19)
-            # in modo diverso da un evento "tutto il giorno" (es. una
-            # giornata di ferie): il primo ha la chiave "dateTime", il
-            # secondo solo "date". Dobbiamo gestire entrambi i casi.
+            # Gli eventi con orario espongono "dateTime", quelli di
+            # un'intera giornata solo "date": vanno gestiti separatamente.
             if "dateTime" in start_info and "dateTime" in end_info:
-                # datetime.fromisoformat() legge una stringa già in formato
-                # standard ISO (quello che Google restituisce, con l'offset
-                # del fuso incluso) e la trasforma in un datetime
-                # "consapevole" del proprio fuso. .astimezone(timezone.utc)
-                # lo converte in UTC, .replace(tzinfo=None) lo rende
-                # "naive" — lo stesso schema già visto in altri file.
                 dt_inizio = datetime.fromisoformat(start_info["dateTime"]).astimezone(timezone.utc).replace(tzinfo=None)
                 dt_fine = datetime.fromisoformat(end_info["dateTime"]).astimezone(timezone.utc).replace(tzinfo=None)
             elif "date" in start_info and "date" in end_info:
-                # Un evento "tutto il giorno" non ha un orario preciso:
-                # decidiamo noi di trattarlo come "dalla mezzanotte alla
-                # mezzanotte successiva, ora italiana", per bloccare
-                # l'intera giornata.
+                # Un evento "tutto il giorno" viene trattato come l'intera
+                # giornata italiana, così da bloccarne tutti gli slot.
                 giorno_inizio = datetime.strptime(start_info["date"], "%Y-%m-%d").replace(tzinfo=ROME_TZ)
                 giorno_fine = datetime.strptime(end_info["date"], "%Y-%m-%d").replace(tzinfo=ROME_TZ)
                 dt_inizio = giorno_inizio.astimezone(timezone.utc).replace(tzinfo=None)
                 dt_fine = giorno_fine.astimezone(timezone.utc).replace(tzinfo=None)
             else:
-                continue  # formato inatteso: saltiamo questo evento invece di far fallire tutto
+                continue  # formato inatteso: si salta l'evento, non l'intera sync
 
             intervalli.append((dt_inizio, dt_fine))
 
@@ -212,22 +158,18 @@ def leggi_eventi_calendario(time_min: datetime, time_max: datetime):
 
     except Exception:
         logger.exception("Errore lettura calendario")
-        return []  # in caso di errore, meglio "nessun evento trovato" che bloccare la sincronizzazione
+        return []
 
 
 def sincronizza_slot_con_calendario(db: Session) -> int:
+    """Blocca gli slot liberi sovrapposti a impegni esterni sul calendario.
+
+    Restituisce il numero di slot bloccati. Condivisa fra il pulsante
+    manuale del pannello e il job periodico, che devono comportarsi allo
+    stesso modo.
     """
-    Legge il calendario Google del coach e blocca (is_available=False,
-    blocked_external=True) gli slot liberi che si sovrappongono a un
-    evento esterno (torneo, stream, altro impegno). Estratta qui da
-    backend/routers/admin/availability.py per essere richiamabile sia dal
-    bottone manuale in admin (POST /admin/slots/sync-calendario) sia dal job
-    automatico periodico in backend/scheduler.py — stessa identica
-    logica, un solo posto da mantenere.
-    """
-    # Import locale (non in cima al file) per evitare un import circolare:
-    # backend.models.slots non serve alle altre funzioni di questo modulo,
-    # e admin/availability.py importa già da qui.
+    # Import locale per evitare un ciclo: il router che importa da qui
+    # importa a sua volta i model.
     from backend.models.slots import Slot
 
     ora = ora_utc_naive()
@@ -240,6 +182,8 @@ def sincronizza_slot_con_calendario(db: Session) -> int:
     if not slot_liberi:
         return 0
 
+    # Una sola lettura del calendario per l'intero periodo coperto dagli
+    # slot, invece di una richiesta per slot.
     fine_intervallo = max(
         s.start_time + timedelta(hours=s.duration_hours) for s in slot_liberi
     )
@@ -261,10 +205,7 @@ def sincronizza_slot_con_calendario(db: Session) -> int:
 
 
 def elimina_evento_calendario(event_id: str):
-    """
-    Elimina un evento dal calendario quando
-    una prenotazione viene cancellata dall'admin.
-    """
+    """Elimina l'evento associato a una prenotazione cancellata."""
     try:
         service = get_calendar_service()
         service.events().delete(
