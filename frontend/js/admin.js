@@ -24,6 +24,64 @@ let token = null;
 // invece di riportare sempre l'admin a pagina 1
 const paginaCorrente = { prenotazioni: 1, clienti: 1, slots: 1 };
 
+// ─── AZIONI SU RIGHE (delegazione eventi, al posto di onclick inline) ─
+// PERCHÉ esiste questo blocco: prima i bottoni "Note/Pacchetto/Elimina"
+// dei clienti e "Nota" delle prenotazioni venivano generati interpolando
+// dati del PUBBLICO (il nome del cliente, inserito nel form senza login)
+// dentro un attributo onclick="funzione(id, 'NOME')". escapeHtml() non
+// protegge l'apice singolo né il backslash — e proprio quei caratteri
+// chiudono la stringa dentro l'onclick: un nome tipo  ');codice;//  faceva
+// eseguire codice arbitrario nel browser del coach al click (XSS). Il
+// .replace(/'/g, "\\'") che doveva difendere usava un escaping in stile
+// JavaScript, che dentro un attributo HTML non ha alcun effetto.
+//
+// La cura NON è "escapare meglio", è NON mescolare più dato e codice: il
+// bottone porta solo l'id (un numero, non iniettabile) in un attributo
+// data-*, e un unico gestore agganciato al contenitore con addEventListener
+// ("delegazione") legge quell'id, ritrova l'oggetto completo in una cache
+// per-id, e chiama la funzione giusta. Il nome del cliente non entra più in
+// nessun attributo né in nessuna stringa di codice.
+//
+// La cache viene riscritta a ogni caricamento pagina (indicizzata per id);
+// le funzioni chiamate ricevono il nome via JavaScript normale (mai via
+// HTML), e dove lo mostrano in un modale lo passano comunque da escapeHtml
+// (contesto "contenuto", lì escapeHtml è la difesa giusta).
+let clientiPerId = {};
+let prenotazioniPerId = {};
+
+function agganciaDelegato(container, gestore) {
+    // Aggancia il gestore UNA VOLTA SOLA per contenitore: il listener sta
+    // sul contenitore (che resta lo stesso), non sui bottoni (ricreati a
+    // ogni innerHTML), quindi sopravvive ai re-render e non si duplica. Il
+    // flag data-delegato evita di riagganciarlo a ogni caricaX().
+    if (!container || container.dataset.delegato) return;
+    container.addEventListener('click', gestore);
+    container.dataset.delegato = '1';
+}
+
+function gestisciAzioneCliente(e) {
+    const btn = e.target.closest('button[data-azione]');
+    if (!btn) return;
+    const id = Number(btn.dataset.id);
+    const cliente = clientiPerId[id];
+    if (!cliente) return;
+    if (btn.dataset.azione === 'note') apriNoteCliente(id, cliente.nome);
+    else if (btn.dataset.azione === 'pacchetto') apriAssegnaPacchetto(id, cliente.nome);
+    else if (btn.dataset.azione === 'elimina') eliminaCliente(id, cliente.nome);
+}
+
+function gestisciAzionePrenotazione(e) {
+    const btn = e.target.closest('button[data-azione]');
+    if (!btn) return;
+    const id = Number(btn.dataset.id);
+    if (btn.dataset.azione === 'cancella') aggiornaStato(id, 'cancelled');
+    else if (btn.dataset.azione === 'noshow') aggiornaStato(id, 'no_show');
+    else if (btn.dataset.azione === 'nota') {
+        const p = prenotazioniPerId[id];
+        modificaNota(id, p ? (p.note_admin || '') : '');
+    }
+}
+
 function renderPaginazione(dati, nomeFunzione) {
     // Se c'è una sola pagina di risultati, i controlli "Precedente/Successiva"
     // non servono a nulla — restituire una stringa vuota fa sì che
@@ -408,16 +466,16 @@ async function caricaPrenotazioni(pagina = 1) {
                             <td>
                                 ${p.stato === 'confirmed' ? `
                                     <button class="action-btn action-cancel"
-                                        onclick="aggiornaStato(${p.id}, 'cancelled')">
+                                        data-azione="cancella" data-id="${p.id}">
                                         ✗ Cancella
                                     </button>
                                     <button class="action-btn action-no-show"
-                                        onclick="aggiornaStato(${p.id}, 'no_show')">
+                                        data-azione="noshow" data-id="${p.id}">
                                         🚫 No-show
                                     </button>
                                 ` : ''}
                                 <button class="action-btn action-note"
-                                    onclick="modificaNota(${p.id}, '${(p.note_admin || '').replace(/'/g, "\\'")}')">
+                                    data-azione="nota" data-id="${p.id}">
                                     📝 Nota
                                 </button>
                             </td>
@@ -427,14 +485,13 @@ async function caricaPrenotazioni(pagina = 1) {
             </table>
             ${renderPaginazione(dati, 'caricaPrenotazioni')}
         `;
-        // .replace(/'/g, "\\'") qui è un altro uso di espressioni regolari:
-        // /'/g significa "trova OGNI apice singolo (') nella stringa" (il
-        // flag "g" = "global" vuol dire "non fermarti al primo trovato,
-        // sostituiscili tutti"), e li sostituisce con \' (un apice
-        // "protetto"). Serve perché stiamo per inserire questo testo
-        // dentro un attributo onclick="...('...')" che usa apici singoli:
-        // senza proteggerli, un apice dentro la nota chiuderebbe
-        // prematuramente la stringa e romperebbe l'HTML generato.
+        // I bottoni azione portano solo data-azione/data-id (vedi il blocco
+        // "AZIONI SU RIGHE" in cima al file): la nota — testo potenzialmente
+        // scritto dal coach, ma comunque una stringa qualsiasi — viene
+        // ritrovata qui per id invece di essere interpolata in un onclick.
+        prenotazioniPerId = {};
+        prenotazioni.forEach(p => { prenotazioniPerId[p.id] = p; });
+        agganciaDelegato(container, gestisciAzionePrenotazione);
     } catch (error) {
         console.error('Errore prenotazioni:', error);
     }
@@ -522,15 +579,15 @@ async function caricaClienti(pagina = 1) {
                             <td>${c.registrato_il}</td>
                             <td>
                                 <button class="action-btn action-note"
-                                    onclick="apriNoteCliente(${c.id}, '${escapeHtml(c.nome).replace(/'/g, "\\'")}')">
+                                    data-azione="note" data-id="${c.id}">
                                     📋 Note (${c.note_totali})
                                 </button>
                                 <button class="action-btn action-note"
-                                    onclick="apriAssegnaPacchetto(${c.id}, '${escapeHtml(c.nome).replace(/'/g, "\\'")}')">
+                                    data-azione="pacchetto" data-id="${c.id}">
                                     🎁 Pacchetto
                                 </button>
                                 <button class="action-btn action-delete"
-                                    onclick="eliminaCliente(${c.id}, '${escapeHtml(c.nome).replace(/'/g, "\\'")}')">
+                                    data-azione="elimina" data-id="${c.id}">
                                     🗑️ Elimina
                                 </button>
                             </td>
@@ -540,6 +597,13 @@ async function caricaClienti(pagina = 1) {
             </table>
             ${renderPaginazione(dati, 'caricaClienti')}
         `;
+        // Il nome del cliente (dato pubblico, dal form senza login) non è
+        // più interpolato negli onclick: i bottoni portano solo data-id, e
+        // il gestore delegato ritrova il cliente qui per id — vedi il blocco
+        // "AZIONI SU RIGHE" in cima al file per il perché (protezione XSS).
+        clientiPerId = {};
+        clienti.forEach(c => { clientiPerId[c.id] = c; });
+        agganciaDelegato(container, gestisciAzioneCliente);
     } catch (error) {
         console.error('Errore clienti:', error);
     }
@@ -594,7 +658,7 @@ async function apriNoteCliente(userId, nomeCliente) {
 
     overlay.innerHTML = `
         <div class="modal-card">
-            <h3>📋 Note tecniche — ${nomeCliente}</h3>
+            <h3>📋 Note tecniche — ${escapeHtml(nomeCliente)}</h3>
             <div id="note-modal-lista"><p style="color:#aaa">Caricamento...</p></div>
             <textarea id="nuova-nota-testo" rows="3" placeholder="Es: Fatica a gestire i team Trick Room, rivedere i predict con Dondozo..."></textarea>
             <div class="modal-actions">
@@ -680,13 +744,13 @@ function apriAssegnaPacchetto(userId, nomeCliente) {
 
     overlay.innerHTML = `
         <div class="modal-card">
-            <h3>🎁 Assegna pacchetto — ${nomeCliente}</h3>
+            <h3>🎁 Assegna pacchetto — ${escapeHtml(nomeCliente)}</h3>
             <p style="font-size: 0.85rem; color: #888;">
                 Assegna SOLO dopo aver ricevuto il pagamento (concordato privatamente). Sessioni, durata e prezzo sono fissi dal catalogo, non modificabili qui.
             </p>
             ${Object.entries(CATALOGO_PACCHETTI).map(([chiave, p]) => `
-                <button class="action-btn action-note" style="width:100%; margin-bottom:0.5rem; text-align:left;"
-                    onclick="assegnaPacchetto(${userId}, '${chiave}', '${nomeCliente.replace(/'/g, "\\'")}')">
+                <button class="action-btn action-note pacchetto-scelta" style="width:100%; margin-bottom:0.5rem; text-align:left;"
+                    data-tipo="${chiave}">
                     ${p.nome} — ${p.sessioni} sessioni — €${p.prezzo}
                 </button>
             `).join('')}
@@ -695,6 +759,14 @@ function apriAssegnaPacchetto(userId, nomeCliente) {
             </div>
         </div>
     `;
+    // I bottoni del catalogo portano solo data-tipo (una chiave fissa e
+    // fidata: intro/team/tour); userId e nomeCliente restano in questa
+    // funzione e arrivano ad assegnaPacchetto via JavaScript, senza mai
+    // passare per un attributo HTML — così anche qui nessun dato del
+    // cliente finisce dentro codice generato come stringa.
+    overlay.querySelectorAll('.pacchetto-scelta').forEach(btn => {
+        btn.addEventListener('click', () => assegnaPacchetto(userId, btn.dataset.tipo, nomeCliente));
+    });
     overlay.style.display = 'flex';
 }
 

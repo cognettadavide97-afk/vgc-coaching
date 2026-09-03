@@ -378,6 +378,7 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 9. **I job cron usano il fuso del processo, non Europe/Rome.** `BackgroundScheduler()` è costruito senza `timezone=`, quindi gli orari dei job notturni (03:00, 03:01, 03:02, 04:00) sono ore locali del processo. Su Railway il processo gira in UTC: il backup "delle 04:00" parte in realtà alle 06:00 italiane d'estate e alle 05:00 d'inverno. In locale sono davvero le 03:00/04:00 italiane. Nessun impatto pratico — restano ore a basso traffico — ma va saputo prima di leggere un log o di aspettarsi un file a un'ora precisa.
 10. **Migrazioni e scheduler partono dal `lifespan`, non dall'import** (dal 2026-09-02, §13): il semplice `import backend.main` non ha più effetti collaterali. Prima li aveva, e la conseguenza era che lanciare `pytest` con un `.env` popolato applicava le migrazioni al database di sviluppo reale.
 11. **Non citare i markdown per numero di riga.** I riferimenti tipo `README.md:217` si rompono nel giro di giorni: di due citati in `ANALISI_2026-08-31.md`, entrambi puntano oggi a tutt'altro contenuto. Citare invece il titolo di sezione (`§7.7`, "Area Sicurezza"), che sopravvive alle riscritture. Vale sia fra documenti sia nei commenti del codice.
+12. **Il pannello admin costruisce i bottoni-azione per delegazione, non con `onclick` inline.** I bottoni di riga (Note/Pacchetto/Elimina sui clienti, Nota/Cancella/No-show sulle prenotazioni) portano solo `data-azione`/`data-id`; un gestore unico sul contenitore (`agganciaDelegato` in `frontend/js/admin.js`) legge l'id e ritrova nome/nota da una cache per-id. È deliberato, non stilistico: prima il nome del cliente (dato pubblico, dal form senza login) veniva interpolato in `onclick="fn(id, 'NOME')"`, e `escapeHtml` non copre apice/backslash — un XSS reale, vedi §15. La regola generale: mai mettere un dato non fidato dentro codice generato come stringa.
 
 ---
 
@@ -854,3 +855,67 @@ Vale come promemoria oltre il caso specifico: **"non verificabile" merita un ten
 diventare una riga di documentazione.** Questo progetto ha già pagato lo stesso errore due volte —
 il login Discord dato per "non ancora verificato" quando era rotto (§13.1), e la scadenza del
 token Gmail attribuita all'inattività per settimane prima che qualcuno la misurasse (§13.5).
+
+---
+
+## 15. Sessione 2026-09-03 (2) — XSS nel pannello admin: trovato, riprodotto, corretto
+
+Nato da un confronto fra `ROADMAP.md` (archivio delle prime fasi, non più aggiornato) e lo stato
+attuale: la nota di chiusura dello step P2-1, ad agosto, diceva che l'escaping HTML era stato
+introdotto in `admin.js` ma restava "da estendere ad altre tabelle". Quella coda di lavoro non era
+mai finita in nessun backlog — si era persa fra agosto e i documenti di settembre.
+
+### Il difetto
+`frontend/js/admin.js` costruiva i bottoni-azione di riga interpolando il **nome del cliente**
+dentro l'attributo `onclick`, così: `onclick="apriAssegnaPacchetto(${id}, '${escapeHtml(nome)...}')"`.
+Il nome arriva dal form pubblico di prenotazione, che **non richiede login**, quindi è un dato non
+fidato. Due difese erano in campo e **nessuna era quella giusta per il contesto**:
+- `escapeHtml` protegge il contesto "contenuto HTML" (escapa `< > &`), ma **non tocca l'apice né il
+  backslash** — ed è esattamente l'apice che chiude la stringa JS dentro l'`onclick`;
+- il `.replace(/'/g, "'")` usava un escaping in stile JavaScript, che dentro un attributo HTML non
+  ha alcun effetto (e col backslash era pure aggirabile).
+
+Conseguenza: un nome tipo `');codice;//` faceva **eseguire codice arbitrario nel browser del coach**
+al click su "Note"/"Pacchetto"/"Elimina" (e sul bottone "Nota" delle prenotazioni). Impatto limitato
+al pannello admin (il sito pubblico non è toccato); nel peggiore dei casi furto della sessione admin
+e accesso ai dati clienti. Probabilità pratica bassa (serve un click del coach sul cliente-trappola),
+ma difetto reale, con risvolto GDPR.
+
+### La verifica — riprodotto in un browser, non dedotto
+Non mi sono fidato della lettura del codice: ho eseguito la catena reale in un browser, con
+payload-segnalino innocui (registrano "sono partito", non fanno danni), in una sandbox locale senza
+DB né produzione. **Prima del fix: 4 esecuzioni ostili** partite via apice e backslash; il vettore
+via `<img>`, che avevo ipotizzato per primo, era invece innocuo (`escapeHtml` lì basta) — la lettura
+"a mente" aveva previsto il vettore sbagliato, l'esecuzione ha corretto l'analisi.
+
+### Il fix
+Non "escapare meglio", ma **non mescolare più dato e codice** (commit sul solo `frontend/js/admin.js`):
+- i bottoni portano solo `data-azione`/`data-id` (un numero, non iniettabile); un gestore unico sul
+  contenitore, agganciato con `addEventListener` (delegazione), legge l'id e ritrova nome/nota da una
+  cache per-id — il nome non entra più in nessun attributo né in nessuna stringa di codice;
+- dove i modali mostrano il nome in `innerHTML`, ora passa da `escapeHtml` (contesto "contenuto", lì
+  è la difesa giusta);
+- i bottoni del catalogo pacchetti portano solo `data-tipo` (chiave fissa e fidata); `userId`/nome
+  arrivano ad `assegnaPacchetto` via JavaScript, mai via HTML;
+- rimosso ovunque il `.replace(/'/g, "'")` fragile, e aggiornati i commenti didattici perché
+  descrivano il nuovo meccanismo. Vedi §7, voce 12.
+
+### Il ri-test — sullo stesso banco, dopo il fix
+Caricato l'`admin.js` **reale** in un browser (che ne ha validato anche la sintassi: nessun errore
+di parsing) e ripetuto l'attacco con gli stessi nomi-trappola, più uno per la nota:
+
+| Verifica | Prima | Dopo |
+|---|---|---|
+| Script ostili eseguiti (clienti) | 4 | **0** |
+| Script ostili eseguiti (nota prenotazione) | — | **0** |
+| Immagini iniettate nel DOM | presenti | **0** |
+| Nome nel modale | sink | **testo inerte** |
+| Modale "Note" si apre ancora? | sì | **sì** |
+| Ogni click colpisce l'id giusto? | — | **sì** (1→1, 2→2, 3→3; nota→booking 10) |
+
+Buco chiuso, nessuna regressione: i bottoni funzionano e agiscono sul cliente corretto.
+
+### Nota di metodo
+Questo finding **non era in nessun elenco**: la lezione, oltre al bug, è che una coda di lavoro
+lasciata in un commento di codice ("da estendere altrove") non è tracciata finché non entra in
+§9.1. Vale come promemoria per la prossima nota "TODO" lasciata a metà.
