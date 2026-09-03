@@ -349,7 +349,7 @@ Restano qui, perché sono fatti sullo **stato del deploy** e non documentazione 
 - **Google Calendar** — service account, scrittura (crea/elimina evento a ogni prenotazione/cancellazione) + lettura (sync automatico ogni ora via job, oltre al bottone admin manuale).
 - **Google Drive (nuovo)** — backup automatico notturno del database (dump SQL scritto a mano via PyMySQL, non `mysqldump`) via OAuth2 con l'account reale del coach (**non** un service account — un service account non ha quota di storage propria su Drive, scoperto testando). Rinnovo: `python scripts/reauth_drive.py`.
 - **Discord** — webhook in uscita (notifiche prenotazione/promemoria/alert di sistema) + OAuth2 in entrata (login studenti, ora con protezione CSRF via parametro `state`).
-- **Railway** — hosting app + MySQL, build via Nixpacks. Piano Hobby: **nessun backup/PITR gestito dalla piattaforma** (da cui il backup homemade su Drive sopra). URL pubblico: `https://vgc-coaching-production.up.railway.app`.
+- **Railway** — hosting app + MySQL, build via Nixpacks. Piano Hobby: **nessun backup/PITR gestito dalla piattaforma** (da cui il backup homemade su Drive sopra). URL pubblico: `https://vgc-coaching-production.up.railway.app`. L'integrazione GitHub **registra ogni deploy come Deployment sul repository**, quindi lo stato del deploy è interrogabile da terminale senza aprire la dashboard — vedi §9.1, voce 5, per il comando.
 - **GitHub Actions (nuovo)** — CI: `.github/workflows/tests.yml` esegue l'intera suite pytest su ogni push/PR (Python 3.11, nessun DB reale necessario — SQLite in-memory). Verde dal 2026-08-26.
 
 ---
@@ -423,7 +423,16 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 
 **Verifica ricorrente, non evento singolo**
 
-5. **Che l'auto-deploy Railway abbia raccolto la punta di `origin/master`** — da confermare in dashboard **a ogni push**, non una volta sola. È l'unica cosa che separa "il codice è su GitHub" da "il codice è in produzione", e questo progetto quella distinzione l'ha già persa due volte. Il push del 2026-09-03 (`1e17319`) non è mai stato confermato in dashboard, e da allora sono arrivati `6348fa1` e `8c3dd56`. Origine §13.4.
+5. **Che l'auto-deploy Railway abbia raccolto la punta di `origin/master`** — da verificare **a ogni push**, non una volta sola: è l'unica cosa che separa "il codice è su GitHub" da "il codice è in produzione", e questo progetto quella distinzione l'ha già persa due volte. **Non serve la dashboard**: l'integrazione GitHub di Railway registra ogni deploy come Deployment sul repository, quindi bastano due comandi —
+
+   ```bash
+   # ultimi deploy, con il commit che li ha innescati
+   gh api repos/cognettadavide97-afk/vgc-coaching/deployments      --jq '.[0:5][] | "\(.created_at)  \(.sha[0:7])  \(.description)"'
+   # esito dell'ultimo (success / failure / inactive = superato da uno più recente)
+   gh api repos/cognettadavide97-afk/vgc-coaching/deployments      --jq '.[0].id' | xargs -I{} gh api repos/cognettadavide97-afk/vgc-coaching/deployments/{}/statuses      --jq '.[0].state'
+   ```
+
+   **Ultima verifica: 2026-09-03**, commit `bbe0609` → `success`. Nella stessa occasione è caduto anche il dubbio arretrato di §13.4: `1e17319` era stato deployato regolarmente il 2026-09-02, e risulta `inactive` solo perché nel frattempo superato da deploy più recenti. Origine §13.4.
 
 **Da provare quando si presenta l'occasione**
 
@@ -682,9 +691,14 @@ dalla dashboard, che hanno provocato un redeploy dell'immagine esistente), mentr
 esecuzione era ancora quello di `61d4554`. Le correzioni di §13.2 sono arrivate in produzione
 solo con questo push, e solo nella misura in cui l'auto-deploy di Railway lo ha raccolto.
 
-> ⚠️ **Da confermare in dashboard Railway**: che il deploy automatico agganciato a
+> ~~⚠️ **Da confermare in dashboard Railway**: che il deploy automatico agganciato a
 > `origin/master` sia effettivamente partito su `1e17319` e sia andato a buon fine. Il push e
-> la CI sono verificati; il deploy no — è fuori dal repository e non osservabile da qui.
+> la CI sono verificati; il deploy no — è fuori dal repository e non osservabile da qui.~~
+>
+> **Chiuso il 2026-09-03**: il deploy di `1e17319` è partito il 2026-09-02 alle 22:32 UTC ed è
+> andato a buon fine. La premessa era sbagliata: il deploy **è** osservabile dal repository,
+> perché l'integrazione GitHub di Railway lo registra come Deployment — bastava
+> `gh api .../deployments`, mai provato. Vedi §9.1, voce 5, per il comando.
 
 **Collaudo locale prima del push**, eseguito il 2026-09-03 con il `.env` reale: app avviata con
 uvicorn contro il MySQL di sviluppo, avvio pulito (`Migrazioni eseguite con successo`, nessuna
@@ -825,3 +839,18 @@ citati nel documento esistono tutti in `git log`; i numeri affermati (18 migrazi
 scheduler, 14 file di test, 8 tabelle applicative, 32 variabili d'ambiente) combaciano con il
 codice; tutti i rimandi `§x` puntano a sezioni esistenti; nessun `.md` in root manca dall'albero
 di §1 e nessuno di quelli citati nell'albero manca dal disco.
+
+**Terza passata — il deploy Railway, che si poteva verificare da sempre.** L'ultima voce rimasta
+aperta era la conferma che l'auto-deploy avesse raccolto la punta del ramo: §13.4 la dava per
+impossibile da qui ("è fuori dal repository e non osservabile"), e per questo era rimasta ferma
+dal 2026-09-03. La premessa era sbagliata. L'integrazione GitHub di Railway **registra ogni
+deploy come Deployment sul repository**, quindi `gh api .../deployments` risponde alla domanda
+in un comando — non era mai stato provato. Esito: `bbe0609` deployato con `success`, e anche il
+dubbio arretrato su `1e17319` si chiude (deployato regolarmente il 02/09, marcato `inactive`
+solo perché superato da deploy successivi). La voce 5 di §9.1 da domanda aperta è diventata una
+procedura di due comandi, e §6 registra ora che il canale esiste.
+
+Vale come promemoria oltre il caso specifico: **"non verificabile" merita un tentativo prima di
+diventare una riga di documentazione.** Questo progetto ha già pagato lo stesso errore due volte —
+il login Discord dato per "non ancora verificato" quando era rotto (§13.1), e la scadenza del
+token Gmail attribuita all'inattività per settimane prima che qualcuno la misurasse (§13.5).
