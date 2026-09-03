@@ -1,27 +1,23 @@
-# Script "una tantum" per ottenere DRIVE_REFRESH_TOKEN, usato dal backup
-# automatico del database (vedi backend/services/backup_service.py). Va
-# eseguito A MANO dal computer del coach, MAI su Railway: apre il browser
-# e chiede di autorizzare l'app dal VERO account Google del coach — non un
-# service account (vedi il commento in cima a backup_service.py sul perché:
-# un service account non ha quota di archiviazione propria su Drive, un
-# problema scoperto solo provando un upload reale, non a priori).
-#
-# Stesso identico schema di scripts/reauth_gmail.py (stesso client OAuth,
-# GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET — non serve crearne uno nuovo, basta
-# aggiungere lo scope Drive alla stessa schermata di consenso su Google
-# Cloud Console), ma produce un token DIVERSO e SEPARATO
-# (DRIVE_REFRESH_TOKEN, non GMAIL_REFRESH_TOKEN): tenerli separati vuol
-# dire che se uno dei due scade o viene revocato, l'altro continua a
-# funzionare indipendentemente.
-#
-# COME SI USA
-#   python scripts/reauth_drive.py
-# Si apre il browser: accedi con IL TUO account Google normale (quello a
-# cui appartiene la cartella di backup su Drive) e autorizza. Lo script poi:
-#   1. stampa il nuovo refresh token
-#   2. chiede se aggiornarlo subito nel .env locale
-#   3. ricorda di aggiornare la stessa variabile su Railway — quello NON
-#      lo fa questo script, va fatto a mano dalla dashboard Railway.
+"""Ottiene un nuovo DRIVE_REFRESH_TOKEN per il backup del database.
+
+    python scripts/reauth_drive.py
+
+Da eseguire in locale. Autorizzare con l'account Google **personale** a cui
+appartiene la cartella di backup, non con un service account: un service
+account non ha quota di archiviazione propria su Drive e ogni upload
+verrebbe rifiutato.
+
+Riusa lo stesso client OAuth di reauth_gmail.py, con in più lo scope Drive
+sulla stessa schermata di consenso, ma produce un token distinto: se uno
+dei due viene revocato o scade, l'altra integrazione continua a funzionare.
+
+Vale la stessa scadenza descritta in reauth_gmail.py. Attenzione: nessun
+controllo schedulato verifica questo token — la sua scadenza si scopre solo
+dall'avviso di backup fallito, quindi a copia già saltata.
+
+Aggiorna solo il .env locale; la variabile in produzione va sostituita a
+mano dalla dashboard dell'hosting.
+"""
 
 import os
 import sys

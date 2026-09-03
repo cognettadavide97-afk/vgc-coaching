@@ -1,46 +1,33 @@
-# Script "una tantum" (o "quando serve", vedi sotto) per ottenere un nuovo
-# GMAIL_REFRESH_TOKEN. Va eseguito A MANO dal computer del coach, MAI su
-# Railway: apre il browser e chiede di autorizzare di nuovo l'app dal suo
-# account Gmail — un passaggio che richiede un umano davanti a un browser,
-# non automatizzabile lato server (vedi il commento in
-# backend/services/email_service.py sul perché serve OAuth2 invece di una
-# semplice password).
-#
-# QUANDO SERVE RILANCIARLO
-# Finché la schermata di consenso OAuth del progetto Google Cloud resta in
-# stato "Testing" (vedi README.md, sezione "Gmail API"), il refresh token
-# scade dopo 7 giorni di INATTIVITÀ dell'app — con l'app usata tutti i
-# giorni per mandare email questo di norma non capita, ma può succedere
-# (es. dopo una pausa, o se Google lo revoca per altri motivi). Lo
-# scheduler del progetto (controlla_credenziali_gmail in
-# backend/scheduler.py) controlla automaticamente e avvisa su Discord
-# quando succede — a quel punto, rilancia questo script.
-#
-# LA SOLUZIONE DEFINITIVA resta un'altra: portare la schermata di consenso
-# OAuth da "Testing" a "In production" su Google Cloud Console (un'azione
-# manuale, una tantum, che NON richiede la verifica completa dell'app per
-# un solo scope non sensibile come gmail.send) — fatto quello, il refresh
-# token smette di scadere per inattività e questo script (e il controllo
-# automatico) diventano solo una rete di sicurezza, non una necessità
-# periodica.
-#
-# COME SI USA
-#   python scripts/reauth_gmail.py
-# Si apre il browser: accedi con l'account Gmail mittente (EMAIL_MITTENTE
-# nel .env) e autorizza. Lo script poi:
-#   1. stampa il nuovo refresh token
-#   2. chiede se aggiornarlo subito nel .env locale (comodo per continuare
-#      a sviluppare/testare in locale)
-#   3. ricorda di aggiornare la stessa variabile su Railway (produzione) —
-#      quello NON lo fa questo script, va fatto a mano dalla dashboard
-#      Railway, per non toccare l'ambiente di produzione senza conferma
-#      esplicita.
+"""Ottiene un nuovo GMAIL_REFRESH_TOKEN tramite autorizzazione OAuth2.
+
+    python scripts/reauth_gmail.py
+
+Apre il browser per autorizzare l'app con l'account mittente, stampa il
+nuovo token e propone di scriverlo nel .env locale. Va eseguito in locale:
+richiede un browser e un intervento umano, quindi non è automatizzabile
+lato server. Aggiorna solo l'ambiente locale — la variabile in produzione
+va sostituita a mano dalla dashboard dell'hosting.
+
+QUANDO RILANCIARLO
+Finché la schermata di consenso OAuth resta in stato "Testing", il refresh
+token scade dopo 7 giorni **a prescindere da quanto l'app venga usata**.
+Non è una scadenza per inattività: verificato in produzione il 2026-09-02,
+con il token esercitato ogni giorno dall'healthcheck e dalle email di ogni
+prenotazione. Quindi la scadenza si ripresenta a intervalli regolari, e il
+controllo schedulato che avvisa su Discord la rileva ma non la previene.
+
+L'unico rimedio che la elimina è portare la schermata di consenso da
+"Testing" a "In production" sulla console Google Cloud: non richiede la
+verifica completa dell'app per un singolo scope non sensibile come
+gmail.send. Fatto questo, lo script torna a servire solo in casi
+eccezionali (revoca, cambio account).
+"""
 
 import os
 import sys
 
-# La cartella del progetto è quella SOPRA "scripts/" — serve per trovare il
-# file .env indipendentemente da dove viene lanciato lo script.
+# La radice del progetto è la cartella superiore a scripts/: serve per
+# trovare il .env indipendentemente dalla directory di lancio.
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
 

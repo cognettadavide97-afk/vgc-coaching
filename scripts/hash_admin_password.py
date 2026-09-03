@@ -1,27 +1,14 @@
-# Script "una tantum" per migrare il login admin dalla vecchia password in
-# chiaro (ADMIN_PASSWORD nel .env) al nuovo ADMIN_PASSWORD_HASH (vedi
-# backend/services/auth_service.py). Va eseguito A MANO dal computer del
-# coach: chiede la password a tastiera (senza mostrarla a schermo, e senza
-# lasciarla nella cronologia della shell come farebbe passarla come
-# argomento) e stampa l'hash bcrypt corrispondente.
-#
-# QUANDO SERVE
-# Una volta, al momento di attivare la nuova verifica con hash. Si può
-# rilanciare in seguito ogni volta che si vuole cambiare la password admin:
-# basta generare un nuovo hash e sostituirlo.
-#
-# COME SI USA
-#   python scripts/hash_admin_password.py
-# Poi:
-#   1. stampa il nuovo hash
-#   2. chiede se aggiornarlo subito nel .env locale (sostituendo la riga
-#      ADMIN_PASSWORD_HASH=... o, se ancora presente, la vecchia
-#      ADMIN_PASSWORD=... in chiaro)
-#   3. ricorda di aggiornare la stessa variabile su Railway (produzione) —
-#      quello NON lo fa questo script, va fatto a mano dalla dashboard
-#      Railway (Variables: rimuovi ADMIN_PASSWORD, aggiungi
-#      ADMIN_PASSWORD_HASH), per non toccare l'ambiente di produzione senza
-#      conferma esplicita.
+"""Genera l'hash bcrypt della password di amministrazione.
+
+    python scripts/hash_admin_password.py
+
+Da eseguire in locale ogni volta che si cambia la password. Chiede la
+password da tastiera senza mostrarla e senza lasciarla nella cronologia
+della shell, stampa l'hash e propone di scriverlo nel .env locale.
+
+Aggiorna solo l'ambiente locale: la variabile in produzione va cambiata a
+mano dalla dashboard dell'hosting, per non modificarla senza conferma.
+"""
 
 import os
 import re
@@ -37,8 +24,7 @@ from _env_utils import aggiorna_env_locale as aggiorna_env_locale_helper
 
 
 def main():
-    # getpass.getpass(), a differenza di input(), non mostra a schermo i
-    # caratteri digitati — la stessa esperienza di un prompt "sudo password".
+    # getpass non fa eco dei caratteri digitati.
     password = getpass.getpass("Nuova password admin (non verrà mostrata): ")
     conferma = getpass.getpass("Ripetila per conferma: ")
 
@@ -50,10 +36,8 @@ def main():
         print("La password non può essere vuota.")
         sys.exit(1)
 
-    # bcrypt.gensalt() genera un "sale" casuale diverso ogni volta: due
-    # utenti con la stessa password ottengono hash diversi, e lo stesso sale
-    # resta incorporato nell'hash finale (per questo basta salvare l'hash,
-    # non il sale a parte, per poi verificare la password in futuro).
+    # Il sale generato da gensalt() resta incorporato nell'hash: per la
+    # verifica successiva basta conservare l'hash, non il sale a parte.
     hash_bcrypt = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
     print("\nNuovo ADMIN_PASSWORD_HASH ottenuto:")
@@ -81,13 +65,9 @@ def aggiorna_env_locale(nuovo_hash: str):
     with open(ENV_PATH, "r", encoding="utf-8") as f:
         contenuto = f.read()
 
-    # Caso di migrazione one-shot, specifico di questo script: se esiste
-    # ancora la vecchia riga ADMIN_PASSWORD= (password in chiaro), la
-    # sostituisce del tutto con la nuova ADMIN_PASSWORD_HASH=, invece di
-    # lasciarle entrambe nel file. Per ogni altro caso (nessuna vecchia
-    # riga da migrare: aggiorna o aggiungi ADMIN_PASSWORD_HASH) riusa lo
-    # stesso helper condiviso degli altri script "una tantum" del progetto
-    # (scripts/_env_utils.py).
+    # Migrazione dal vecchio ADMIN_PASSWORD in chiaro: se quella riga
+    # esiste ancora viene sostituita, per non lasciare entrambe nel file.
+    # Negli altri casi si usa l'helper condiviso.
     nuovo_contenuto, sostituzioni_vecchia = re.subn(
         r"^ADMIN_PASSWORD=.*$",
         f"ADMIN_PASSWORD_HASH={nuovo_hash}",
