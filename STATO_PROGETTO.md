@@ -1,6 +1,6 @@
 # STATO_PROGETTO.md — VGC Coaching App
 
-> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-03** (sezioni 13 e 14), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), e infine dopo la revisione documentale del 01–03/09 (sezioni 13 e 14). Ogni sessione è stata pushata su `origin/master` con la CI verificata verde sul push reale, non solo sulla suite locale: run GitHub Actions `33529945237` sul commit `61d4554` (01/09) e `33690855235` sul commit `1e17319` (03/09). *Questi due riferimenti sono eventi, e come tali non invecchiano; per sapere dove sia la punta del ramo si guarda `git log`, non questo paragrafo — inseguire l'hash di HEAD a ogni modifica aveva già prodotto tre disallineamenti.* Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
+> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-03** (sezioni 13-16), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), e infine dopo la revisione documentale del 01–03/09 (sezioni 13 e 14). Ogni sessione è stata pushata su `origin/master` con la CI verificata verde sul push reale, non solo sulla suite locale: run GitHub Actions `33529945237` sul commit `61d4554` (01/09) e `33690855235` sul commit `1e17319` (03/09). *Questi due riferimenti sono eventi, e come tali non invecchiano; per sapere dove sia la punta del ramo si guarda `git log`, non questo paragrafo — inseguire l'hash di HEAD a ogni modifica aveva già prodotto tre disallineamenti.* Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
 
 > **Come si aggiorna questo documento.** Le sezioni **1–9 descrivono il presente**: non portano date di sessione e vanno corrette ogni volta che il codice cambia. Le sezioni **10 in poi sono un diario**: si scrivono una volta, si chiudono, e non si riaprono se non per barrare una voce con la data. Ogni punto ancora aperto vive in **un posto solo**, §9.1 — i backlog dentro le sezioni-diario sono congelati e valgono come fotografia del momento in cui furono scritti, non come elenco da consultare. Vale la pena rispettarla: quasi tutti gli errori trovati nelle revisioni del 01–03/09 stavano esattamente sulla cucitura fra le due nature — un fatto di sessione rimasto congelato in una sezione di stato (§7.2 dava il cookie per non verificato mesi dopo la verifica), o un fatto di stato mai propagato all'indietro (il backlog di §11 elencava come aperte due voci chiuse altrove).
 
@@ -18,8 +18,9 @@ Monolite Python/FastAPI che serve sia le API REST sia i file statici del fronten
 ├── .github/workflows/tests.yml  # CI: pytest su ogni push/PR, verde
 ├── ANALISI_2026-08-31.md      # referto della review indipendente del 31/08 — findings tutti chiusi (storico)
 ├── ANALYSIS.md               # audit di una sessione di sviluppo molto precedente (storico)
+├── CODICE_SPIEGATO.md         # materiale di studio: concetti, giro di una prenotazione, modulo per modulo (vedi §16)
 ├── RAILWAY_RIALLINEAMENTO_2026-09-02.md  # runbook dell'intervento sulle variabili Railway (storico)
-├── README.md                 # guida setup/deploy, riallineata al codice il 2026-09-03 (vedi §14)
+├── README.md                 # mappa del progetto + operatività (setup, env, deploy, backup); complementare a CODICE_SPIEGATO.md, vedi §16
 ├── ROADMAP.md                 # piano di lavoro P0→P3 di quella stessa sessione, tutto "fatto" (storico)
 ├── REVISIONE_2026-09-01.md    # referto completo della revisione documentale del 01/09 (storico)
 ├── STATO_PROGETTO.md          # questo file
@@ -433,7 +434,7 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
    gh api repos/cognettadavide97-afk/vgc-coaching/deployments      --jq '.[0].id' | xargs -I{} gh api repos/cognettadavide97-afk/vgc-coaching/deployments/{}/statuses      --jq '.[0].state'
    ```
 
-   **Ultima verifica: 2026-09-03**, commit `bbe0609` → `success`. Nella stessa occasione è caduto anche il dubbio arretrato di §13.4: `1e17319` era stato deployato regolarmente il 2026-09-02, e risulta `inactive` solo perché nel frattempo superato da deploy più recenti. Origine §13.4.
+   **Ultima verifica: 2026-09-03**, commit `2951633` (punta di `origin/master`) → `success`, deploy delle 17:54Z. La verifica precedente della stessa giornata, su `bbe0609`, era anch'essa `success`. Nella stessa occasione è caduto anche il dubbio arretrato di §13.4: `1e17319` era stato deployato regolarmente il 2026-09-02, e risulta `inactive` solo perché nel frattempo superato da deploy più recenti. Origine §13.4.
 
 **Da provare quando si presenta l'occasione**
 
@@ -919,3 +920,58 @@ Buco chiuso, nessuna regressione: i bottoni funzionano e agiscono sul cliente co
 Questo finding **non era in nessun elenco**: la lezione, oltre al bug, è che una coda di lavoro
 lasciata in un commento di codice ("da estendere altrove") non è tracciata finché non entra in
 §9.1. Vale come promemoria per la prossima nota "TODO" lasciata a metà.
+
+---
+
+## 16. Sessione 2026-09-03 (3) — separazione fra materiale di studio e commenti del codice
+
+Cinque commit (`dc2452c` → `2951633`), **58 file toccati, +1928 / −3145 righe**: il saldo negativo
+è il punto della sessione. Nessuna riga di logica modificata — solo commenti spostati, riscritti o
+rimossi, più un documento nuovo.
+
+### Cosa c'era prima, e perché non reggeva
+I commenti nei sorgenti facevano due mestieri insieme: spiegavano il linguaggio a chi impara
+("cos'è un decoratore", "cosa fa `yield`") e descrivevano il codice a chi lo modifica. Il risultato
+era che entrambi i lettori pagavano un costo: chi studiava trovava le spiegazioni sparse in 58 file
+senza un ordine di lettura, chi doveva cambiare qualcosa scorreva pagine di didattica per arrivare
+alla riga che gli serviva. E le spiegazioni lunghe si erano **disallineate dal codice** senza che
+nessuno se ne accorgesse, perché nessuno le rileggeva mentre modificava la funzione accanto.
+
+### Cosa è stato fatto
+- **Nuovo `CODICE_SPIEGATO.md`** (536 righe): il materiale didattico raccolto e riordinato in un
+  percorso di lettura — quadro generale e i quattro strati, i concetti che ricorrono ovunque
+  (decoratore, `Depends`, `yield`, ORM, Pydantic, `async`, JWT, migrazioni), il **giro completo di
+  una prenotazione** che attraversa il progetto una volta sola, poi il dettaglio modulo per modulo.
+- **Commenti nel codice riscritti** per il collega che modifica: contratti, invarianti e conseguenze
+  di una modifica, non spiegazioni del linguaggio. Convertiti in cinque passate per tenere ogni
+  commit rivedibile: modelli/schemi/`main.py` (`dc2452c`), service (`a91e9a7`), script one-off
+  (`3f517ee`), router/scheduler/alembic (`e3b6cfe`), frontend (`2951633`).
+- **I commenti non rimandano a `CODICE_SPIEGATO.md`**, per scelta: un riferimento incrociato marcisce
+  appena il documento cambia struttura. Devono reggersi da soli.
+
+### La divisione del lavoro fra i tre documenti — decisa il 2026-09-03
+`README.md` e `CODICE_SPIEGATO.md` **non sono un doppione**, sono complementari, e i titoli lo
+nascondono più di quanto lo dicano:
+
+| File | Risponde a | Non contiene |
+|---|---|---|
+| `README.md` | *dove sta cosa, come lo faccio partire, come lo deployo* — mappa dei file, setup locale, variabili, comandi, servizi esterni, deploy, backup, sicurezza | il perché di una singola riga |
+| `CODICE_SPIEGATO.md` | *perché il codice è scritto così* — concetti, percorso di una richiesta, modulo per modulo | procedure operative |
+| `STATO_PROGETTO.md` | *dov'è il progetto adesso, cosa resta aperto* (questo file) | didattica e operatività |
+
+### Verifiche
+Suite **83 test verdi, coverage 77%** (comando della CI, non un numero copiato); **CI verde** sul
+push, run sul commit `2951633`; **deploy Railway `success`** sullo stesso commit — voce 5 del
+backlog riverificata e aggiornata in §9.1. Nessun `TODO`/`FIXME` residuo nei sorgenti.
+
+### Nota di metodo — la stessa di §15, ripetuta perché è ricapitata
+Questa sessione ha prodotto cinque commit e un documento nuovo, poi si è chiusa **senza scriverne
+qui**: il `CODICE_SPIEGATO.md` non risultava dall'albero di §1 né da nessun'altra riga di questo
+file, e la §16 è stata scritta poche ore più tardi, in una sessione separata aperta apposta
+per controllare cosa fosse rimasto in sospeso. È esattamente l'avvertimento in fondo a
+§15 — *"una coda di lavoro non è tracciata finché non entra in questo documento"* — applicato
+stavolta non a un TODO, ma a una sessione intera. **Il lavoro non è finito quando il codice è
+pushato: è finito quando è scritto qui.**
+
+### Backlog
+Nessuna voce nuova aperta, nessuna chiusa. §9.1 resta l'unico elenco da consultare.
