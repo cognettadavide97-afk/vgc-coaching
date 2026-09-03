@@ -1,6 +1,6 @@
-// Cervello di frontend/recensione.html — pagina indipendente dal wizard di
-// prenotazione (frontend/js/app.js). Vedi quel file per le spiegazioni di
-// base su fetch()/async/await, qui ci concentriamo solo su cosa cambia.
+// Script della pagina di recensione, raggiunta dal link inviato per email
+// dopo la sessione. L'autorizzazione è il token nella query string: senza
+// quello, o senza booking_id, il form non viene nemmeno mostrato.
 
 const urlParams = new URLSearchParams(window.location.search);
 const bookingId = urlParams.get('booking_id');

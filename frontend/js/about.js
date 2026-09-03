@@ -1,11 +1,8 @@
-// Cervello di frontend/about.html — pagina indipendente dal wizard di
-// prenotazione (frontend/js/app.js). L'unica cosa dinamica qui è la
-// vetrina recensioni: il resto della pagina è HTML statico.
+// Script della pagina "Meet the Coach". L'unica parte dinamica è la
+// vetrina delle recensioni approvate; il resto della pagina è statico.
 
-// Identica a escapeHtmlPublic in frontend/js/app.js — duplicata qui invece
-// di condivisa perché questo progetto non ha un build step (vedi i
-// commenti sulle variabili CSS duplicate in frontend/css/admin.css per lo
-// stesso motivo): ogni pagina carica solo gli script che le servono.
+// Duplicata da app.js e non condivisa: il progetto non ha un build step e
+// ogni pagina carica solo gli script che le servono.
 function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
@@ -23,9 +20,8 @@ async function caricaRecensioniPubbliche() {
 
         if (recensioni.length === 0) return; // resta il placeholder statico già presente nell'HTML
 
-        // Nasconde sia il placeholder ("nessuna recensione") sia il
-        // sottotitolo ("appariranno presto qui") — entrambi non hanno più
-        // senso una volta che ci sono recensioni vere da mostrare.
+        // Placeholder e sottotitolo di attesa non servono più una volta
+        // che ci sono recensioni da mostrare.
         document.querySelector('.reviews-placeholder').style.display = 'none';
         document.querySelector('.reviews-section .subtitle').style.display = 'none';
 
@@ -37,8 +33,8 @@ async function caricaRecensioniPubbliche() {
             </div>
         `).join('');
     } catch (error) {
-        // Nessuna recensione da mostrare o rete assente: resta il
-        // placeholder statico, non è un errore da segnalare al visitatore.
+        // Rete assente o risposta non valida: resta il contenuto statico.
+        // Non è una condizione da segnalare al visitatore.
     }
 }
 

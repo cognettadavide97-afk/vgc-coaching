@@ -1,15 +1,14 @@
-// Sistema di traduzione condiviso tra tutte le pagine del sito pubblico
-// (frontend/index.html, frontend/about.html) — vanilla JavaScript, nessuna
-// libreria di i18n: coerente con lo stile "niente build step" del resto
-// del progetto (vedi README). Il pannello admin (frontend/admin.html) non
-// lo usa: resta solo in italiano, essendo per uso esclusivo del coach.
+// Traduzione italiano/inglese delle pagine pubbliche: index.html,
+// about.html e privacy.html. Nessuna libreria: il progetto non ha un
+// build step. Il pannello di amministrazione non lo carica, resta in
+// italiano.
 //
-// Come funziona, in breve: ogni testo statico nell'HTML ha un attributo
-// data-i18n="chiave" (es. <h2 data-i18n="step1_title">...</h2>) — questo
-// file legge quell'attributo, cerca "chiave" nel dizionario TRANSLATIONS
-// nella lingua corrente, e sostituisce il testo dell'elemento. I testi
-// generati dinamicamente da app.js (alert, riepilogo prenotazione...)
-// chiamano direttamente la funzione t("chiave") invece di leggere l'HTML.
+// I testi statici portano un attributo data-i18n con la chiave del
+// dizionario e vengono sostituiti da applyTranslations(); i testi generati
+// a runtime chiamano invece t() o tf() direttamente.
+//
+// Aggiungere una voce significa aggiungerla a ENTRAMBE le lingue: una
+// chiave presente in una sola viene resa con la chiave stessa.
 
 const TRANSLATIONS = {
     en: {
@@ -285,27 +284,19 @@ const TRANSLATIONS = {
     }
 };
 
-// Lingua corrente: quella salvata da una visita precedente (localStorage,
-// stesso meccanismo usato per student_token in app.js), altrimenti quella
-// del browser se è italiano, altrimenti inglese di default — un
-// visitatore italiano vede subito il sito nella sua lingua senza dover
-// toccare l'interruttore.
+// Preferenza salvata da una visita precedente, altrimenti la lingua del
+// browser, altrimenti inglese.
 let currentLang = localStorage.getItem('lang') || (navigator.language.startsWith('it') ? 'it' : 'en');
 
-// t("chiave") restituisce il testo tradotto nella lingua corrente. Se la
-// chiave non esistesse nel dizionario (errore di battitura, dimenticanza),
-// restituisce la chiave stessa invece di un testo vuoto: un bug del
-// genere resta visibile e facile da notare, invece di sparire in
-// silenzio.
+// Restituisce il testo tradotto. Una chiave assente viene restituita così
+// com'è: l'errore resta visibile a schermo invece di produrre un testo
+// vuoto che passerebbe inosservato.
 function t(chiave) {
     return (TRANSLATIONS[currentLang] && TRANSLATIONS[currentLang][chiave]) || chiave;
 }
 
-// Sostituisce {segnaposto} dentro una stringa tradotta con valori veri —
-// serve per frasi come "Usa una sessione dal pacchetto {name}..." dove
-// una parte del testo è dinamica (vedi use_package_session sopra).
-// L'equivalente di "Usa una sessione dal pacchetto {name}...".format(name=...)
-// in Python.
+// Come t(), ma sostituisce i segnaposto {nome} con i valori passati, per
+// le frasi con una parte dinamica.
 function tf(chiave, valori) {
     let testo = t(chiave);
     for (const nomeSegnaposto in valori) {
@@ -314,16 +305,14 @@ function tf(chiave, valori) {
     return testo;
 }
 
-// Applica la traduzione a ogni elemento con data-i18n nella pagina
-// corrente. Va richiamata sia all'avvio sia ogni volta che la lingua
-// cambia (vedi setLang più sotto).
+// Applica la traduzione a tutta la pagina. Da richiamare all'avvio e a
+// ogni cambio di lingua.
 function applyTranslations() {
     document.querySelectorAll('[data-i18n]').forEach(el => {
         el.textContent = t(el.dataset.i18n);
     });
-    // data-i18n-placeholder: stesso meccanismo ma per il placeholder di
-    // input/textarea, che non è "testo dentro l'elemento" (textContent
-    // non lo tocca).
+    // Attributo separato per i placeholder: non sono contenuto
+    // dell'elemento e textContent non li raggiunge.
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
         el.placeholder = t(el.dataset.i18nPlaceholder);
     });
@@ -338,11 +327,9 @@ function setLang(lang) {
     currentLang = lang;
     localStorage.setItem('lang', lang);
     applyTranslations();
-    // Alcuni testi (slot già caricati, riepilogo prenotazione già
-    // compilato...) non hanno un elemento data-i18n da riapplicare: sono
-    // stati scritti da app.js in un momento precedente. L'evento
-    // "langchange" avvisa app.js (se presente in pagina) che la lingua è
-    // cambiata, così può ridisegnare quei pezzi con il testo giusto.
+    // I contenuti già generati a runtime (slot caricati, riepilogo
+    // compilato) non hanno un attributo data-i18n da riapplicare: l'evento
+    // avvisa app.js di ridisegnarli.
     document.dispatchEvent(new CustomEvent('langchange'));
 }
 

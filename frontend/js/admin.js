@@ -1,22 +1,15 @@
-// Questo è il "cervello" del pannello admin (frontend/admin.html) — il file
-// più grande del frontend, perché il pannello fa molte cose diverse. Vedi
-// i commenti in frontend/js/app.js per la spiegazione dei concetti
-// JavaScript di base (fetch, async/await, template literal, DOM,
-// addEventListener...) — qui ci concentriamo sulle parti nuove.
+// Script del pannello di amministrazione: dashboard, analytics,
+// prenotazioni, clienti, disponibilità, pacchetti e recensioni.
+//
+// È il file più grande del frontend perché il pannello copre molte aree.
+// Ogni sezione segue lo stesso schema: una funzione caricaX() che
+// interroga l'API, costruisce l'HTML e lo inserisce nel contenitore.
 
 // ─── TOKEN ───────────────────────────────────────────────────
-// Il token JWT viene salvato in memoria — dura fino
-// a quando la pagina è aperta
+// Il token vive solo in memoria: si perde ricaricando la pagina e il coach
+// deve rifare il login. È deliberato — dà accesso ai dati di tutti i
+// clienti e non merita la comodità di una sessione persistente.
 let token = null;
-// Nota la differenza rispetto al token studente (dal login Discord, vedi
-// backend/routers/discord_auth.py), che vive in un cookie httpOnly
-// impostato dal server: qui invece "token" è solo una variabile
-// JavaScript normale, che si azzera appena ricarichi la pagina o la
-// chiudi — il coach deve rifare il login ogni volta che riapre il
-// pannello. È una scelta di sicurezza deliberata: un token admin dà
-// accesso a TUTTI i dati dei clienti, ha senso che sia meno "comodo" da
-// mantenere rispetto a un token studente che dà accesso solo al proprio
-// storico.
 
 // ─── PAGINAZIONE (helper condiviso da prenotazioni/clienti/slot) ─
 // tiene traccia della pagina corrente di ciascuna lista, cosi le azioni
@@ -83,9 +76,9 @@ function gestisciAzionePrenotazione(e) {
 }
 
 function renderPaginazione(dati, nomeFunzione) {
-    // Se c'è una sola pagina di risultati, i controlli "Precedente/Successiva"
-    // non servono a nulla — restituire una stringa vuota fa sì che
-    // semplicemente non compaia nulla nella pagina.
+    // nomeFunzione è il nome della funzione che ricarica la lista,
+    // interpolato negli onclick: è ciò che rende questo helper riusabile
+    // dalle tre liste paginate invece di duplicarlo.
     if (dati.pagine_totali <= 1) return '';
     return `
         <div class="paginazione">
@@ -96,13 +89,6 @@ function renderPaginazione(dati, nomeFunzione) {
                 onclick="${nomeFunzione}(${dati.pagina + 1})">Successiva →</button>
         </div>
     `;
-    // ${nomeFunzione}(...) dentro la stringa è interessante: nomeFunzione è
-    // un TESTO (es. "caricaPrenotazioni") passato come parametro, e viene
-    // incollato dentro l'HTML generato — a runtime, quel testo diventa una
-    // vera chiamata di funzione nell'attributo onclick. Questo è ciò che
-    // rende renderPaginazione riusabile per tre liste diverse (prenotazioni,
-    // clienti, slot) con un'unica funzione, invece di scriverne tre copie
-    // quasi identiche.
 }
 
 // ─── LOGIN ───────────────────────────────────────────────────
@@ -117,13 +103,8 @@ async function login() {
     }
 
     try {
-        // OAuth2PasswordRequestForm richiede form-urlencoded
-        // non JSON — è uno standard specifico di OAuth2
-        // URLSearchParams costruisce dati nel formato "chiave=valore&chiave2=valore2"
-        // (lo stesso formato che vedi nella query string di un URL) — qui
-        // lo usiamo però come CORPO della richiesta, non come parte
-        // dell'indirizzo, perché è il formato che l'endpoint
-        // /admin/login (backend/routers/admin.py) si aspetta.
+        // L'endpoint di login accetta form-urlencoded, non JSON: è il
+        // formato previsto dallo standard OAuth2.
         const body = new URLSearchParams();
         body.append('username', username);
         body.append('password', password);
@@ -162,13 +143,8 @@ function logout() {
 }
 
 // ─── UTILITÀ ─────────────────────────────────────────────────
-// aggiunge il token a ogni richiesta API
+// Header di autenticazione condivisi da tutte le chiamate del file.
 function authHeaders() {
-    // Questa funzione viene richiamata praticamente in ogni fetch() di
-    // questo file — invece di ripetere ovunque "headers: {'Authorization':
-    // ...}", la costruiamo qui una volta sola e la riusiamo. Se domani il
-    // formato degli header cambiasse, basterebbe modificare questa unica
-    // funzione.
     return {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
@@ -183,10 +159,8 @@ function showSection(nome) {
     document.getElementById(`section-${nome}`).classList.add('active');
     event.currentTarget.classList.add('active');
 
-    // carica i dati della sezione
-    // Ogni volta che l'admin passa a una sezione, ricarichiamo i suoi dati
-    // freschi dal server — così vede sempre lo stato più aggiornato,
-    // invece di dati potenzialmente vecchi rimasti in pagina da prima.
+    // Ogni cambio sezione ricarica i dati: evita di mostrare valori
+    // rimasti in pagina da una visita precedente.
     if (nome === 'dashboard') caricaDashboard();
     if (nome === 'prenotazioni') caricaPrenotazioni();
     if (nome === 'clienti') caricaClienti();
@@ -200,11 +174,9 @@ function showSection(nome) {
 }
 
 const GIORNI_SETTIMANA = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
-// L'ordine di questo array non è casuale: la posizione 0 è Lunedì, la
-// posizione 6 Domenica — deve combaciare esattamente con la numerazione
-// usata nel backend (0=lunedì...6=domenica, vedi backend/models/availability_rule.py),
-// così GIORNI_SETTIMANA[r.giorno_settimana] (che vedrai più sotto) traduce
-// correttamente il numero che arriva dal server nel nome del giorno.
+// L'ordine è vincolante: l'indice deve combaciare con la numerazione del
+// backend (0=lunedì ... 6=domenica), perché la traduzione avviene per
+// posizione.
 
 const SERVICE_LABELS = {
     vod_review: 'VOD Review',
@@ -213,10 +185,9 @@ const SERVICE_LABELS = {
     tournament_prep: 'Tournament Prep'
 };
 
-// Duplicato minimale del catalogo fisso in
-// backend/services/package_service.py — solo i campi che servono per
-// mostrare le opzioni nel modale di assegnazione (backend resta l'unica
-// fonte autoritativa per prezzi/sessioni reali, vedi POST /admin/pacchetti).
+// Copia ridotta del catalogo, con i soli campi necessari a comporre il
+// modale di assegnazione. La fonte autoritativa per prezzi e sessioni
+// resta il backend.
 const CATALOGO_PACCHETTI = {
     intro: { nome: 'Competitive Intro', sessioni: 2, prezzo: 70 },
     team: { nome: 'Team Building Session', sessioni: 4, prezzo: 130 },
@@ -226,12 +197,12 @@ const CATALOGO_PACCHETTI = {
 // sfugge caratteri HTML per evitare che testo inserito dallo studente
 // (link VOD, codice replay, ecc.) venga interpretato come markup nel pannello
 function escapeHtml(str) {
-    // Identica a escapeHtmlPublic in frontend/js/app.js — vedi lì la
-    // spiegazione completa del perché serve (protezione da XSS). Qui è
-    // particolarmente importante perché il pannello admin mostra TANTI
-    // dati inseriti da chi prenota (nome, note, link, codici replay...),
-    // che un visitatore malintenzionato potrebbe in teoria provare a
-    // manipolare.
+    // Rende inerte il markup nei dati mostrati nel pannello. Serve perché
+    // molti di questi valori (nome, note, link, codici) sono compilati dal
+    // pubblico senza autenticazione.
+    //
+    // Attenzione: è adatta al contenuto di un elemento, non a costruire
+    // attributi o codice. Non protegge apici e backslash.
     if (!str) return '';
     const div = document.createElement('div');
     div.textContent = str;
@@ -242,20 +213,9 @@ function escapeHtml(str) {
 // altrimenti come testo semplice (sempre sfuggito)
 function renderVodLink(link) {
     const safe = escapeHtml(link);
-    // Questa è una ESPRESSIONE REGOLARE (regex): un modo compatto per
-    // descrivere "una forma di testo" da cercare o verificare. Non esiste
-    // nulla di identico built-in in Python base (serve il modulo "re"),
-    // ma il concetto è lo stesso. Leggendola pezzo per pezzo:
-    // /.../ delimita la regex, "^" vuol dire "inizio della stringa",
-    // "https?" vuol dire "http, con una 's' opzionale" (il "?" rende
-    // opzionale il carattere prima), ":\/\/" è "://" (con gli slash
-    // "protetti" da backslash perché altrimenti chiuderebbero la regex),
-    // "i" alla fine vuol dire "case insensitive" (accetta anche "HTTP").
-    // .test(link) restituisce true/false: "questa stringa rispetta questo
-    // schema?". In pratica: "il link comincia per http:// o https://?" —
-    // un controllo di sicurezza minimo prima di trasformarlo in un vero
-    // link cliccabile (evita che qualcuno inserisca "javascript:..." come
-    // link, che nel browser eseguirebbe codice invece di aprire una pagina).
+    // Accetta come link cliccabile solo http:// e https://. Il controllo
+    // esiste per escludere schemi come javascript:, che in un attributo
+    // href eseguirebbero codice invece di aprire una pagina.
     if (/^https?:\/\//i.test(link)) {
         return `<a href="${safe}" target="_blank" rel="noopener noreferrer">VOD ↗</a>`;
     }
@@ -278,13 +238,9 @@ function badgeStato(stato) {
 
 // ─── DASHBOARD ───────────────────────────────────────────────
 async function caricaDashboard() {
-    // Avviata subito, ma await SOLO alla fine (sotto): /admin/dashboard e
-    // /admin/analytics sono due richieste indipendenti (nessuna delle due
-    // ha bisogno del risultato dell'altra) — partire in parallelo invece
-    // che una dopo l'altra dimezza il tempo di attesa a ogni apertura del
-    // pannello. caricaAnalytics() gestisce già i propri errori al suo
-    // interno (try/catch), quindi lasciarla "in volo" qui non rischia di
-    // generare un errore non gestito.
+    // Le due richieste sono indipendenti e partono insieme: attenderle in
+    // sequenza raddoppierebbe il tempo di apertura del pannello.
+    // caricaAnalytics gestisce già i propri errori.
     const analyticsPromise = caricaAnalytics();
 
     try {
@@ -321,11 +277,8 @@ async function caricaDashboard() {
 }
 
 function renderBarChart(container, dati, chiaveEtichetta, chiaveValore, formattatore) {
-    // Questa funzione disegna un "grafico a barre" senza NESSUNA libreria
-    // di grafici: solo <div> con una larghezza calcolata in percentuale
-    // via CSS. È un pattern sorprendentemente comune ed efficace per
-    // grafici semplici: niente da scaricare, niente da imparare, solo
-    // matematica di base e HTML/CSS.
+    // Grafico a barre senza librerie: div con larghezza percentuale.
+    // Sufficiente per queste metriche e coerente con l'assenza di build.
     if (!container) return;
     // .every(...) restituisce true solo se TUTTI gli elementi dell'array
     // soddisfano la condizione — qui: "sono tutti i valori pari a zero?"
@@ -334,14 +287,8 @@ function renderBarChart(container, dati, chiaveEtichetta, chiaveValore, formatta
         container.innerHTML = '<p style="color:#aaa">Nessun dato ancora disponibile.</p>';
         return;
     }
-    // Math.max(...dati.map(...), 1) trova il valore più alto tra tutti i
-    // dati (ci serve per calcolare le percentuali delle barre: la barra
-    // più alta deve arrivare al 100%). "..." qui è lo SPREAD OPERATOR:
-    // trasforma un array in tanti argomenti separati — Math.max normalmente
-    // vuole i numeri uno per uno (Math.max(3, 7, 2)), non un array intero,
-    // quindi "..." fa da "ponte" tra i due mondi. Il ", 1" finale garantisce
-    // che il massimo non sia mai 0 (eviterebbe una divisione per zero nel
-    // calcolo delle percentuali sotto).
+    // Il massimo normalizza le barre al 100%. Il secondo argomento evita
+    // una divisione per zero quando tutti i valori sono nulli.
     const max = Math.max(...dati.map(d => d[chiaveValore]), 1);
     container.innerHTML = dati.map(d => `
         <div class="bar-row">
@@ -352,13 +299,8 @@ function renderBarChart(container, dati, chiaveEtichetta, chiaveValore, formatta
             <span class="bar-value">${formattatore ? formattatore(d[chiaveValore]) : d[chiaveValore]}</span>
         </div>
     `).join('');
-    // "formattatore" è un parametro FACOLTATIVO che, se passato, è esso
-    // stesso una funzione (es. v => `€${v.toFixed(2)}` per l'incasso) —
-    // JavaScript permette di passare funzioni come normali valori, esattamente
-    // come in Python puoi passare una funzione come argomento di un'altra.
-    // "formattatore ? formattatore(valore) : valore" vuol dire "se è stato
-    // passato un formattatore, usalo per trasformare il valore prima di
-    // mostrarlo, altrimenti mostra il valore grezzo".
+    // formattatore, se passato, personalizza la resa del valore (per
+    // esempio l'importo in euro).
 }
 
 async function caricaAnalytics() {
@@ -381,14 +323,8 @@ async function caricaAnalytics() {
         );
         renderBarChart(
             document.getElementById('chart-servizi'),
-            // .map(s => ({ ...s, servizio: ... })) crea un NUOVO array dove
-            // ogni elemento è una copia dell'originale (grazie a "...s", lo
-            // spread operator applicato qui a un OGGETTO invece che a un
-            // array: copia tutti i suoi campi) con il campo "servizio"
-            // sovrascritto dalla sua etichetta leggibile — serve perché
-            // renderBarChart si aspetta di trovare il testo da mostrare
-            // già dentro il campo "servizio", non il codice tecnico grezzo
-            // (es. "vod_review") che arriva dal server.
+            // renderBarChart mostra il campo così com'è: qui il codice tecnico
+            // del servizio viene sostituito con la sua etichetta leggibile.
             analytics.servizi_piu_richiesti.map(s => ({ ...s, servizio: SERVICE_LABELS[s.servizio] || s.servizio })),
             'servizio', 'conteggio'
         );
@@ -399,22 +335,13 @@ async function caricaAnalytics() {
 
 // ─── PRENOTAZIONI ────────────────────────────────────────────
 async function caricaPrenotazioni(pagina = 1) {
-    // "pagina = 1" nella firma della funzione è un PARAMETRO DI DEFAULT:
-    // se chiami caricaPrenotazioni() senza argomenti, "pagina" vale 1
-    // automaticamente — lo stesso identico concetto dei default nei
-    // parametri delle funzioni Python (def f(pagina=1)).
     paginaCorrente.prenotazioni = pagina;
     const stato = document.getElementById('filtro-stato').value;
     const params = new URLSearchParams({ pagina: pagina, per_pagina: 20 });
     if (stato) params.set('stato', stato);
 
     try {
-        // `/admin/prenotazioni?${params}` — quando un oggetto
-        // URLSearchParams viene inserito dentro una template literal,
-        // JavaScript lo converte automaticamente nella sua forma testuale
-        // "pagina=1&per_pagina=20&stato=confirmed" — costruire la query
-        // string così, invece che concatenando stringhe a mano, evita
-        // errori con caratteri speciali che andrebbero "escapati".
+        // URLSearchParams gestisce da sé la codifica dei caratteri speciali.
         const res = await fetch(`/admin/prenotazioni?${params}`, { headers: authHeaders() });
         const dati = await res.json();
         const prenotazioni = dati.items;
@@ -514,11 +441,8 @@ async function aggiornaStato(id, stato) {
 }
 
 async function modificaNota(id, notaAttuale) {
-    // prompt(messaggio, valoreIniziale) apre una piccola finestra di
-    // dialogo nativa del browser con un campo di testo — un modo rapido
-    // (anche se poco elegante graficamente) di chiedere un input veloce
-    // senza costruire un form dedicato. Restituisce null se l'utente
-    // annulla, altrimenti il testo inserito.
+    // prompt è sufficiente per una modifica testuale rapida: non vale un
+    // form dedicato.
     const nuovaNota = prompt('Nota interna (non visibile al cliente):', notaAttuale);
     if (nuovaNota === null) return;
 
@@ -611,12 +535,8 @@ async function caricaClienti(pagina = 1) {
 
 // ─── CANCELLAZIONE CLIENTE (diritto all'oblio, Art. 17 GDPR) ──
 async function eliminaCliente(userId, nomeCliente) {
-    // Doppia conferma testuale, non solo un confirm() generico: questa
-    // azione cancella per sempre prenotazioni, note e recensioni del
-    // cliente, non solo il suo profilo — meglio essere espliciti su cosa
-    // sta per sparire prima di procedere (vedi eliminaSlot più sotto per
-    // lo stesso pattern conferma+fetch DELETE, usato qui su un'azione
-    // ancora più distruttiva).
+    // Conferma esplicita che elenca cosa verrà eliminato: l'azione cancella
+    // anche prenotazioni, note e recensioni, ed è irreversibile.
     if (!confirm(`Eliminare definitivamente ${nomeCliente} e TUTTI i suoi dati (prenotazioni, note, recensioni, pacchetti)? L'azione non è reversibile.`)) return;
 
     try {
@@ -640,19 +560,12 @@ async function eliminaCliente(userId, nomeCliente) {
 
 // ─── NOTE TECNICHE CLIENTE (mini-CRM) ─────────────────────────
 async function apriNoteCliente(userId, nomeCliente) {
-    // A differenza degli altri "pannelli" di questa pagina (che esistono
-    // già nell'HTML e vengono solo riempiti), questo modale viene creato
-    // DA ZERO in JavaScript la prima volta che serve, con
-    // document.createElement('div') — e riusato (non ricreato) alle
-    // aperture successive, grazie al controllo "if (!overlay)".
+    // Il modale viene creato alla prima apertura e poi riusato.
     let overlay = document.getElementById('note-modal-overlay');
     if (!overlay) {
         overlay = document.createElement('div');
         overlay.id = 'note-modal-overlay';
         overlay.className = 'modal-overlay';
-        // appendChild aggiunge davvero l'elemento appena creato dentro la
-        // pagina (fino a questo momento esisteva solo "in memoria", non
-        // era visibile) — di solito lo si aggiunge in fondo a <body>.
         document.body.appendChild(overlay);
     }
 
@@ -689,13 +602,8 @@ async function caricaNoteCliente(userId) {
                 <div class="nota-testo">${escapeHtml(n.nota)}</div>
             </div>
         `).join('');
-        // n.created_at arriva dal server come testo tipo
-        // "2026-08-12T18:00:00" — invece di ricostruirlo con new Date()
-        // (che qui introdurrebbe di nuovo il problema "in che fuso lo
-        // interpreto?"), lo trattiamo come semplice TESTO: .replace('T', ' ')
-        // sostituisce la "T" di separazione con uno spazio, .slice(0, 16)
-        // prende solo i primi 16 caratteri ("2026-08-12 18:00"), tagliando
-        // via i secondi. Un modo volutamente "grezzo" ma senza ambiguità.
+        // Formattazione puramente testuale invece di ricostruire una data:
+        // evita di reintrodurre l'ambiguità sul fuso orario.
     } catch (error) {
         container.innerHTML = '<p style="color:#e74c3c">Errore nel caricamento delle note.</p>';
     }
@@ -957,12 +865,8 @@ async function caricaSlots(pagina = 1) {
             </table>
             ${renderPaginazione(dati, 'caricaSlots')}
         `;
-        // I tre operatori ternari annidati qui sopra (condizione ? A : condizione2 ? B : C)
-        // sono l'equivalente di una catena if/elif/elif/else in Python:
-        // "se disponibile mostra Libero, altrimenti se bloccato dal
-        // calendario mostra quello, altrimenti se bloccato da admin mostra
-        // quello, altrimenti (nessuno dei precedenti) deve essere
-        // Prenotato".
+        // L'ordine dei casi conta: "prenotato" è il ramo residuo, quando
+        // nessun flag di blocco è attivo.
     } catch (error) {
         console.error('Errore slots:', error);
     }
@@ -1025,10 +929,7 @@ async function caricaRegole() {
                 </tbody>
             </table>
         `;
-        // r.ora_inizio arriva dal backend come testo tipo "18:00:00"
-        // (formato Time di Pydantic/SQLAlchemy) — .slice(0, 5) prende solo
-        // i primi 5 caratteri ("18:00"), tagliando via i secondi che qui
-        // non interessano mostrare.
+            // L'orario arriva con i secondi, che qui non servono.
     } catch (error) {
         console.error('Errore caricamento regole:', error);
     }
@@ -1073,9 +974,6 @@ async function creaRegolaDisponibilita() {
 }
 
 async function eliminaRegola(id) {
-    // confirm(messaggio) apre una finestra di conferma nativa del browser
-    // (Ok/Annulla) e restituisce true/false in base alla scelta — usata
-    // qui per chiedere conferma prima di un'azione distruttiva.
     if (!confirm('Eliminare questa regola? Gli slot già generati restano invariati.')) return;
 
     try {
@@ -1241,30 +1139,18 @@ async function exportCSV() {
             alert('Errore durante l\'esportazione.');
             return;
         }
-        // Un "Blob" (Binary Large OBject) rappresenta dati grezzi (qui, il
-        // contenuto del file CSV) che il browser sa maneggiare come se
-        // fosse un file vero, anche se non è mai stato scaricato su disco.
-        // res.blob() lo estrae dalla risposta HTTP, allo stesso modo in
-        // cui res.json() estrae dati JSON.
+        // Il CSV viene ricevuto come blob perché la richiesta deve portare
+        // l'header di autenticazione: un link diretto non potrebbe farlo.
         const blob = await res.blob();
-        // createObjectURL crea un indirizzo temporaneo, valido solo in
-        // questa pagina, che punta a quel Blob in memoria — un modo per
-        // poterlo "linkare" con un normale tag <a>.
         const url = window.URL.createObjectURL(blob);
-        // Creiamo un link <a> "invisibile" (mai mostrato nella pagina) solo
-        // per sfruttare il suo comportamento nativo di download: impostando
-        // a.download a un nome file, cliccarlo (anche via codice, con
-        // a.click(), senza che l'utente lo clicchi davvero) fa partire il
-        // download invece di navigare verso quell'indirizzo.
+        // Link temporaneo usato solo per avviare il download.
         const a = document.createElement('a');
         a.href = url;
         a.download = 'prenotazioni.csv';
         document.body.appendChild(a);
         a.click();
         a.remove(); // il link non serve più, lo rimuoviamo subito dalla pagina
-        // revokeObjectURL libera la memoria occupata dall'indirizzo
-        // temporaneo creato sopra — buona pratica per non "sprecare"
-        // risorse del browser una volta che il download è partito.
+        // Rilascia la memoria occupata dal blob.
         window.URL.revokeObjectURL(url);
     } catch (error) {
         console.error('Errore export CSV:', error);
@@ -1275,20 +1161,9 @@ async function exportCSV() {
 // ─── AVVIO ───────────────────────────────────────────────────
 // permette di fare login premendo Invio
 document.addEventListener('DOMContentLoaded', () => {
-    // A differenza di app.js (che ha diverso "avvio", caricando subito gli
-    // slot), qui non c'è nulla da caricare finché l'admin non fa login —
-    // l'unica cosa che serve subito è questo piccolo comfort: permettere
-    // di premere Invio nel campo password invece di dover per forza
-    // cliccare il bottone "Accedi".
+    // Nulla da caricare prima del login: qui si abilita solo l'invio del
+    // form con Invio.
     document.getElementById('login-password').addEventListener('keypress', (e) => {
-        // "e" qui è l'oggetto evento passato automaticamente da
-        // addEventListener alla funzione che gli assegni (a differenza di
-        // "event" usato altrove in questo progetto, che è la variabile
-        // globale implicita — sono due modi equivalenti di ottenere la
-        // stessa informazione; usare il parametro esplicito "e" come qui è
-        // considerato lo stile più moderno e corretto). e.key dice quale
-        // tasto è stato premuto — controlliamo che sia "Enter" prima di
-        // chiamare login().
         if (e.key === 'Enter') login();
     });
 });

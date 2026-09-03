@@ -1,24 +1,13 @@
-// Questo file è il "cervello" della pagina pubblica di prenotazione
-// (frontend/index.html). È JavaScript "vanilla": nessun framework (niente
-// React, Vue...), solo funzioni che manipolano direttamente la pagina
-// (il "DOM" — Document Object Model, cioè la rappresentazione in memoria
-// della pagina HTML che il browser ti lascia leggere e modificare da
-// codice) e che parlano con il backend tramite fetch(), l'equivalente nel
-// browser di quello che in Python fai con la libreria "requests".
+// Script della pagina pubblica: wizard di prenotazione in tre step,
+// login opzionale via Discord, richiesta di consulenza e di pacchetti.
+// JavaScript senza framework né build step.
 //
-// Se vieni da Python, alcune differenze di sintassi da tenere a mente
-// mentre leggi: le funzioni si dichiarano con "function nome() {}" (o come
-// "arrow function" più sotto), i blocchi di codice usano le graffe {} al
-// posto dell'indentazione, ogni istruzione finisce con ";" (opzionale ma
-// buona abitudine), e "const"/"let" sono i modi per dichiarare variabili
-// (const = non verrà mai riassegnata, let = può cambiare — non esiste un
-// vero equivalente di "var pigro" come in Python, dove basta scrivere
-// nome = valore).
+// Le funzioni t() e tf() vengono da i18n.js, caricato prima di questo
+// file: ogni testo mostrato all'utente deve passare da lì.
 //
-// Multilingua: le funzioni t("chiave") e tf("chiave", {...}) usate in
-// tutto questo file sono definite in frontend/js/i18n.js, caricato PRIMA
-// di questo script in index.html — leggi quel file per il dizionario
-// completo e per come funziona il cambio lingua.
+// Principio valido per tutto il file: i controlli fatti qui servono a
+// costruire un'interfaccia coerente, non a garantire correttezza. Il
+// backend riverifica tutto, perché l'interfaccia è scavalcabile.
 
 // ─── STATO GLOBALE ───────────────────────────────────────────
 // Qui salviamo tutto quello che l'utente sceglie durante il flusso
@@ -32,12 +21,6 @@ const state = {
     pacchettoRichiestaTipo: null, // "intro"/"team"/"tour" scelto nella vetrina pacchetti
     pacchettoRichiestaNome: null  // nome leggibile dello stesso pacchetto, per il messaggio di riepilogo
 };
-// "state" è un oggetto letterale — l'equivalente JavaScript di un
-// dizionario Python ({}). Essendo dichiarato con "const" non lo si può
-// riassegnare (non puoi scrivere "state = qualcos'altro"), ma i suoi
-// CAMPI restano modificabili liberamente (vedrai più sotto "state.userId
-// = ..."), esattamente come un dizionario Python passato come parametro
-// resta modificabile anche se la variabile che lo referenzia non cambia.
 
 // Etichette leggibili per servizio/stato prenotazione, prese dal
 // dizionario multilingua invece che scritte qui a mano — così cambiano
@@ -52,37 +35,20 @@ function getStatusLabel(stato) {
 
 // ─── LOGIN DISCORD (opzionale, non blocca mai il guest checkout) ──
 
-// Il token che prova l'identità dello studente NON passa più da qui: dal
-// login Discord in poi vive in un cookie httpOnly (impostato dal server,
-// vedi backend/routers/discord_auth.py) — invisibile e non manipolabile da
-// JavaScript, mandato AUTOMATICAMENTE dal browser ad ogni richiesta verso
-// questo stesso sito, senza che questo file debba mai leggerlo o
-// allegarlo a mano in un header. Prima (quando viveva in localStorage)
-// un eventuale bug XSS altrove nella pagina avrebbe potuto rubarlo con una
-// singola riga di JavaScript; un cookie httpOnly non è leggibile da
-// nessuno script, nemmeno il nostro.
+// Il token di sessione non è accessibile da qui: vive in un cookie
+// httpOnly impostato dal server, che il browser allega da solo alle
+// richieste verso questa origine. Nessuno script può leggerlo, nemmeno
+// questo.
 //
-// studentLoggedIn è quindi tutto quello che resta lato JS: un semplice
-// SI/NO per decidere cosa mostrare in pagina (bottone di login o profilo,
-// checkbox "usa pacchetto"...), aggiornato in base all'esito delle
-// richieste sotto — non è più il token stesso, solo lo stato "sono
-// loggato?" dedotto da esse.
+// studentLoggedIn è quindi solo lo stato dedotto dalle risposte del
+// server, usato per decidere cosa mostrare in pagina. Non è il token.
 let studentLoggedIn = false;
 
 function escapeHtmlPublic(str) {
-    // Questa funzione protegge da un problema di sicurezza chiamato XSS
-    // (Cross-Site Scripting): se un valore che arriva dal server (es. il
-    // nome di uno studente) contenesse per qualche motivo del codice HTML
-    // o JavaScript malevolo, e lo inserissimo così com'è in una pagina con
-    // innerHTML (come si fa spesso più sotto in questo file), quel codice
-    // verrebbe davvero ESEGUITO nel browser di chi guarda la pagina.
-    // Il trucco: creo un <div> "invisibile" (mai inserito nella pagina
-    // vera), ci scrivo dentro il testo con .textContent (che tratta
-    // SEMPRE il contenuto come testo semplice, mai come HTML), e poi leggo
-    // .innerHTML di quello stesso div — a quel punto il browser ha già
-    // convertito ogni carattere speciale (come < e >) nel suo equivalente
-    // "innocuo" (&lt; e &gt;), pronto per essere inserito altrove in
-    // sicurezza.
+    // Rende inerte il markup nei valori inseriti in pagina con innerHTML.
+    // Necessaria perché i testi provengono da campi compilati dagli utenti.
+    // Il div non viene mai inserito nel documento: serve solo a farsi
+    // restituire dal browser la versione con le entità già sostituite.
     if (!str) return '';
     const div = document.createElement('div');
     div.textContent = str;
@@ -90,14 +56,9 @@ function escapeHtmlPublic(str) {
 }
 
 async function initDiscordLogin() {
-    // "async function" dichiara una funzione che può contenere "await" al
-    // suo interno — vedi la spiegazione completa più sotto, sulla prima
-    // vera chiamata fetch(), su cosa vogliano dire "async"/"await".
-
-    // Il caso "sto tornando da Discord dopo il login" non passa più da un
-    // parametro nell'URL (il server ha già impostato il cookie prima di
-    // rimandarci qui, vedi backend/routers/discord_auth.py) — resta solo
-    // da controllare l'eventuale errore.
+    // Il ritorno dal login Discord non passa più da un parametro nell'URL:
+    // il cookie è già stato impostato dal server. Resta da gestire il solo
+    // caso di errore.
     const urlParams = new URLSearchParams(window.location.search);
     const erroreDiscord = urlParams.get('discord_error');
 
@@ -106,20 +67,12 @@ async function initDiscordLogin() {
         alert(t('discord_login_failed'));
     }
 
-    // Non c'è più un token da controllare lato JS per sapere "sono
-    // loggato?" (il cookie non è leggibile da qui) — proviamo sempre a
-    // caricare il profilo: se non esiste nessun cookie valido, il server
-    // risponde 401 e loadStudentProfile mostra da sola il bottone di login.
+    // Il cookie non è leggibile da JavaScript, quindi lo stato di login si
+    // deduce dall'esito della richiesta: un 401 fa mostrare il pulsante.
     await loadStudentProfile();
 }
 
 function showLoginButton() {
-    // innerHTML sostituisce TUTTO il contenuto di un elemento con la
-    // stringa HTML che gli passi — qui usiamo una "template literal"
-    // (le virgolette backtick `...`), che a differenza delle stringhe
-    // normali '...' o "..." possono andare su più righe e possono
-    // contenere ${espressioni} che vengono calcolate e inserite al posto
-    // giusto (l'equivalente JavaScript delle f-string di Python).
     document.getElementById('discord-login-bar').innerHTML = `
         <a href="/auth/discord/login" class="discord-login-btn">
             ${t('discord_login_btn')}
@@ -129,23 +82,10 @@ function showLoginButton() {
 
 async function loadStudentProfile() {
     try {
-        // fetch(url, opzioni) manda una richiesta HTTP e restituisce una
-        // "Promise" — un oggetto che rappresenta "un risultato che arriverà
-        // più avanti" (la richiesta di rete richiede tempo, non è
-        // immediata). "await" davanti a fetch() dice "aspetta che questa
-        // Promise sia risolta prima di andare avanti con la riga
-        // successiva" — è concettualmente identico a una chiamata di
-        // funzione bloccante in Python, solo che qui va dichiarato
-        // esplicitamente (e la funzione che lo contiene deve essere
-        // "async"), perché JavaScript di norma preferisce non bloccare mai
-        // l'esecuzione in attesa di operazioni lente come la rete.
-        // Avviata subito, ma await SOLO più sotto (dove prima stava questa
-        // stessa chiamata): /users/me e /users/me/prenotazioni si
-        // autenticano con lo stesso cookie e non dipendono l'una
-        // dall'altra — partire in parallelo invece che una dopo l'altra
-        // dimezza il tempo di attesa a ogni caricamento della pagina per
-        // un visitatore già loggato. loadBookingHistory() gestisce già i
-        // propri errori (try/catch, restituisce [] in caso di problemi).
+        // Le due richieste partono insieme: usano lo stesso cookie e non
+        // dipendono l'una dall'altra, quindi attenderle in sequenza
+        // raddoppierebbe l'attesa a ogni caricamento per un utente loggato.
+        // loadBookingHistory gestisce già i propri errori.
         const prenotazioniPromise = loadBookingHistory();
 
         // Nessun header da allegare qui: se esiste un cookie di sessione
@@ -153,10 +93,6 @@ async function loadStudentProfile() {
         // pagina) — vedi il commento su studentLoggedIn in cima al file.
         const res = await fetch('/users/me');
 
-        // res.ok è true se il codice di stato HTTP della risposta è nella
-        // fascia "successo" (200-299) — un modo rapido per controllare se
-        // la richiesta è andata a buon fine, senza dover confrontare
-        // manualmente res.status con dei numeri.
         if (!res.ok) {
             // nessun cookie valido (mai loggato, oppure token scaduto):
             // torna al bottone di login
@@ -167,10 +103,6 @@ async function loadStudentProfile() {
 
         studentLoggedIn = true;
 
-        // res.json() legge il corpo della risposta e lo trasforma da testo
-        // JSON a un vero oggetto JavaScript — anche questa è un'operazione
-        // "asincrona" (per questo c'è un altro "await"), perché leggere il
-        // corpo della risposta può richiedere un altro po' di tempo.
         const profilo = await res.json();
         state.userId = profilo.id;
 
@@ -179,10 +111,6 @@ async function loadStudentProfile() {
         const campoEmail = document.getElementById('email');
         const campoCategoria = document.getElementById('categoria');
         const campoDiscord = document.getElementById('discord');
-        // "campoNome ||" non c'entra qui — invece "profilo.nome || ''" (poco
-        // sotto) vuol dire "usa profilo.nome se non è vuoto/null/undefined,
-        // altrimenti usa una stringa vuota" — lo stesso pattern "or" di
-        // Python (note_cliente or "Nessuna nota") visto nel backend.
         if (campoNome) campoNome.value = profilo.nome || '';
         if (campoEmail) campoEmail.value = profilo.email || '';
         if (campoCategoria && profilo.categoria) campoCategoria.value = profilo.categoria;
@@ -202,20 +130,11 @@ async function loadStudentProfile() {
             </div>
             <div id="storico-prenotazioni" style="display:none"></div>
         `;
-        // ${condizione ? 'seA' : 'seB'} dentro una template literal è
-        // l'operatore ternario di JavaScript (identico nell'idea a
-        // "A if condizione else B" in Python): qui decide se includere o
-        // no il bottone "Le tue prenotazioni", a seconda che ce ne siano.
 
         if (prenotazioni.length > 0) {
             renderBookingHistory(prenotazioni);
         }
     } catch (error) {
-        // "try/catch" in JavaScript è l'equivalente di "try/except" in
-        // Python: se una qualunque riga dentro il blocco try genera un
-        // errore (qui, tipicamente un problema di rete), l'esecuzione
-        // salta direttamente al blocco catch invece di far "esplodere"
-        // tutta la pagina.
         console.error('Errore caricamento profilo Discord:', error);
         studentLoggedIn = false;
         showLoginButton();
@@ -236,10 +155,8 @@ function renderBookingHistory(prenotazioni) {
     const container = document.getElementById('storico-prenotazioni');
     if (!container) return;
 
-    // Cancellabile solo se ancora confermata E non già passata — stesso
-    // controllo (ridondante apposta) che il backend rifà comunque in
-    // cancella_prenotazione_cliente (vedi backend/routers/booking.py):
-    // qui serve solo a decidere se mostrare il bottone.
+    // Il pulsante compare solo per le prenotazioni ancora annullabili. Il
+    // backend rifà comunque il controllo: qui decide solo cosa mostrare.
     const ora = Date.now();
 
     container.innerHTML = `
@@ -260,23 +177,11 @@ function renderBookingHistory(prenotazioni) {
             }).join('')}
         </ul>
     `;
-    // prenotazioni.map(p => `...`) è l'equivalente JavaScript di una list
-    // comprehension Python: per ogni elemento dell'array "prenotazioni",
-    // calcola una nuova stringa HTML, producendo un nuovo array di
-    // stringhe. ".join('')" poi le incolla tutte insieme in un'unica
-    // stringa (come "".join(lista) in Python, con gli argomenti invertiti:
-    // qui è il metodo dell'array a chiamare join, non il separatore).
-    // "p => `...`" è una ARROW FUNCTION: una sintassi più corta per
-    // scrivere una funzione piccola, equivalente a "function(p) { return
-    // `...` }" — molto simile nello spirito a una lambda Python, ma
-    // utilizzabile anche per funzioni con un corpo più lungo.
 }
 
 async function cancellaPrenotazione(bookingId) {
-    // confirm() è un dialogo BLOCCANTE nativo del browser: l'esecuzione si
-    // ferma finché l'utente non clicca OK/Annulla — va benissimo qui,
-    // perché è un'azione irreversibile (libera lo slot, cancella l'evento
-    // sul calendario del coach) e vogliamo un ultimo controllo esplicito.
+    // Conferma esplicita: l'azione libera lo slot ed elimina l'evento sul
+    // calendario, e non è reversibile.
     if (!confirm(t('confirm_cancel_booking'))) return;
 
     try {
@@ -301,19 +206,13 @@ async function cancellaPrenotazione(bookingId) {
 function toggleBookingHistory() {
     const container = document.getElementById('storico-prenotazioni');
     if (container) {
-        // container.style.display legge/scrive lo stile CSS "display"
-        // direttamente dall'elemento — qui alterniamo tra 'none'
-        // (nascosto) e 'block' (visibile) ogni volta che l'utente clicca.
         container.style.display = container.style.display === 'none' ? 'block' : 'none';
     }
 }
 
 async function logoutStudent() {
-    // Un cookie httpOnly non è cancellabile da JavaScript (è invisibile
-    // anche a questo script, non solo agli script malevoli) — va chiesto
-    // al server di farlo, con una richiesta dedicata (vedi
-    // backend/routers/discord_auth.py). Prima, con il token in
-    // localStorage, bastava una riga locale; ora serve un giro di rete.
+    // Un cookie httpOnly non è cancellabile lato client: il logout richiede
+    // una chiamata al server.
     try {
         await fetch('/auth/discord/logout', { method: 'POST' });
     } catch (error) {
@@ -326,22 +225,12 @@ async function logoutStudent() {
 // ─── UTILITÀ ─────────────────────────────────────────────────
 // Formatta una data ISO in formato leggibile, nella lingua corrente
 function formatDate(isoString) {
-    // new Date(...) crea un oggetto Date di JavaScript a partire da una
-    // stringa. Il punto CRUCIALE (collegato ai fusi orari, vedi i commenti
-    // in backend/schemas/slots.py): isoString arriva dal backend con
-    // l'offset UTC esplicito (es. "...+00:00"), quindi new Date() la
-    // interpreta correttamente come un istante preciso nel tempo — non
-    // come "un orario nel fuso di chi legge".
+    // isoString arriva con l'offset UTC esplicito, quindi rappresenta un
+    // istante preciso e non un orario ambiguo.
     const date = new Date(isoString);
-    // .toLocaleDateString(...) è dove avviene la "magia": senza specificare
-    // nessun fuso orario esplicito, il browser usa AUTOMATICAMENTE il fuso
-    // orario del dispositivo di chi sta guardando la pagina — è così che
-    // uno studente in un altro paese vede l'orario corretto per lui, senza
-    // che il nostro codice debba sapere dove si trova. Il "locale" (primo
-    // parametro) invece cambia solo la LINGUA con cui la data viene
-    // scritta (nomi dei giorni/mesi, ordine giorno/mese...) — lo
-    // agganciamo a currentLang (definita in i18n.js) così cambia insieme
-    // al resto della pagina.
+    // Senza timezone esplicita il browser usa quella del dispositivo: è
+    // così che un utente all'estero vede l'orario corretto per sé. Il
+    // locale controlla solo la lingua del formato.
     const locale = currentLang === 'it' ? 'it-IT' : 'en-GB';
     return date.toLocaleDateString(locale, {
         weekday: 'long',
@@ -362,15 +251,6 @@ function formatTime(isoString) {
 
 // Naviga tra gli step
 function showStep(stepId) {
-    // document.querySelectorAll('.step-content') trova TUTTI gli elementi
-    // della pagina con classe "step-content" (le 4 <section> di
-    // index.html) e restituisce una lista su cui possiamo iterare con
-    // .forEach(...) — molto simile a un ciclo "for x in lista" di Python,
-    // solo scritto come chiamata di metodo invece che come parola chiave.
-    // classList.remove('active')/.add('active') tolgono/aggiungono una
-    // classe CSS: è così che nascondiamo/mostriamo gli step (vedi il CSS
-    // in frontend/css/style.css: .step-content senza "active" ha
-    // display:none).
 
     // nasconde tutti gli step
     document.querySelectorAll('.step-content').forEach(s => s.classList.remove('active'));
@@ -382,13 +262,6 @@ function showStep(stepId) {
     // aggiorna la barra degli step
     const stepNumber = stepId.replace('step-', '');
     if (!isNaN(stepNumber)) {
-        // "?." è l'optional chaining: se document.getElementById(...)
-        // restituisse null (elemento non trovato), ".classList" su null
-        // darebbe un errore che blocca lo script — con "?." invece,
-        // l'intera espressione si ferma silenziosamente e restituisce
-        // undefined, senza errori. Utile qui perché "step-indicator-3" (lo
-        // step finale di successo) potrebbe non avere un indicatore
-        // corrispondente nella barra in alto.
         document.getElementById(`step-indicator-${stepNumber}`)?.classList.add('active');
         // marca i precedenti come completati
         for (let i = 1; i < parseInt(stepNumber); i++) {
@@ -401,10 +274,8 @@ function showStep(stepId) {
 }
 
 // ─── STEP 1: CARICA GLI SLOT ──────────────────────────────────
-// Ogni slot ha una durata fissa (decisa dal coach). Per evitare di poter
-// prenotare una durata diversa da quella reale dello slot (il backend
-// la rifiuterebbe comunque), lo step 1 mostra solo gli slot la cui durata
-// corrisponde a quella attualmente selezionata.
+// Vengono mostrati solo gli slot compatibili con la durata selezionata:
+// una durata diversa da quella dello slot verrebbe comunque rifiutata.
 let allSlots = [];
 
 async function loadSlots() {
@@ -418,13 +289,10 @@ async function loadSlots() {
     }
 }
 
-// Estrae l'ora (0-23) di un istante nel fuso orario italiano, A
-// PRESCINDERE da dove si trovi fisicamente chi guarda la pagina — a
-// differenza di new Date(...).getHours(), che userebbe il fuso del
-// dispositivo del visitatore. Serve per applicare la stessa regola "solo
-// 15:00 o 17:00" di ORE_INIZIO_VALIDE_2H in backend/routers/booking.py,
-// che è un orario di ricevimento fissato in ora italiana, non locale a chi
-// prenota.
+// Ora italiana dell'istante, indipendente dal fuso del visitatore.
+// Serve ad applicare il vincolo sugli orari di inizio delle sessioni da
+// 2 ore, che è espresso in ora italiana. new Date().getHours() userebbe
+// il fuso del dispositivo e darebbe risultati diversi per utente.
 function oraItaliana(isoString) {
     return parseInt(
         new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', hourCycle: 'h23' })
@@ -437,25 +305,16 @@ const ORE_INIZIO_VALIDE_2H = [15, 17];
 function renderSlots() {
     const container = document.getElementById('slots-container');
 
-    // Il calendario genera SOLO slot da 1 ora (vedi
-    // backend/services/availability_service.py). Una card da 1h è quindi
-    // uno slot reale, presa così com'è; una card da 2h è invece "virtuale":
-    // esiste solo se ci sono DUE slot da 1h adiacenti (stesso giorno, il
-    // secondo inizia esattamente un'ora dopo il primo) E l'orario di inizio
-    // è uno di quelli ammessi per una sessione da 2h — la stessa identica
-    // logica che il backend riapplica per davvero al momento della
-    // prenotazione (vedi create_booking in backend/routers/booking.py), qui
-    // serve solo a decidere quali card mostrare.
+    // Il calendario contiene solo slot da 1 ora. Una card da 2 ore è
+    // virtuale: esiste se ci sono due slot adiacenti e l'orario di inizio
+    // è fra quelli ammessi. Il backend riapplica la stessa regola al
+    // momento della prenotazione; qui serve solo a scegliere cosa mostrare.
     const slotsUnOra = allSlots.filter(s => s.duration_hours === 1);
 
     let cardsDaMostrare;
     if (state.selectedHours === 1) {
         cardsDaMostrare = slotsUnOra;
     } else {
-        // .getTime() converte una data in un numero (millisecondi dall'inizio
-        // del 1970) — confrontare numeri è più sicuro che confrontare
-        // stringhe, che potrebbero essere formattate in modo leggermente
-        // diverso pur rappresentando lo stesso istante.
         const perTimestamp = new Map(slotsUnOra.map(s => [new Date(s.start_time).getTime(), s]));
         cardsDaMostrare = slotsUnOra.filter(slot => {
             if (!ORE_INIZIO_VALIDE_2H.includes(oraItaliana(slot.start_time))) return false;
@@ -477,10 +336,8 @@ function renderSlots() {
             <div class="slot-time">${formatTime(slot.start_time)}</div>
         </button>
     `).join('');
-    // Nota: onclick="selectSlot(...)" qui viene scritto DENTRO una
-    // stringa HTML generata da JavaScript — a runtime diventa un attributo
-    // HTML vero e proprio, e verrà eseguito come se l'avessi scritto a
-    // mano nel file .html (come location.reload() in index.html).
+    // L'attributo onclick riceve solo valori numerici e una stringa ISO
+    // generata dal backend: nessun dato compilato dall'utente entra qui.
 }
 
 // Quando l'utente clicca uno slot
@@ -491,12 +348,6 @@ function selectSlot(slotId, startTime) {
     document.querySelectorAll('.slot-card').forEach(c => c.classList.remove('selected'));
 
     // trova e seleziona la card cliccata
-    // "event" qui è una variabile GLOBALE implicita del browser (esiste
-    // automaticamente dentro qualunque gestore di evento, senza doverla
-    // dichiarare) che rappresenta "il click che ha appena fatto scattare
-    // questa funzione". event.currentTarget è l'elemento HTML su cui
-    // l'evento è stato agganciato — qui, la card sulla quale si è
-    // cliccato.
     event.currentTarget.classList.add('selected');
 
     // abilita il pulsante continua
@@ -505,17 +356,9 @@ function selectSlot(slotId, startTime) {
 
 // Gestione bottoni servizio
 document.querySelectorAll('.service-btn').forEach(btn => {
-    // addEventListener('click', funzione) è il modo "moderno" (alternativo
-    // a onclick="..." nell'HTML) di dire "quando questo elemento viene
-    // cliccato, esegui questa funzione". Qui la funzione è scritta come
-    // arrow function anonima direttamente sul posto, invece di essere
-    // definita a parte con un nome.
     btn.addEventListener('click', () => {
         document.querySelectorAll('.service-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        // btn.dataset.service legge l'attributo data-service="..." scritto
-        // nell'HTML (vedi frontend/index.html) — .dataset è come il
-        // browser espone tutti gli attributi "data-*" di un elemento.
         state.selectedService = btn.dataset.service;
     });
 });
@@ -525,9 +368,6 @@ document.querySelectorAll('.duration-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.duration-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        // parseInt(...) converte una stringa (btn.dataset.hours è sempre
-        // testo, anche se scritto come numero nell'HTML) in un numero
-        // intero vero — come int(...) in Python.
         state.selectedHours = parseInt(btn.dataset.hours);
         state.selectedPrice = parseInt(btn.dataset.price);
 
@@ -557,15 +397,10 @@ function aggiornaPrezzoRiepilogo() {
     document.getElementById('summary-price').textContent = usaPacchetto ? t('free_package') : `€${state.selectedPrice}`;
 }
 
-// Cerca un pacchetto attivo dello studente LOGGATO, compatibile con la
-// durata scelta allo step 1 (i pacchetti del catalogo sono tutti da 2 ore,
-// vedi backend/services/package_service.py) — se lo trova, mostra il
-// checkbox "usa pacchetto" allo step 3, altrimenti lo tiene nascosto.
-// Nessun parametro email: da quando GET /users/pacchetti-attivi identifica
-// l'utente dal cookie di sessione invece che da un'email nell'URL (fix di
-// sicurezza, vedi backend/routers/users.py), questa funzione va chiamata
-// solo se studentLoggedIn è vero — vedi il chiamante, il click su
-// "btn-to-step3".
+// Mostra il checkbox "usa pacchetto" se lo studente ha un pacchetto
+// compatibile con la durata scelta. Da chiamare solo a login effettuato:
+// l'endpoint identifica l'utente dal cookie e non accetta più un'email
+// come parametro.
 async function controllaPacchettoAttivo() {
     const box = document.getElementById('pacchetto-attivo-box');
     const testo = document.getElementById('pacchetto-attivo-testo');
@@ -589,17 +424,13 @@ async function controllaPacchettoAttivo() {
         });
         box.style.display = 'block';
     } catch (error) {
-        // Nessun pacchetto disponibile o email non ancora nota: non è un
-        // errore da segnalare all'utente, il form funziona comunque a
-        // prezzo pieno.
+        // Nessun pacchetto utilizzabile: il form resta valido a prezzo pieno.
     }
 }
 
 document.getElementById('usa-pacchetto').addEventListener('change', aggiornaPrezzoRiepilogo);
 
-// Estratta a parte (non solo dentro il click di "Continue") perché va
-// richiamata anche quando l'utente cambia lingua mentre è già allo step 3
-// — vedi il listener "langchange" più in fondo al file.
+// Richiamata anche al cambio lingua, quando lo step 3 è già visibile.
 function aggiornaRiepilogo() {
     if (!state.selectedSlot) return;
     const nome = document.getElementById('nome').value.trim();
@@ -617,8 +448,6 @@ function aggiornaRiepilogo() {
 
 document.getElementById('btn-to-step3').addEventListener('click', async () => {
     // validazione base
-    // .value legge il testo digitato in un <input>. .trim() rimuove spazi
-    // bianchi a inizio/fine — stesso metodo, stesso nome, di Python.
     const nome = document.getElementById('nome').value.trim();
     const email = document.getElementById('email').value.trim();
 
@@ -627,13 +456,9 @@ document.getElementById('btn-to-step3').addEventListener('click', async () => {
         return;
     }
 
-    // Usare un pacchetto ora richiede login Discord (vedi il controllo
-    // "if not studente" su POST /bookings/ in backend/routers/booking.py):
-    // senza un'identità verificata, chiunque conoscesse l'email di un
-    // cliente avrebbe potuto scoprire e consumare il suo pacchetto già
-    // pagato. Per un ospite non loggato, saltiamo del tutto la ricerca —
-    // GET /users/pacchetti-attivi ora richiede comunque login, quindi non
-    // troverebbe nulla di utile.
+    // L'uso di un pacchetto richiede il login: senza identità verificata
+    // chiunque conoscesse l'email di un cliente potrebbe consumarne i
+    // crediti. Per un ospite la ricerca viene saltata del tutto.
     if (studentLoggedIn) {
         await controllaPacchettoAttivo();
     }
@@ -651,17 +476,10 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
     const btn = document.getElementById('btn-confirm');
     btn.disabled = true;
     btn.textContent = t('sending');
-    // Disabilitare subito il bottone e cambiargli testo evita che
-    // l'utente clicchi due volte per impazienza mentre la richiesta è
-    // ancora in corso, creando magari due prenotazioni per errore.
+        // Disabilita il pulsante per evitare un doppio invio.
 
     try {
         // 1 — crea l'utente
-        // method: 'POST' + JSON.stringify(oggetto) è il modo standard di
-        // mandare dati al server con fetch(): JSON.stringify trasforma un
-        // oggetto JavaScript in una stringa di testo JSON (l'operazione
-        // inversa di JSON.parse, che è quello che res.json() fa per te
-        // dietro le quinte quando leggi una risposta).
         const userResponse = await fetch('/users/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -675,37 +493,24 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
         });
 
         if (!userResponse.ok) throw new Error('Error creating user');
-        // "throw new Error(...)" solleva un errore manualmente — l'equivalente
-        // di "raise Exception(...)" in Python. Verrà catturato dal blocco
-        // catch più sotto, che mostra un messaggio generico all'utente.
         const user = await userResponse.json();
         state.userId = user.id;
 
-        // Se il checkbox "usa pacchetto" è selezionato, la sessione viene
-        // scalata dal pacchetto invece di essere pagata — il backend
-        // ricontrolla comunque tutto server-side (vedi create_booking in
-        // backend/routers/booking.py), questo è solo quello che l'utente
-        // ha scelto in UI.
+        // Intenzione dell'utente, non un permesso: proprietà e capienza del
+        // pacchetto sono riverificate dal server.
         const checkboxPacchetto = document.getElementById('usa-pacchetto');
         const packageId = (checkboxPacchetto.checked && state.pacchettoAttivo) ? state.pacchettoAttivo.id : null;
 
         // 2 — crea la prenotazione
-        // Nessun header di autenticazione da costruire a mano: se lo
-        // studente è loggato, il cookie di sessione viaggia da solo con la
-        // richiesta (stessa origine) — è quello che il server legge per
-        // verificare la proprietà del pacchetto quando packageId non è
-        // null (vedi il commento sopra su controllaPacchettoAttivo).
+        // Nessun header di autenticazione: il cookie di sessione viaggia da
+        // solo ed è ciò che il server usa per verificare il pacchetto.
         const bookingResponse = await fetch('/bookings/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 user_id: state.userId,
-                // Il backend verifica che questa email corrisponda davvero
-                // a user_id quando non c'è un login Discord (vedi il
-                // commento su BookingCreate.email in
-                // backend/schemas/booking.py) — stessa email appena
-                // mandata a POST /users/ qui sopra, nessun campo nuovo per
-                // chi compila il form.
+                // Serve al server per verificare che user_id appartenga a
+                // chi sta prenotando, quando non c'è un login.
                 email: document.getElementById('email').value.trim(),
                 slot_id: state.selectedSlot.id,
                 duration_hours: state.selectedHours,
@@ -723,11 +528,8 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
         showStep('step-success');
 
     } catch (error) {
-        // Se QUALSIASI cosa nel blocco try sopra fallisce (rete assente,
-        // server che risponde con errore, slot nel frattempo occupato da
-        // qualcun altro...), finiamo qui: riabilitiamo il bottone e
-        // mostriamo un messaggio, invece di lasciare l'utente bloccato su
-        // "Invio in corso..." per sempre.
+        // Qualsiasi errore riabilita il pulsante e mostra un messaggio,
+        // invece di lasciare l'utente bloccato sullo stato di invio.
         alert(t('generic_error'));
         btn.disabled = false;
         btn.textContent = t('confirm_booking');
@@ -735,9 +537,8 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
 });
 
 // ─── CONSULENZA GRATUITA (20 minuti) ──────────────────────────
-// Completamente indipendente dal wizard sopra: non tocca slot/prenotazioni,
-// manda solo i contatti al coach (POST /consulenze/) — vedi
-// backend/routers/consulenza.py.
+// Indipendente dal wizard: non tocca slot né prenotazioni, invia solo i
+// contatti al coach.
 document.getElementById('btn-mostra-consulenza').addEventListener('click', () => {
     const form = document.getElementById('consulenza-form');
     form.style.display = form.style.display === 'none' ? 'block' : 'none';
@@ -782,13 +583,9 @@ document.getElementById('btn-invia-consulenza').addEventListener('click', async 
 });
 
 // ─── SELEZIONE PACCHETTO ───────────────────────────────────────
-// Ogni card pacchetto ha un bottone "Select this package" (vedi
-// index.html, classe .pacchetto-select-btn) — click su uno qualsiasi apre
-// lo stesso form condiviso più sotto, ricordando quale pacchetto è stato
-// scelto. Come la consulenza gratuita, questo NON attiva davvero il
-// pacchetto (nessun pagamento in-app): manda solo la richiesta al coach
-// (POST /pacchetti-richieste/), che poi lo assegna per davvero da
-// /admin/pacchetti dopo il pagamento.
+// I pulsanti delle card aprono un unico form condiviso, ricordando quale
+// pacchetto è stato scelto. Come la consulenza, non attiva nulla: invia
+// una richiesta che il coach evade dopo il pagamento.
 document.querySelectorAll('.pacchetto-select-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         state.pacchettoRichiestaTipo = btn.dataset.tipo;
@@ -842,18 +639,13 @@ document.getElementById('btn-invia-pacchetto').addEventListener('click', async (
 });
 
 // ─── CAMBIO LINGUA ─────────────────────────────────────────────
-// i18n.js (caricato prima di questo file) si occupa da solo di ritradurre
-// ogni elemento con data-i18n quando la lingua cambia — qui reagiamo solo
-// ai pezzi che app.js ha scritto "a mano" in precedenza (con innerHTML o
-// textContent), che quindi non hanno un data-i18n da rileggere.
+// i18n.js ritraduce da solo gli elementi con data-i18n. Qui si
+// ridisegnano i contenuti generati da questo file, che non ne hanno.
 document.addEventListener('langchange', () => {
     renderSlots();
     aggiornaRiepilogo();
-    // La barra di login Discord è scritta interamente da JS (vedi
-    // showLoginButton/loadStudentProfile sopra), quindi non ha data-i18n
-    // da ritradurre da sola — va ricostruita a mano in entrambi i casi
-    // (loggato o no), altrimenti resterebbe nella lingua con cui era
-    // stata disegnata la prima volta.
+    // La barra di login è costruita interamente qui: senza attributi
+    // data-i18n va ricostruita a mano in entrambi gli stati.
     if (studentLoggedIn) {
         loadStudentProfile();
     } else {
@@ -862,13 +654,6 @@ document.addEventListener('langchange', () => {
 });
 
 // ─── AVVIO ────────────────────────────────────────────────────
-// quando la pagina è pronta, carica gli slot
-// 'DOMContentLoaded' è un evento che il browser genera automaticamente
-// quando ha finito di leggere e costruire tutto l'HTML della pagina (ma
-// non necessariamente immagini/CSS, che possono ancora star caricando) —
-// aspettarlo garantisce che tutti gli elementi con id che usiamo sopra
-// (document.getElementById(...)) esistano già quando le funzioni li
-// cercano.
 document.addEventListener('DOMContentLoaded', () => {
     loadSlots();
     initDiscordLogin();
