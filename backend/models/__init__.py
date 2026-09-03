@@ -1,20 +1,10 @@
-# Questo file non contiene nessuna logica: serve solo a "raccogliere" in un
-# unico posto tutti i model (le classi che rappresentano le tabelle del
-# database) sparsi negli altri file di questa cartella. Grazie a questo
-# file, altrove nel progetto puoi scrivere:
-#
-#     from backend.models import User, Slot
-#
-# invece di dover scrivere un import separato per ciascun model. È solo
-# comodità organizzativa — non cambia nulla nel comportamento del programma.
-#
-# C'è però un motivo tecnico più sottile per cui questo file (o un suo
-# equivalente) viene sempre importato da qualche parte prima di usare il
-# database: SQLAlchemy scopre l'esistenza di una tabella solo quando la
-# classe Python corrispondente viene effettivamente importata (eseguita)
-# almeno una volta. Se un model non venisse mai importato da nessuna parte,
-# SQLAlchemy non saprebbe che esiste, e alcune operazioni (come le
-# migrazioni automatiche di Alembic) non lo vedrebbero.
+"""Raccoglie i model in un unico punto di import.
+
+Oltre alla comodità di `from backend.models import User, Slot`, questo
+modulo garantisce che tutte le classi vengano importate almeno una volta:
+SQLAlchemy registra una tabella solo quando il model corrispondente è
+stato eseguito, e Alembic non vedrebbe le tabelle mai importate.
+"""
 
 from backend.models.users import User
 from backend.models.slots import Slot

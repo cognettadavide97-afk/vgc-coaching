@@ -1,50 +1,30 @@
-# Vedi backend/schemas/users.py per la spiegazione generale di cosa sia uno
-# schema Pydantic e perché esistono le coppie Create/Response. Questo file
-# aggiunge un concetto nuovo: i "validator" e i "serializer" personalizzati,
-# usati qui per risolvere il problema dei fusi orari.
+"""Schemi Pydantic per gli slot.
+
+Qui vive la conversione di fuso orario ai due confini dell'API: l'input
+dell'amministratore viene interpretato come ora italiana e convertito in
+UTC, l'output viene marcato con l'offset UTC esplicito.
+"""
 
 from pydantic import BaseModel, field_validator, field_serializer
 from datetime import datetime, timezone
 from backend.services.timezone_service import ROME_TZ
-
-# ROME_TZ (definita una sola volta in backend/services/timezone_service.py,
-# vedi il commento lì per cos'è ZoneInfo e perché "Europe/Rome" conosce
-# anche le regole del cambio ora legale) — importata qui invece di essere
-# ridefinita, così un solo punto del progetto costruisce quello ZoneInfo.
 
 
 class SlotCreate(BaseModel):
     start_time: datetime
     duration_hours: int = 1
 
-    # @field_validator("start_time") è un decoratore: dice a Pydantic "prima
-    # di accettare il valore di start_time, fallo passare da questa
-    # funzione". @classmethod è necessario perché Pydantic chiama questa
-    # funzione sulla CLASSE (cls), non su un'istanza già creata — il campo
-    # non esiste ancora come oggetto quando il validator gira.
-    #
-    # Il PROBLEMA che risolve: quando il coach crea uno slot dal pannello
-    # admin, il browser manda un orario "grezzo" (es. "2026-08-12T18:00"),
-    # senza dire a quale fuso orario si riferisce. Se lo salvassimo così
-    # com'è, un domani un altro pezzo di codice potrebbe interpretarlo nel
-    # fuso sbagliato. La SOLUZIONE: appena arriva, decidiamo noi
-    # esplicitamente che va interpretato come ora italiana, e lo convertiamo
-    # subito in UTC — così nel database (vedi il commento su start_time in
-    # backend/models/slots.py) tutto è sempre nello stesso fuso, senza
-    # ambiguità.
     @field_validator("start_time")
     @classmethod
     def interpreta_come_rome_e_converti_in_utc(cls, v: datetime) -> datetime:
-        # v.tzinfo è None quando il datetime è "naive" (senza fuso). In quel
-        # caso, .replace(tzinfo=ROME_TZ) non SPOSTA l'orario — gli attacca
-        # solo l'etichetta "questo è ora italiana", senza cambiare i numeri.
+        """Interpreta l'orario ricevuto come ora italiana e lo salva in UTC.
+
+        Il browser invia un orario privo di fuso ("2026-08-12T18:00"):
+        senza questa conversione il valore finirebbe nel database in un
+        fuso ambiguo. Facendola qui, il resto del codice riceve sempre UTC.
+        """
         if v.tzinfo is None:
             v = v.replace(tzinfo=ROME_TZ)
-        # .astimezone(timezone.utc) invece QUESTO sposta davvero l'orario,
-        # convertendolo nell'equivalente UTC (es. le 18:00 italiane in
-        # estate diventano le 16:00 UTC). .replace(tzinfo=None) toglie di
-        # nuovo l'etichetta del fuso, per tornare "naive" prima di salvare
-        # nel database, che si aspetta sempre valori senza tzinfo.
         return v.astimezone(timezone.utc).replace(tzinfo=None)
 
 
@@ -57,23 +37,14 @@ class SlotResponse(BaseModel):
     class Config:
         from_attributes = True
 
-    # @field_serializer è l'opposto concettuale di @field_validator: invece
-    # di controllare/trasformare un valore IN ENTRATA, decide come
-    # trasformare un valore in USCITA, quando lo schema viene convertito in
-    # JSON per la risposta. Qui risolve un problema simmetrico a quello del
-    # validator sopra: il valore nel database è "naive" (senza fuso
-    # esplicito), ma noi SAPPIAMO che è sempre UTC — quindi prima di
-    # mandarlo al browser, gli riattacchiamo esplicitamente l'etichetta UTC,
-    # così il JavaScript del frontend (in formatDate/formatTime, dentro
-    # frontend/js/app.js) può interpretarlo correttamente senza doverlo
-    # indovinare.
     @field_serializer("start_time")
     def serializza_con_offset_utc_esplicito(self, v: datetime) -> str:
+        """Serializza con offset UTC esplicito.
+
+        Il valore nel database è naive: senza reintrodurre l'offset, il
+        JavaScript del frontend lo interpreterebbe come ora locale del
+        browser, sbagliando l'orario mostrato.
+        """
         if v.tzinfo is None:
             v = v.replace(tzinfo=timezone.utc)
-        # .isoformat() trasforma il datetime in una stringa standard tipo
-        # "2026-08-12T16:00:00+00:00" — il "+00:00" finale è l'offset UTC
-        # esplicito di cui parlavamo, che rende inequivocabile a chiunque
-        # legga questa stringa (browser compreso) a quale istante nel tempo
-        # corrisponde, indipendentemente da dove si trovi chi la legge.
         return v.isoformat()

@@ -1,6 +1,7 @@
-# Rappresenta un "orario disponibile" creato dal coach — non ancora una
-# prenotazione, solo la possibilità di prenotarlo. Vedi backend/models/users.py
-# per la spiegazione generale di cosa sia un model SQLAlchemy.
+"""Model della tabella `slots`: gli orari resi disponibili dal coach.
+
+Uno slot è la possibilità di prenotare, non una prenotazione.
+"""
 
 from sqlalchemy import Column, Integer, DateTime, Boolean
 from sqlalchemy.sql import func
@@ -12,41 +13,23 @@ class Slot(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # ATTENZIONE, concetto importante: questo campo è "sempre UTC, naive".
-    # "Naive" (in inglese "ingenuo") è il termine tecnico per un datetime che
-    # NON porta con sé l'informazione del fuso orario — è solo una data e
-    # un'ora, senza dire "rispetto a dove". Il progetto ha scelto una
-    # convenzione precisa per evitare bug sui fusi orari: ovunque nel
-    # database questo valore rappresenta sempre l'ora UTC, anche se la
-    # colonna in sé non lo "sa". È compito del codice (vedi
-    # backend/services/timezone_service.py) convertire da/verso l'ora
-    # italiana solo quando serve mostrarla a un umano o quando arriva un
-    # input dall'admin.
-    # index=True: questa colonna è la più interrogata di tutto il progetto
-    # (ogni ricerca di slot pubblica, ogni job schedulato, ogni pagina
-    # admin la filtra e/o la ordina) — senza un indice, il database deve
-    # scorrere l'intera tabella ad ogni query. Con poche centinaia di righe
-    # non si nota, ma la tabella cresce ogni giorno senza pulizia (un nuovo
-    # slot per ogni ora disponibile, per sempre), quindi il costo cresce
-    # nel tempo mentre l'indice lo mantiene costante.
+    # Sempre UTC naive: la colonna non porta il fuso, ma il valore va letto
+    # come UTC ovunque nel progetto. La conversione a ora italiana è
+    # responsabilità del livello di presentazione.
+    #
+    # Indicizzata perché è la colonna più filtrata e ordinata dell'app
+    # (ricerca slot pubblica, job schedulati, liste admin) su una tabella
+    # che cresce in continuazione.
     start_time = Column(DateTime, nullable=False, index=True)
 
     duration_hours = Column(Integer, nullable=False, default=1)
 
-    # Boolean è semplicemente vero/falso (come bool in Python). is_available
-    # è il campo che rende uno slot "prenotabile o no". Nota che questo
-    # unico campo True/False non basta a sapere PERCHÉ uno slot non è
-    # disponibile — per questo esistono i due campi sotto.
     is_available = Column(Boolean, default=True)
 
-    # Questi due campi Boolean servono a distinguere, quando is_available è
-    # False, il MOTIVO: uno slot può essere non disponibile perché qualcuno
-    # l'ha prenotato (nessuno dei due flag è True), perché si sovrappone a
-    # un evento sul Google Calendar del coach (blocked_external), oppure
-    # perché il coach l'ha bloccato a mano — es. per le ferie
-    # (blocked_admin). Il pannello admin usa questa distinzione per mostrare
-    # un'etichetta diversa ("Prenotato" / "Bloccato (calendario)" /
-    # "Bloccato (ferie)") nella stessa colonna "Stato".
+    # Quando is_available è False, questi due flag ne distinguono il motivo:
+    # entrambi False = prenotato da un cliente; blocked_external = sovrapposto
+    # a un evento del Google Calendar del coach; blocked_admin = bloccato a
+    # mano (ferie). Il pannello admin mostra un'etichetta diversa per ognuno.
     blocked_external = Column(Boolean, default=False, nullable=False)
     blocked_admin = Column(Boolean, default=False, nullable=False)
 

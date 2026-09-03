@@ -1,45 +1,25 @@
-# Questo è il punto di ingresso di TUTTO il programma. Quando lanci il
-# comando "uvicorn backend.main:app", uvicorn (il server web) importa questo
-# file, esegue tutto il codice a livello "modulo" (cioè non dentro nessuna
-# funzione — quindi tutto qui sotto, dall'alto verso il basso, appena il file
-# viene importato) e poi usa la variabile "app" per rispondere alle richieste
-# che arrivano. Non c'è nessuna "funzione main()" da chiamare: in Python,
-# il semplice fatto di importare questo file fa già partire tutto.
+"""Entrypoint dell'applicazione: costruisce l'app FastAPI e la avvia.
+
+Il modulo lavora in due fasi distinte:
+
+1. **All'import** — configura il logging, crea `app`, registra rate limiter
+   e CORS, monta i router e i file statici.
+2. **All'avvio del server** — l'handler `lifespan` applica le migrazioni e
+   fa partire lo scheduler.
+
+La separazione è deliberata: importare questo modulo (come fanno i test)
+non deve produrre alcun effetto collaterale su database o servizi esterni.
+"""
 
 import os
 import logging
 from contextlib import asynccontextmanager
 
-# Configurazione UNICA del logging per tutto il progetto: va fatta qui,
-# prima di importare qualunque altro modulo del progetto (i router, i
-# service...), perché ognuno di essi chiederà il proprio "logger con nome"
-# (vedi il commento più sotto su logging.getLogger(__name__)) — basicConfig
-# decide come TUTTI quei logger si comportano (livello minimo, formato del
-# messaggio), ma ha effetto solo se chiamata prima che arrivi il primo
-# messaggio di log. main.py è il primo file che viene eseguito quando parte
-# l'app (vedi il commento in cima al file), quindi è il punto giusto.
-#
-# Sostituisce i vecchi print() sparsi in tutto il backend: un print() è solo
-# testo su stdout, senza livello (non puoi filtrare "solo gli errori"), senza
-# timestamp indipendente, e — soprattutto dentro un except — senza lo stack
-# trace di dove l'errore è nato davvero. logging risolve tutti e tre questi
-# problemi, restando comunque semplice: continua a scrivere su console (che
-# su Railway diventa comunque log della piattaforma, come prima), solo in
-# modo strutturato. LOG_LEVEL è configurabile da variabile d'ambiente (default
-# INFO) per poter passare a DEBUG in caso di indagine su un problema, senza
-# toccare il codice.
+# Il logging va configurato prima di importare i moduli del progetto: ogni
+# modulo richiede il proprio logger all'import, e basicConfig ha effetto
+# solo se chiamata prima del primo messaggio emesso.
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
-
-# Nota per chi si stesse chiedendo perché non semplicemente
-# "logging.basicConfig(...)" senza un nome a parte: Alembic, quando esegue
-# le migrazioni (run_migrations() più sotto), interferirebbe con questa
-# stessa configurazione chiamando al suo interno logging.config.fileConfig()
-# sul proprio alembic.ini — un bug reale, scoperto proprio così, che
-# silenziosamente sovrascriveva il nostro formato col suo per il resto della
-# vita del processo. La soluzione vera è in alembic/env.py (salta
-# fileConfig() se il root logger ha già handler configurati): con quella in
-# posto, basta chiamare questa configurazione una volta sola, qui.
 logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
 
 from fastapi import FastAPI, Depends
@@ -49,9 +29,6 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-# slowapi è la libreria che implementa il "rate limiting": impedisce che
-# qualcuno mandi troppe richieste di fila allo stesso indirizzo (protezione
-# anti-bot/anti-abuso). Questi tre import servono per collegarla all'app.
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -59,9 +36,6 @@ from slowapi.middleware import SlowAPIMiddleware
 from backend.rate_limit import limiter
 from backend.scheduler import avvia_scheduler
 
-# Ogni file dentro backend/routers/ definisce un gruppo di indirizzi web
-# (endpoint) collegati tra loro. Qui li importiamo tutti, dando a ciascuno
-# un nome breve (es. "as slots"), per poterli "attaccare" all'app più sotto.
 import backend.routers.slots as slots
 import backend.routers.booking as bookings
 import backend.routers.users as users
@@ -78,19 +52,15 @@ from backend.database import engine, get_db
 from backend.services.discord_service import invia_alert_sistema
 from backend.services.backup_service import esegui_backup_database
 
-# logger di questo modulo — vedi il commento sopra su logging.getLogger.
 logger = logging.getLogger(__name__)
 
 
 def _migrazioni_in_sospeso(alembic_cfg) -> bool:
-    """
-    True se il database è indietro rispetto all'ultima migrazione scritta
-    nel codice (alembic/versions/) — confronta la revisione salvata nel
-    database (tabella alembic_version) con quella più recente conosciuta
-    da Alembic. Serve per decidere SE vale la pena fare un backup: farlo
-    ad ogni riavvio, anche quando non c'è nessuna migrazione da applicare
-    (il caso più comune — un riavvio non cambia lo schema), riempirebbe
-    Drive di backup identici senza nessun beneficio.
+    """Indica se il database è indietro rispetto all'ultima migrazione scritta.
+
+    Serve a decidere se vale la pena fare un backup preventivo: la maggior
+    parte dei riavvii non comporta alcuna migrazione, e un backup a ogni
+    avvio accumulerebbe copie identiche senza alcun beneficio.
     """
     script = ScriptDirectory.from_config(alembic_cfg)
     with engine.connect() as connessione:
@@ -100,34 +70,18 @@ def _migrazioni_in_sospeso(alembic_cfg) -> bool:
 
 
 def run_migrations():
-    """
-    Applica automaticamente a ogni avvio dell'app tutte le "migrazioni" del
-    database non ancora eseguite (vedi la cartella alembic/versions/) — cioè
-    porta la struttura del database MySQL allo stato più aggiornato previsto
-    dal codice, senza bisogno di farlo manualmente ogni volta che si fa il
-    deploy. command.upgrade(alembic_cfg, "head") vuol dire letteralmente
-    "porta il database alla versione più recente" ("head" = la punta della
-    cronologia delle migrazioni, come l'ultimo commit in un ramo Git).
+    """Allinea lo schema del database all'ultima revisione Alembic.
 
-    Se ci sono migrazioni da applicare, PRIMA tentiamo un backup di
-    sicurezza (vedi backend/services/backup_service.py) — una migrazione
-    scritta male è esattamente il tipo di errore da cui un backup dovrebbe
-    proteggere, e il momento in cui serve di più è proprio un attimo prima
-    che quella migrazione giri sul database reale. Un backup fallito o non
-    ancora configurato (vedi il "if not" sotto) non blocca comunque la
-    migrazione: bloccare per sempre ogni futura migrazione finché qualcuno
-    non sistema Drive sarebbe un problema peggiore di procedere senza un
-    backup fresco.
+    Se ci sono migrazioni in sospeso tenta prima un backup, ma un backup
+    fallito o non configurato non blocca la migrazione: impedire ogni futuro
+    aggiornamento dello schema finché Drive non è configurato sarebbe un
+    problema peggiore di quello che si vuole prevenire.
 
-    Il blocco try/except è deliberato: se le migrazioni falliscono, l'app
-    continua comunque ad avviarsi (registra solo un errore nei log) invece
-    di bloccarsi del tutto — utile in fase di sviluppo, ma vuol dire che un
-    problema del database potrebbe manifestarsi più tardi con errori meno
-    chiari quando qualcuno prova a usare una funzione che ne ha bisogno.
-    Per questo, oltre al log, avvisiamo subito il coach su Discord (vedi
-    invia_alert_sistema in backend/services/discord_service.py): un deploy
-    con una migrazione fallita è il tipo di problema che altrimenti si nota
-    solo quando un cliente prova a usare la funzione nuova e trova un errore.
+    Un errore qui non interrompe l'avvio dell'app: viene registrato e
+    notificato su Discord. È una scelta deliberata — un'app che parte con
+    una funzionalità rotta è preferibile a un servizio che non parte
+    affatto — ma significa che il problema può manifestarsi più tardi, con
+    un errore meno leggibile, al primo utilizzo della funzione interessata.
     """
     try:
         database_url = os.getenv("DATABASE_URL")
@@ -145,12 +99,6 @@ def run_migrations():
         else:
             logger.warning("DATABASE_URL non trovata — salto migrazioni")
     except Exception as e:
-        # logger.exception() include automaticamente lo STACK TRACE completo
-        # nel log — con un print() avresti solo il messaggio dell'eccezione,
-        # non da dove è partita: per un errore di migrazione, sapere la riga
-        # esatta fa la differenza tra capire subito il problema e dover
-        # indagare. Teniamo comunque "as e": serve al messaggio Discord
-        # qui sotto, che vuole un riassunto breve, non l'intero traceback.
         logger.exception("Errore migrazioni")
         invia_alert_sistema(
             "Migrazione database fallita all'avvio",
@@ -162,75 +110,39 @@ def run_migrations():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Il "ciclo di vita" dell'applicazione: FastAPI esegue il codice PRIMA dello
-    yield quando il server parte davvero, e quello DOPO lo yield quando si
-    ferma. È il posto giusto per tutto ciò che deve accadere una volta sola
-    all'avvio — qui: allineare il database e far partire i job periodici.
+    """Ciclo di vita dell'app: migrazioni e scheduler all'avvio, stop alla chiusura.
 
-    ATTENZIONE, il motivo per cui queste due chiamate stanno QUI e non più a
-    livello di modulo (dove erano prima — vedi REVISIONE_2026-09-01.md,
-    ritrovamenti R1 e R17). Scritte fuori da questa funzione venivano eseguite
-    al solo "import backend.main", cioè anche quando a importare l'app non era
-    un server ma i test: tests/conftest.py fa esattamente quell'import per
-    ottenere l'oggetto "app" da testare. Il risultato era che lanciare pytest
-    su una macchina con un .env popolato applicava le migrazioni Alembic al
-    database di SVILUPPO VERO, tentava un backup su Google Drive e, se
-    qualcosa falliva, mandava un alert Discord autentico al canale del coach —
-    più un thread APScheduler vivo per tutta la durata della suite, con job
-    che usano il SessionLocal reale invece di quello dei test.
-
-    Con lifespan la differenza è netta: importare il modulo non fa più nulla,
-    avviare un server fa tutto. TestClient, se non usato come context manager
-    (come in conftest.py), non innesca il lifespan — che è precisamente il
-    comportamento voluto.
+    Il codice prima dello `yield` gira quando il server parte davvero, quello
+    dopo quando si ferma. Tenere qui questi due passaggi — invece che a
+    livello di modulo — è ciò che rende l'import privo di effetti
+    collaterali: `TestClient`, se non usato come context manager, non innesca
+    il lifespan, quindi la suite di test non tocca database né servizi reali.
     """
-    # Le migrazioni restano la primissima cosa: vogliamo che il database sia
-    # aggiornato prima che qualunque richiesta possa arrivare.
     run_migrations()
     scheduler = avvia_scheduler()
 
     yield
 
-    # Alla chiusura del server fermiamo lo scheduler in modo ordinato, invece
-    # di lasciarlo morire insieme al processo: è ciò che rende "simmetrico" il
-    # lifespan, e prima non era possibile perché nessuno teneva il riferimento
-    # restituito da avvia_scheduler().
     scheduler.shutdown()
 
 
-# Questa riga crea l'applicazione vera e propria. "app" è l'oggetto che
-# uvicorn userà per rispondere a ogni richiesta HTTP in arrivo — è il "cuore"
-# di FastAPI. title e version servono solo per la documentazione automatica
-# che FastAPI genera da solo (visitabile su /docs quando il server è attivo).
-# lifespan collega la funzione qui sopra: FastAPI la chiamerà da sola quando
-# il server parte e quando si ferma.
 app = FastAPI(title="VGC Coaching API", version="1.0", lifespan=lifespan)
 
-# Queste tre righe collegano il rate limiter all'app:
-# - app.state.limiter salva l'oggetto limiter dove FastAPI/slowapi se lo aspettano
-# - add_exception_handler dice cosa rispondere quando qualcuno supera il limite
-#   (verrà usato l'errore standard di slowapi: risposta 429 "Too Many Requests")
-# - add_middleware attiva davvero il controllo su ogni richiesta
+# Rate limiting: lo stato sull'app, l'handler per le risposte 429, il
+# middleware che applica il controllo a ogni richiesta.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-# CORS (Cross-Origin Resource Sharing) è la regola del browser che decide se
-# una pagina web caricata da un sito può chiamare le API di un altro sito.
-# L'app serve frontend e backend dallo stesso processo/origine, quindi le
-# richieste della propria pagina non hanno bisogno di CORS aperto: restringere
-# riduce la superficie d'attacco (nessun altro sito può chiamare l'API dal
-# browser di un visitatore). Origini configurabili per gestire dev/produzione.
+# Frontend e API sono serviti dalla stessa origine, quindi le pagine dell'app
+# non hanno bisogno di CORS permissivo: restringere impedisce a un altro sito
+# di chiamare l'API dal browser di un visitatore. Le origini restano
+# configurabili per gestire ambienti diversi.
 FRONTEND_ORIGINS = os.getenv(
     "FRONTEND_ORIGINS",
     "http://127.0.0.1:8000,http://localhost:8000"
 ).split(",")
 
-# Un "middleware" è codice che FastAPI esegue automaticamente PRIMA (e a
-# volte dopo) ogni singola richiesta, qualunque sia l'endpoint chiamato —
-# utile per cose trasversali come sicurezza e logging, che non ha senso
-# ripetere manualmente in ogni funzione.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=FRONTEND_ORIGINS,
@@ -238,10 +150,6 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-# include_router() "attacca" all'app tutti gli indirizzi definiti in ciascun
-# file di backend/routers/. Prima di queste righe, quegli indirizzi esistono
-# solo come codice Python: da qui in poi sono davvero raggiungibili da fuori
-# (es. una richiesta a /bookings/ verrà gestita dal codice in booking.py).
 app.include_router(slots.router)
 app.include_router(bookings.router)
 app.include_router(users.router)
@@ -250,36 +158,17 @@ app.include_router(discord_auth.router)
 app.include_router(consulenza.router)
 app.include_router(pacchetti_richieste.router)
 
-# Nota: lo scheduler NON viene avviato qui. Gli 8 job periodici (promemoria,
-# richieste di recensione, sync calendario, generazione slot, controllo del
-# token Gmail, retention GDPR, pulizia slot, backup del database — vedi
-# backend/scheduler.py) partono dall'handler lifespan definito più sopra,
-# insieme alle migrazioni.
-
-# Da questa riga in poi, qualunque file dentro la cartella "frontend/" è
-# raggiungibile dal browser con il prefisso /static/... — per esempio
-# frontend/js/app.js diventa raggiungibile come /static/js/app.js. È così
-# che le pagine HTML riescono a caricare il proprio CSS/JS.
+# Espone frontend/ sotto /static: le pagine HTML caricano da qui CSS e JS.
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 
-# Queste funzioni sono normali endpoint FastAPI (esattamente come quelli
-# nei router), ma invece di restituire dati JSON restituiscono un intero
-# file HTML: FileResponse legge il file dal disco e lo manda al browser così
-# com'è. Sono gli "indirizzi di ingresso" delle pagine web dell'app.
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
-    """
-    Endpoint pensato per un servizio di monitoraggio esterno (es.
-    UptimeRobot, Better Uptime — gratuiti, bastano pochi minuti di setup):
-    fanno una richiesta periodica a questo indirizzo e avvisano il coach
-    se smette di rispondere con 200. "SELECT 1" è la query più semplice
-    possibile: non legge nessuna tabella vera, serve solo a controllare che
-    la connessione al database risponda ancora — un processo "vivo" ma con
-    il database irraggiungibile è comunque un sito rotto per chi lo visita,
-    e senza questo controllo qui il monitoraggio esterno non se ne
-    accorgerebbe (l'app risponderebbe comunque a una richiesta che non
-    tocca il database).
+    """Health check per il monitoraggio esterno.
+
+    Esegue una query minima sul database invece di rispondere sempre 200: un
+    processo vivo ma con il database irraggiungibile è comunque un servizio
+    fuori uso, e senza questo controllo il monitor non se ne accorgerebbe.
     """
     db.execute(text("SELECT 1"))
     return {"status": "ok"}

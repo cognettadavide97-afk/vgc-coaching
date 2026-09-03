@@ -1,5 +1,4 @@
-# Vedi backend/schemas/users.py per la spiegazione generale degli schemi
-# Pydantic e del pattern Create/Response.
+"""Schemi Pydantic per i pacchetti di sessioni."""
 
 from pydantic import BaseModel
 from datetime import datetime
@@ -9,12 +8,13 @@ TipoPacchetto = Literal["intro", "team", "tour"]
 
 
 class PackageCreate(BaseModel):
+    """Dati accettati per assegnare un pacchetto a un cliente.
+
+    Non include prezzo né numero di sessioni: sono presi dal catalogo lato
+    server, così un client non può alterare le condizioni del pacchetto.
+    """
     user_id: int
     tipo: TipoPacchetto
-    # Nota una cosa che NON c'è qui: nessun campo "prezzo" o "sessioni" —
-    # esattamente come per BookingCreate (vedi backend/schemas/booking.py),
-    # questi valori vengono presi dal catalogo fisso lato server
-    # (backend/services/package_service.py), mai dal client.
 
 
 class PackageResponse(BaseModel):

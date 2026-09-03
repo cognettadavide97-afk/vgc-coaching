@@ -1,5 +1,8 @@
-# Vedi backend/schemas/users.py per la spiegazione generale degli schemi
-# Pydantic.
+"""Schema Pydantic per la richiesta di attivazione di un pacchetto.
+
+Solo `Create`: la richiesta è un semplice contatto, il pacchetto vero viene
+creato in seguito dall'amministratore.
+"""
 
 from pydantic import BaseModel, EmailStr
 from typing import Optional, Literal

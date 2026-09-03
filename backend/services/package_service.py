@@ -1,9 +1,9 @@
-# Catalogo fisso dei pacchetti di sessioni, ripreso 1:1 dal materiale
-# grafico promozionale del coach (Desktop\Grafiche Coaching). Non è
-# personalizzabile da chi crea un pacchetto: admin/packages.py sceglie solo la
-# "chiave" (intro/team/tour) e uno User a cui assegnarlo, tutti gli altri
-# valori vengono presi da qui — così il prezzo/contenuto reale del
-# pacchetto non può mai essere alterato da una richiesta HTTP malformata.
+"""Catalogo dei pacchetti di sessioni.
+
+Valori fissi e non modificabili da una richiesta: chi assegna un pacchetto
+sceglie soltanto la chiave, tutto il resto viene letto da qui.
+"""
+
 CATALOGO_PACCHETTI = {
     "intro": {
         "nome": "Competitive Intro",

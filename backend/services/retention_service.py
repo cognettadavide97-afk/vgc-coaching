@@ -1,18 +1,10 @@
-# Data retention (Art. 5.1.e GDPR — "limitazione della conservazione"):
-# i dati personali di un cliente non vanno tenuti più a lungo di quanto
-# serva davvero. Qui "serve davvero" significa "finché la relazione con il
-# servizio di coaching è attiva" (vedi frontend/privacy.html, sezione
-# "Per quanto tempo i dati vengono conservati") — un cliente che non
-# prenota/rinnova un pacchetto da RETENTION_MONTHS mesi viene considerato
-# inattivo, e i suoi dati identificativi vengono anonimizzati in automatico.
-#
-# ANONIMIZZAZIONE, non cancellazione fisica: a differenza di
-# DELETE /admin/clienti/{id} (backend/routers/admin/clients.py, usato quando un
-# cliente chiede espressamente la cancellazione), qui le prenotazioni e i
-# pacchetti restano nel database — servono per lo storico incassi/analytics
-# del pannello admin (dashboard, analytics, export CSV) — ma il cliente
-# collegato smette di essere identificabile: nome, email, telefono e
-# contatti Discord vengono sovrascritti con valori anonimi.
+"""Data retention: anonimizzazione dei clienti inattivi (GDPR art. 5.1.e).
+
+Anonimizzazione e non cancellazione: prenotazioni e pacchetti restano nel
+database per lo storico e le statistiche, ma il cliente collegato smette di
+essere identificabile. La cancellazione vera esiste a parte, per il caso in
+cui sia il cliente a chiederla esplicitamente.
+"""
 
 import os
 from datetime import timedelta
@@ -20,41 +12,26 @@ from sqlalchemy.orm import Session, joinedload
 from backend.models.users import User
 from backend.services.timezone_service import ora_utc_naive
 
-# Configurabile da variabile d'ambiente (stesso pattern degli altri
-# intervalli in backend/scheduler.py), con il default deciso per questo
-# progetto: 24 mesi di inattività.
 RETENTION_MONTHS = int(os.getenv("RETENTION_MONTHS", "24"))
 
-# Suffisso usato per generare l'email anonima al posto di quella vera —
-# solo per leggibilità di chi guarda il database ("si vede a colpo d'occhio
-# che questo cliente è stato anonimizzato"), NON più il modo in cui il job
-# riconosce chi ha già processato: quello lo fa User.anonimizzato_at (vedi
-# sotto), una colonna vera invece di una convenzione sul formato
-# dell'email.
+# Suffisso dell'email generata al posto di quella reale: serve solo a
+# rendere evidente a colpo d'occhio un record anonimizzato. Il marcatore
+# autorevole è `User.anonimizzato_at`, non il formato dell'email.
 SUFFISSO_EMAIL_ANONIMIZZATA = "@anonimizzato.local"
 
 
 def anonimizza_clienti_inattivi(db: Session) -> int:
+    """Anonimizza i clienti inattivi da oltre `RETENTION_MONTHS` mesi.
+
+    L'attività è la più recente fra registrazione, prenotazioni e pacchetti.
+    Restituisce il numero di clienti anonimizzati in questa esecuzione.
     """
-    Trova i clienti la cui ultima attività (registrazione, ultima
-    prenotazione, ultimo pacchetto assegnato) risale a più di
-    RETENTION_MONTHS mesi fa, e ne anonimizza i dati identificativi.
-    Restituisce quanti clienti sono stati anonimizzati in questa
-    esecuzione.
-    """
-    # Approssimazione voluta: 30 giorni per mese, non un calcolo calendariale
-    # esatto (richiederebbe una libreria in più, tipo dateutil, solo per
-    # questo) — per una soglia "di quanti mesi fa", uno scarto di qualche
-    # giorno non cambia nulla nella pratica.
+    # Approssimazione voluta a 30 giorni per mese: su una soglia di mesi lo
+    # scarto è irrilevante e evita una dipendenza in più.
     ora = ora_utc_naive()
     soglia = ora - timedelta(days=30 * RETENTION_MONTHS)
 
-    # joinedload precarica bookings/packages di TUTTI i clienti in due JOIN
-    # aggiuntivi nella STESSA query, invece di una query separata per
-    # utente.bookings e una per utente.packages ad ogni giro del ciclo sotto
-    # (un classico N+1: con 500 clienti sarebbero state 1001 query invece
-    # di una sola) — stessa tecnica già usata per lo stesso motivo in
-    # backend/scheduler.py.
+    # joinedload evita una query per cliente nel ciclo sottostante.
     clienti_attivi = db.query(User).filter(
         User.anonimizzato_at.is_(None)
     ).options(

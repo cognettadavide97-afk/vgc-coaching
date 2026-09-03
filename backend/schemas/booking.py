@@ -1,52 +1,40 @@
-# Vedi backend/schemas/users.py per la spiegazione generale degli schemi
-# Pydantic e del pattern Create/Response.
+"""Schemi Pydantic per le prenotazioni."""
 
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, Literal
 
-# Literal è un tipo speciale di Python (dal modulo typing, non solo di
-# Pydantic) che dice "questo valore può essere SOLO uno di questi testi
-# esatti, nient'altro". A differenza di "str" (che accetterebbe qualunque
-# stringa), Literal[...] fa sì che Pydantic rifiuti automaticamente
-# qualunque servizio diverso da questi quattro — è un modo per avere
-# nel codice Python l'equivalente di un "enum" senza dover creare una
-# classe Enum a parte. Il valore effettivamente scelto arriva così già
-# garantito valido a tutto il resto del programma.
+# Literal al posto di str: un servizio non previsto viene respinto da
+# Pydantic con un 422, senza controlli manuali nel router.
 ServiceType = Literal["vod_review", "team_building", "bo3_sparring", "tournament_prep"]
 
 
 class BookingCreate(BaseModel):
+    """Dati accettati per creare una prenotazione.
+
+    Non contiene il prezzo: lo calcola il server dalla durata. Accettarlo
+    dal client permetterebbe di prenotare a importo arbitrario modificando
+    la richiesta.
+    """
     user_id: int
-    # Usata per verificare, nel flusso guest (nessun login), che user_id
-    # appartenga davvero a chi sta prenotando: senza questo controllo
-    # user_id è un intero qualsiasi (in produzione una PK sequenziale,
-    # banale da indovinare) che chiunque può scrivere in una richiesta HTTP
-    # diretta per creare prenotazioni a nome di un altro cliente esistente.
-    # Ignorata quando lo studente è loggato via Discord: in quel caso
-    # l'identità arriva dal token verificato dal server, mai da qui (vedi
-    # create_booking in backend/routers/booking.py).
+
+    # Obbligatoria solo nel flusso senza login, dove è l'unica prova che
+    # `user_id` appartenga davvero a chi sta prenotando (gli id sono
+    # sequenziali e facili da indovinare). Ignorata quando lo studente è
+    # autenticato: in quel caso l'identità viene dal token.
     email: Optional[str] = None
+
     slot_id: int
     duration_hours: int = 1
-    service_type: ServiceType  # deve essere uno dei 4 valori sopra, altrimenti 422 automatico
+    service_type: ServiceType
     note_cliente: Optional[str] = None
     vod_link: Optional[str] = None
     replay_code: Optional[str] = None
 
-    # Se valorizzato, la sessione viene "pagata" scalando un credito da un
-    # pacchetto attivo del cliente (vedi backend/models/package.py) invece
-    # che con il prezzo normale — controllato e validato server-side in
-    # create_booking, mai fidandosi solo di questo campo.
+    # Se valorizzato, la sessione scala un credito da un pacchetto attivo.
+    # Proprietà e capienza del pacchetto sono comunque riverificate lato
+    # server prima di applicarlo.
     package_id: Optional[int] = None
-
-    # Nota una cosa che NON c'è qui: nessun campo "price". Il prezzo non lo
-    # decide mai il client — viene sempre calcolato dal server (vedi
-    # TABELLA_PREZZI in backend/routers/booking.py) in base a duration_hours.
-    # Se permettessimo al client di mandare direttamente il prezzo,
-    # chiunque potrebbe modificare la richiesta HTTP con gli strumenti
-    # sviluppatore del browser e prenotare a prezzo zero: il server non
-    # deve MAI fidarsi di dati sensibili calcolabili in autonomia.
 
 
 class BookingResponse(BaseModel):
@@ -70,30 +58,23 @@ class BookingResponse(BaseModel):
 
 
 class BookingStatoUpdate(BaseModel):
-    # PATCH /admin/prenotazioni/{id}/stato (backend/routers/admin/bookings.py)
-    # accettava nuovo_stato come query param — finiva quindi in log di
-    # accesso/proxy e cronologia browser esattamente come "note" qui sotto.
-    # Literal, coerente con ServiceType sopra: uno stato non ammesso viene
-    # rifiutato automaticamente da Pydantic (422), nessun controllo manuale
-    # da ripetere nel router.
+    # Nel corpo JSON e non come query param: gli stati finivano altrimenti
+    # nei log di accesso del proxy e nella cronologia del browser.
     nuovo_stato: Literal["confirmed", "cancelled", "no_show"]
 
 
 class BookingNoteUpdate(BaseModel):
-    # PATCH /admin/prenotazioni/{id}/note accettava "note" come query
-    # param — un testo potenzialmente sensibile su un cliente finiva così
-    # nei log di accesso del server/proxy e nella cronologia del browser
-    # dell'admin. Ora viaggia nel body JSON, come qualunque altro dato di
-    # questo tipo nel progetto.
+    # Come sopra: una nota su un cliente è potenzialmente sensibile e non
+    # deve comparire in un URL.
     note: str
 
 
 class BookingResponseStudente(BaseModel):
-    # Stessi campi di BookingResponse TRANNE note_admin — usato dagli
-    # endpoint lato studente (es. cancella_prenotazione_cliente in
-    # backend/routers/booking.py): note_admin è documentato come "visibile
-    # solo al coach" (vedi STATO_PROGETTO.md), non deve mai arrivare in una
-    # risposta che lo studente stesso può leggere.
+    """Vista della prenotazione destinata allo studente.
+
+    Identica a `BookingResponse` tranne `note_admin`, che è riservata al
+    coach e non deve comparire in una risposta leggibile dal cliente.
+    """
     id: int
     user_id: int
     slot_id: int

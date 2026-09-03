@@ -1,10 +1,9 @@
-# Rappresenta un pacchetto di sessioni pre-pagato assegnato a un cliente
-# (es. "Tournament Prep — 6 sessioni da 2 ore"). Il pagamento vero avviene
-# fuori dall'app (come per le prenotazioni singole): l'admin crea questa
-# riga solo DOPO aver ricevuto il pagamento, dal pannello admin. Da quel
-# momento il cliente può "spendere" le sessioni residue prenotando slot
-# senza pagare di nuovo (vedi package_id in backend/models/booking.py e la
-# validazione in backend/routers/booking.py).
+"""Model della tabella `packages`: i pacchetti di sessioni pre-pagati.
+
+Il pagamento avviene fuori dall'applicazione: l'amministratore crea il
+pacchetto solo dopo averlo incassato. Da quel momento il cliente può
+spendere le sessioni residue prenotando a prezzo zero.
+"""
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
@@ -18,20 +17,19 @@ class Package(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
-    # "intro" / "team" / "tour" — chiave del catalogo fisso in
-    # backend/services/package_service.py, non testo libero: i contenuti e
-    # i prezzi dei pacchetti sono decisi a monte, non personalizzabili al
-    # momento dell'assegnazione.
+    # Chiave del catalogo fisso definito in services/package_service.py
+    # ("intro", "team", "tour"), non testo libero: contenuti e prezzi sono
+    # decisi a monte e non personalizzabili al momento dell'assegnazione.
     tipo = Column(String(20), nullable=False)
 
     sessioni_totali = Column(Integer, nullable=False)
     sessioni_usate = Column(Integer, nullable=False, default=0)
-    # Tutti i pacchetti del catalogo attuale sono fatti di sessioni da 2 ore
-    # (vedi il catalogo), ma teniamo il valore sulla riga invece che
-    # hardcoded nella logica di redenzione, così un pacchetto già assegnato
-    # resta valido anche se in futuro il catalogo cambiasse durata.
+
+    # Duplicata dal catalogo al momento della creazione: un pacchetto già
+    # venduto conserva le condizioni con cui è stato acquistato anche se il
+    # catalogo cambia in seguito.
     durata_sessione_ore = Column(Integer, nullable=False, default=2)
-    prezzo_cents = Column(Integer, nullable=False)  # prezzo scontato realmente pagato dal cliente
+    prezzo_cents = Column(Integer, nullable=False)
 
     created_at = Column(DateTime, default=func.now())
 
