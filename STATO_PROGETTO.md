@@ -1,6 +1,6 @@
 # STATO_PROGETTO.md — VGC Coaching App
 
-> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-04** (sezioni 13-17), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), e infine dopo la revisione documentale del 01–03/09 (sezioni 13 e 14). Ogni sessione è stata pushata su `origin/master` con la CI verificata verde sul push reale, non solo sulla suite locale: run GitHub Actions `33529945237` sul commit `61d4554` (01/09) e `33690855235` sul commit `1e17319` (03/09). *Questi due riferimenti sono eventi, e come tali non invecchiano; per sapere dove sia la punta del ramo si guarda `git log`, non questo paragrafo — inseguire l'hash di HEAD a ogni modifica aveva già prodotto tre disallineamenti.* Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
+> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-04** (sezioni 13-18), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), e infine dopo la revisione documentale del 01–03/09 (sezioni 13 e 14). Ogni sessione è stata pushata su `origin/master` con la CI verificata verde sul push reale, non solo sulla suite locale: run GitHub Actions `33529945237` sul commit `61d4554` (01/09) e `33690855235` sul commit `1e17319` (03/09). *Questi due riferimenti sono eventi, e come tali non invecchiano; per sapere dove sia la punta del ramo si guarda `git log`, non questo paragrafo — inseguire l'hash di HEAD a ogni modifica aveva già prodotto tre disallineamenti.* Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
 
 > **Come si aggiorna questo documento.** Le sezioni **1–9 descrivono il presente**: non portano date di sessione e vanno corrette ogni volta che il codice cambia. Le sezioni **10 in poi sono un diario**: si scrivono una volta, si chiudono, e non si riaprono se non per barrare una voce con la data. Ogni punto ancora aperto vive in **un posto solo**, §9.1 — i backlog dentro le sezioni-diario sono congelati e valgono come fotografia del momento in cui furono scritti, non come elenco da consultare. Vale la pena rispettarla: quasi tutti gli errori trovati nelle revisioni del 01–03/09 stavano esattamente sulla cucitura fra le due nature — un fatto di sessione rimasto congelato in una sezione di stato (§7.2 dava il cookie per non verificato mesi dopo la verifica), o un fatto di stato mai propagato all'indietro (il backlog di §11 elencava come aperte due voci chiuse altrove).
 
@@ -401,7 +401,7 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
-- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-04: **85 test, coverage 77%** (erano 83 prima dei due test sulla sonda dell'healthcheck, §17; e 82/80% prima che il codice di avvio uscisse dall'import, §13).
+- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-04: **93 test, coverage 78%** (erano 85 prima dei test su login admin e rifiuto dei token, §18; 83 prima dei due test sulla sonda dell'healthcheck, §17; e 82/80% prima che il codice di avvio uscisse dall'import, §13).
 - **CI verde** su ogni push/PR (GitHub Actions) — riconfermato sul push del 01/09 (18 commit, `1732fc2..61d4554`, run `33529945237`), non solo assunto dalla suite locale. Riconfermato di nuovo sul push del 03/09 (8 commit, `61d4554..1e17319`, run `33690855235`), che ha portato in remoto tutto il lavoro della revisione (vedi §13.4).
 - Backup su Google Drive verificato end-to-end con un dump reale, **e confermato il 2026-09-02 che la cartella Drive contiene backup prodotti dalla produzione**, non solo dalle prove in locale.
 - Login admin con la nuova password hashata, verificato live dopo il deploy.
@@ -453,6 +453,17 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 8. **Consolidamento delle variabili Railway su un solo servizio.** Oggi sono divise fra i due senza un criterio, ed è proprio quell'asimmetria ad aver prodotto la copia divergente di `GMAIL_REFRESH_TOKEN` trovata il 02/09. Origine §13.1.
 9. **Rotazione della password MySQL** esposta in git dal commit `15f536d` (giugno). **Rimandata deliberatamente**, non dimenticata: decisione presa il 2026-09-03 con l'informazione giusta, cioè che riguarda il database di **sviluppo locale**, mentre la produzione usa credenziali generate da Railway e mai finite in git. Da riconsiderare se quel database locale diventasse raggiungibile da fuori. Origine §12, §13.5.
 10. **Dominio personalizzato** non acquistato — resta su `*.up.railway.app`, scelta consapevole. Da riconsiderare se servisse un'immagine più professionale o SPF/DKIM/DMARC veri. Origine §11.
+
+**Debito di test — non blocca nulla, ma è dove un difetto passerebbe inosservato**
+
+11. **Le zone scoperte che restano dopo §18**, in ordine di rischio. Il 22% non coperto non è distribuito in modo uniforme: quasi tutto è I/O verso servizi esterni, mockato per scelta. Quello che resta e che vale la pena coprire:
+    1. **`applica_blocco_eccezionale`** (`availability_service.py:149-177`) — traduce "sono via dal 10 al 15" in slot effettivamente bloccati, conversione di fuso inclusa. È il più concreto: se sbaglia, o resti prenotabile mentre sei via, o l'agenda si chiude in silenzio. La funzione gemella `genera_slot_da_regola` è invece coperta.
+    2. **CRUD di regole e blocchi di disponibilità** (`admin/availability.py`: crea/elimina regola alle 132 e 165-171, crea/elimina blocco alle 194-208 e 224-230) — gli endpoint che decidono quali slot esistono.
+    3. **`GET /users/me/prenotazioni`** (`users.py:79-101`) — legge dati personali filtrando per identità, cioè la categoria che la checklist di §12 dice di controllare sempre.
+    4. **Transizioni dell'alert Gmail** (`scheduler.py:213-232`) — quando avvisare su Discord e quando tacere. Il §17 ha corretto la *sonda*, ma questo meccanismo non ha test: è il codice che avrebbe suonato falso.
+    5. **`controlla_e_anonimizza_clienti_inattivi`** (`scheduler.py:242-254`) — il servizio GDPR sotto è al 100%, il job che lo invoca no.
+
+    **Da non inseguire, per scelta già presa**: `calendar_service` (24%), `discord_service` (41%), `google_oauth_service` (36%), i corpi HTML delle email e l'upload di `backup_service` sono I/O verso servizi esterni, mockati in `conftest.py` — testarli significherebbe testare le librerie di Google. Idem `main.py:86-103` e `database.py:41-45`, che partono solo con un server vero (§13). Origine §18.
 
 ---
 
@@ -1047,3 +1058,46 @@ La voce 1 **non si chiude oggi**. L'azione è fatta, l'effetto no: la prova che 
 giorni sia sparita è un token ancora valido **dopo il 2026-09-11**. Il comando per controllarlo è
 in §9.1, voce 1. Scriverla come risolta adesso sarebbe la stessa scorciatoia che questo progetto ha
 già pagato due volte (§13.1, §13.5): dichiarare verificato ciò che è solo atteso.
+
+---
+
+## 18. Sessione 2026-09-04 (2) — coperto il perimetro di autenticazione
+
+Nata da una domanda semplice — *cosa è rimasto fuori dalla coverage* — che ha prodotto una risposta
+meno semplice: il 23% scoperto non era distribuito in modo uniforme, e i due buchi peggiori stavano
+esattamente dove un difetto costa di più.
+
+### Buco 1 — `POST /admin/login` non aveva nessun test
+È l'unico punto del sistema in cui la password dell'admin viene davvero controllata, ed era
+scoperto **perché la suite lo aggira**: `tests/conftest.py:126` costruisce il token con
+`crea_token('admin')`, comodo per i test degli endpoint protetti ma che salta del tutto la catena
+`password → bcrypt → token`. Un errore in `verifica_credenziali` — un confronto invertito, un
+`ADMIN_PASSWORD_HASH` letto male — non avrebbe fatto fallire niente.
+
+### Buco 2 — il rifiuto di un token *presente ma non valido*
+I 401 che già esistevano (`test_admin.py:70-80`) chiamano **senza** header `Authorization`: il
+rifiuto scatta nello schema OAuth2 di FastAPI, prima di arrivare al nostro codice. Restavano non
+provati proprio i casi che descrivono un abuso reale — token scaduto, token firmato con un'altra
+chiave, e soprattutto **token studente speso su un endpoint admin**. Quest'ultimo è la difesa su
+cui poggia tutta la separazione dei due mondi (§12): i due tipi di token sono firmati con la stessa
+chiave, e solo il claim `type` li distingue. Era una difesa dichiarata, non dimostrata.
+
+### Cosa è stato scritto
+`tests/test_auth.py`, otto test, nessuna infrastruttura nuova:
+- login con credenziali valide — e il token ottenuto viene **speso su un endpoint protetto**, non
+  solo guardato: senza quella seconda chiamata il test passerebbe anche con un claim `type` errato;
+- login con password sbagliata, con username sbagliato (la password giusta non basta), e con
+  `ADMIN_PASSWORD_HASH` non configurato — il caso della variabile dimenticata su un ambiente nuovo,
+  che non deve trasformarsi in un pannello aperto;
+- token admin scaduto, token firmato con una chiave che il server non conosce;
+- token studente su endpoint admin, e token admin nel cookie studente: la separazione provata in
+  **entrambe** le direzioni.
+
+### Risultato
+`backend/services/auth_service.py` e `backend/routers/admin/__init__.py` passano **da 82% e 80% a
+100%**. Suite: **93 test verdi**, coverage totale **78%** (era 77%).
+
+### Il resto della mappa
+Le zone ancora scoperte sono state elencate e ordinate per rischio in **§9.1, voce 11**, insieme a
+quelle che si è deciso di **non** coprire perché sono I/O verso servizi esterni. Sta lì e non qui
+per la ragione detta in §16: una coda di lavoro descritta solo in una sezione-diario non è tracciata.
