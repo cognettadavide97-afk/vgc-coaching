@@ -91,3 +91,48 @@ def test_nome_cliente_con_html_viene_escapato_in_email_al_cliente(monkeypatch):
 
     assert "<i>Rossi</i>" not in catturato["corpo"]
     assert "&lt;i&gt;Rossi&lt;/i&gt;" in catturato["corpo"]
+
+
+# --- Sonda dell'healthcheck Gmail -------------------------------------
+# Fino al 2026-09-04 verifica_credenziali_gmail() interrogava
+# users.getProfile(): una lettura, mentre lo scope concesso è gmail.send.
+# Con credenziali sane rispondeva 403 e l'healthcheck dichiarava fermo un
+# invio email che funzionava. Questi test fissano le due proprietà che il
+# fix garantisce: la sonda è il refresh del token, e non tocca l'API Gmail.
+
+class CredenzialiFinte:
+    def __init__(self, esito_refresh=None):
+        self.token = None
+        self._esito_refresh = esito_refresh
+
+    def refresh(self, request):
+        if self._esito_refresh is not None:
+            raise self._esito_refresh
+        self.token = "access-token-finto"
+
+
+def test_healthcheck_gmail_non_interroga_lapi_gmail(monkeypatch):
+    credenziali = CredenzialiFinte()
+    monkeypatch.setattr(
+        email_service, "credenziali_oauth_google",
+        lambda refresh_token, client_id, client_secret: credenziali
+    )
+    # Se la sonda tornasse a costruire un client Gmail, il test fallisce qui
+    # invece che in produzione con un falso allarme su Discord.
+    def build_vietata(*args, **kwargs):
+        raise AssertionError("la sonda non deve chiamare l'API Gmail: lo scope è gmail.send")
+    monkeypatch.setattr(email_service, "build", build_vietata)
+
+    assert email_service.verifica_credenziali_gmail() is True
+    assert credenziali.token is not None
+
+
+def test_healthcheck_gmail_falso_se_il_refresh_fallisce(monkeypatch):
+    monkeypatch.setattr(
+        email_service, "credenziali_oauth_google",
+        lambda refresh_token, client_id, client_secret: CredenzialiFinte(
+            esito_refresh=RuntimeError("invalid_grant: Token has been expired or revoked.")
+        )
+    )
+
+    assert email_service.verifica_credenziali_gmail() is False

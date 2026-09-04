@@ -16,6 +16,7 @@ import logging
 from email.message import EmailMessage
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
+from google.auth.transport.requests import Request
 from backend.services.google_oauth_service import credenziali_oauth_google
 
 load_dotenv()
@@ -99,23 +100,31 @@ def _invia_via_gmail(destinatario: str, oggetto: str, corpo_html: str):
 
 
 def verifica_credenziali_gmail() -> bool:
-    """Verifica che le credenziali Gmail siano ancora valide.
+    """Verifica che il refresh token Gmail sia ancora spendibile.
 
-    Interroga il profilo dell'account senza inviare nulla. Restituisce
-    l'esito invece di sollevare, così un fallimento non interrompe lo
-    scheduler che la richiama.
+    La sonda è lo **scambio del refresh token con un access token**, cioè
+    esattamente l'operazione che fallisce quando il token scade o viene
+    revocato: il guasto che questo controllo esiste per intercettare.
 
-    Finché la schermata di consenso OAuth resta in stato "Testing", il
-    refresh token scade dopo 7 giorni **a prescindere dall'uso** — non per
-    inattività: verificato in produzione il 2026-09-02, con il token
-    esercitato ogni giorno. Questo controllo rileva la scadenza ma non può
-    prevenirla; l'unico rimedio è portare la schermata "In production".
+    Non interroga l'API Gmail, e non è un dettaglio: lo scope concesso è
+    `gmail.send`, che autorizza a spedire e a nient'altro. Una lettura di
+    prova — `users.getProfile()`, che questa funzione usava fino al
+    2026-09-04 — risponde 403 "insufficient authentication scopes" anche
+    con credenziali perfettamente sane, quindi come sonda mentiva:
+    dichiarava fermo un invio email che funzionava. Il refresh forzato non
+    ha quel problema, perché non dipende da nessuno scope.
+
+    Il `refresh()` esplicito serve a non fidarsi della cache di
+    `credenziali_oauth_google`: un access token ancora fresco proverebbe
+    solo che il controllo precedente era andato bene.
+
+    Restituisce l'esito invece di sollevare, così un fallimento non
+    interrompe lo scheduler che la richiama.
     """
     try:
         credenziali = credenziali_oauth_google(GMAIL_REFRESH_TOKEN, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET)
-        servizio = build("gmail", "v1", credentials=credenziali)
-        servizio.users().getProfile(userId="me").execute()
-        return True
+        credenziali.refresh(Request())
+        return credenziali.token is not None
     except Exception:
         logger.exception("Controllo credenziali Gmail fallito")
         return False

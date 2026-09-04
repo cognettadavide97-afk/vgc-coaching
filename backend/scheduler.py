@@ -217,9 +217,10 @@ def controlla_credenziali_gmail():
             "Refresh token Gmail scaduto o non valido",
             "L'invio email (conferme, promemoria, richieste recensione) è FERMO. "
             "Rifai l'autorizzazione con `python scripts/reauth_gmail.py`, poi "
-            "aggiorna GMAIL_REFRESH_TOKEN su Railway. Vedi README.md, sezione "
-            "\"Gmail API\", per evitare che si ripeta (schermata di consenso "
-            "OAuth in stato \"In production\" invece di \"Testing\")."
+            "aggiorna GMAIL_REFRESH_TOKEN su Railway (entrambi i servizi). "
+            "La schermata di consenso è già \"In production\" dal 2026-09-04, "
+            "quindi non è una scadenza periodica: guarda revoca dell'accesso o "
+            "cambio dell'account mittente."
         )
     elif ok and _ultimo_controllo_gmail_ok is False:
         invia_alert_sistema(
