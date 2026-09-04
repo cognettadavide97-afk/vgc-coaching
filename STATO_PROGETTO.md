@@ -401,7 +401,7 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
-- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-02: **83 test, coverage 77%** (era 82/80% prima che il codice di avvio uscisse dall'import, vedi §13).
+- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-04: **85 test, coverage 77%** (erano 83 prima dei due test sulla sonda dell'healthcheck, §17; e 82/80% prima che il codice di avvio uscisse dall'import, §13).
 - **CI verde** su ogni push/PR (GitHub Actions) — riconfermato sul push del 01/09 (18 commit, `1732fc2..61d4554`, run `33529945237`), non solo assunto dalla suite locale. Riconfermato di nuovo sul push del 03/09 (8 commit, `61d4554..1e17319`, run `33690855235`), che ha portato in remoto tutto il lavoro della revisione (vedi §13.4).
 - Backup su Google Drive verificato end-to-end con un dump reale, **e confermato il 2026-09-02 che la cartella Drive contiene backup prodotti dalla produzione**, non solo dalle prove in locale.
 - Login admin con la nuova password hashata, verificato live dopo il deploy.
@@ -1036,10 +1036,10 @@ rientrare in silenzio. Suite: **85 verdi** (erano 83), coverage 77%.
 
 ### Verifiche fatte in questa sessione
 - `Gmail : OK` e `Drive : OK` con la sonda corretta, contro i token veri.
-- **Email di prova realmente spedita** all'account mittente con `_invia_via_gmail`, cioè la stessa
-  funzione che usano le email ai clienti — nessuna scorciatoia. L'API l'ha accettata senza errori;
-  la ricezione in casella va confermata guardando la posta, ed è l'unico anello che il codice non
-  può osservare da solo.
+- **Email di prova spedita e ricevuta.** Inviata con `_invia_via_gmail`, cioè la stessa funzione
+  che usano le email ai clienti — nessuna scorciatoia — e **arrivata in casella, confermata dal
+  coach il 2026-09-04**. È l'unico anello che il codice non può osservare da solo, ed è chiuso:
+  con il token nuovo le email partono e vengono consegnate davvero.
 - Cartella Drive interrogata: backup del **2, 3 e 4 settembre**, l'ultimo delle 04:00Z.
 
 ### Cosa resta aperto

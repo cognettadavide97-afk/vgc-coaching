@@ -136,7 +136,7 @@ Non fanno parte dell'app che gira in produzione: si lanciano a mano, una tantum,
 
 ### `tests/` — la suite di test automatici
 
-14 file di test (83 test in tutto) che girano con `pytest`. `conftest.py` è il file di configurazione condiviso: sostituisce il database MySQL con uno SQLite in memoria e finge le integrazioni esterne (email, Calendar, Discord), così la suite gira ovunque — anche in CI — senza toccare nessun servizio vero.
+14 file di test (85 test in tutto) che girano con `pytest`. `conftest.py` è il file di configurazione condiviso: sostituisce il database MySQL con uno SQLite in memoria e finge le integrazioni esterne (email, Calendar, Discord), così la suite gira ovunque — anche in CI — senza toccare nessun servizio vero.
 
 ### `.github/` — l'automazione su GitHub
 
@@ -292,7 +292,7 @@ Nella colonna "Obbligatoria", `Sì` senza altro vuol dire che l'app non funziona
 | `python -m alembic revision -m "descrizione"` | Crea una nuova migrazione vuota (da scrivere a mano) |
 | `pip install -r requirements.txt` | Installa/aggiorna le dipendenze |
 | `pip install -r requirements-dev.txt` | Installa anche le dipendenze di test (pytest, httpx, pytest-cov) |
-| `pytest` | Esegue gli 83 test automatici (`tests/`) — usa un database SQLite in memoria e non tocca il MySQL di sviluppo o produzione. Migrazioni e scheduler partono solo all'avvio di un server vero (handler `lifespan` in `backend/main.py`), mai al semplice import: è ciò che rende innocuo lanciare la suite con un `.env` popolato. Stampa anche il report di coverage, attivo di default via `pytest.ini` |
+| `pytest` | Esegue gli 85 test automatici (`tests/`) — usa un database SQLite in memoria e non tocca il MySQL di sviluppo o produzione. Migrazioni e scheduler partono solo all'avvio di un server vero (handler `lifespan` in `backend/main.py`), mai al semplice import: è ciò che rende innocuo lanciare la suite con un `.env` popolato. Stampa anche il report di coverage, attivo di default via `pytest.ini` |
 | `python scripts/hash_admin_password.py` | Genera l'hash bcrypt da mettere in `ADMIN_PASSWORD_HASH` (chiede la password in modo interattivo, senza echo) |
 
 La stessa suite `pytest` gira automaticamente su ogni push/PR tramite GitHub Actions (`.github/workflows/tests.yml`), così un errore emerge prima del deploy, non dopo.
