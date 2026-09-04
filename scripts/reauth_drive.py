@@ -11,7 +11,9 @@ Riusa lo stesso client OAuth di reauth_gmail.py, con in più lo scope Drive
 sulla stessa schermata di consenso, ma produce un token distinto: se uno
 dei due viene revocato o scade, l'altra integrazione continua a funzionare.
 
-Vale la stessa scadenza descritta in reauth_gmail.py. Attenzione: nessun
+Vale la stessa vicenda di scadenza descritta in reauth_gmail.py, chiusa
+il 2026-09-04 per entrambi i token insieme (condividono la schermata di
+consenso). Attenzione: nessun
 controllo schedulato verifica questo token — la sua scadenza si scopre solo
 dall'avviso di backup fallito, quindi a copia già saltata.
 

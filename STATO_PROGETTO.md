@@ -1,6 +1,6 @@
 # STATO_PROGETTO.md — VGC Coaching App
 
-> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-03** (sezioni 13-16), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), e infine dopo la revisione documentale del 01–03/09 (sezioni 13 e 14). Ogni sessione è stata pushata su `origin/master` con la CI verificata verde sul push reale, non solo sulla suite locale: run GitHub Actions `33529945237` sul commit `61d4554` (01/09) e `33690855235` sul commit `1e17319` (03/09). *Questi due riferimenti sono eventi, e come tali non invecchiano; per sapere dove sia la punta del ramo si guarda `git log`, non questo paragrafo — inseguire l'hash di HEAD a ogni modifica aveva già prodotto tre disallineamenti.* Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
+> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-04** (sezioni 13-17), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), e infine dopo la revisione documentale del 01–03/09 (sezioni 13 e 14). Ogni sessione è stata pushata su `origin/master` con la CI verificata verde sul push reale, non solo sulla suite locale: run GitHub Actions `33529945237` sul commit `61d4554` (01/09) e `33690855235` sul commit `1e17319` (03/09). *Questi due riferimenti sono eventi, e come tali non invecchiano; per sapere dove sia la punta del ramo si guarda `git log`, non questo paragrafo — inseguire l'hash di HEAD a ogni modifica aveva già prodotto tre disallineamenti.* Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
 
 > **Come si aggiorna questo documento.** Le sezioni **1–9 descrivono il presente**: non portano date di sessione e vanno corrette ogni volta che il codice cambia. Le sezioni **10 in poi sono un diario**: si scrivono una volta, si chiudono, e non si riaprono se non per barrare una voce con la data. Ogni punto ancora aperto vive in **un posto solo**, §9.1 — i backlog dentro le sezioni-diario sono congelati e valgono come fotografia del momento in cui furono scritti, non come elenco da consultare. Vale la pena rispettarla: quasi tutti gli errori trovati nelle revisioni del 01–03/09 stavano esattamente sulla cucitura fra le due nature — un fatto di sessione rimasto congelato in una sezione di stato (§7.2 dava il cookie per non verificato mesi dopo la verifica), o un fatto di stato mai propagato all'indietro (il backlog di §11 elencava come aperte due voci chiuse altrove).
 
@@ -346,7 +346,7 @@ Restano qui, perché sono fatti sullo **stato del deploy** e non documentazione 
 
 ## 6. Servizi esterni
 
-- **Gmail API (OAuth2)** — email transazionali. Il progetto Google Cloud OAuth resta in stato "Testing" (non verificato): `GMAIL_REFRESH_TOKEN` scade dopo **7 giorni, a prescindere dall'uso** — non per inattività, come si è creduto a lungo: il 2026-09-02 è scaduto pur essendo esercitato ogni giorno (vedi §13.5). Un job notturno (`controlla_credenziali_gmail`) verifica automaticamente e avvisa su Discord solo alla transizione ok→rotto; **rileva** la scadenza, non la previene. Rinnovo manuale: `python scripts/reauth_gmail.py`.
+- **Gmail API (OAuth2)** — email transazionali. Il progetto Google Cloud OAuth è **"In production" dal 2026-09-04** (non verificato, il che è irrilevante con un solo utente): la scadenza a 7 giorni del refresh token, che valeva in stato "Testing", non dovrebbe più applicarsi — prova attesa dopo l'11 settembre, §9.1 voce 1. Scope concesso: `gmail.send`, **sensitive** per Google ma non restricted, quindi niente security assessment. Un job (`controlla_credenziali_gmail`) verifica il token e avvisa su Discord solo alla transizione ok→rotto: dal 2026-09-04 la sonda è il refresh del token, non più una lettura dell'API Gmail (§17). Rinnovo manuale: `python scripts/reauth_gmail.py`.
 - **Google Calendar** — service account, scrittura (crea/elimina evento a ogni prenotazione/cancellazione) + lettura (sync automatico ogni ora via job, oltre al bottone admin manuale).
 - **Google Drive (nuovo)** — backup automatico notturno del database (dump SQL scritto a mano via PyMySQL, non `mysqldump`) via OAuth2 con l'account reale del coach (**non** un service account — un service account non ha quota di storage propria su Drive, scoperto testando). Rinnovo: `python scripts/reauth_drive.py`.
 - **Discord** — webhook in uscita (notifiche prenotazione/promemoria/alert di sistema) + OAuth2 in entrata (login studenti, ora con protezione CSRF via parametro `state`).
@@ -415,11 +415,18 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 
 **Con una data d'innesco**
 
-1. **Schermata di consenso OAuth Google da "Testing" a "In production"** (Google Cloud Console). Aperta dal 25/08. Finché resta in "Testing", `GMAIL_REFRESH_TOKEN` e `DRIVE_REFRESH_TOKEN` scadono dopo **7 giorni a prescindere dall'uso** — non per inattività: il 2026-09-02 il token Gmail è scaduto pur essendo esercitato ogni giorno, ed è stato rinnovato a mano. **Verificato il 2026-09-03: lo stato è ancora "Testing"**, quindi il prossimo scadere è atteso **entro il 2026-09-09**. È l'unica voce di questo elenco con una scadenza vera. Origine §12, dettaglio §13.5.
+1. **Schermata di consenso OAuth Google — pubblicata il 2026-09-04, prova in attesa.** Aperta dal 25/08, l'azione è **fatta**: stato "In production", entrambi i token rigenerati sotto il nuovo regime e sostituiti su Railway (§17). Resta aperta perché **il rimedio non è ancora osservato**: quello che elimina la scadenza a 7 giorni è il cambio di publishing status, e la prova è un token **ancora valido dopo il 2026-09-11**. Da fare quel giorno, in un comando:
+
+   ```bash
+   # deve stampare "Gmail : OK" — se dice FALLITO, la pubblicazione non ha avuto l'effetto atteso
+   DATABASE_URL="sqlite:///:memory:" JWT_SECRET="x" python -c "from dotenv import load_dotenv; load_dotenv('.env'); from backend.services.email_service import verifica_credenziali_gmail; print('Gmail :', 'OK' if verifica_credenziali_gmail() else 'FALLITO')"
+   ```
+
+   Se all'11 settembre il token è vivo, la voce si chiude. Se è morto, la pubblicazione non basta e il problema va riaperto da capo. Origine §12, dettaglio §13.5 e §17.
 
 **Rischi silenziosi — si scoprono a danno avvenuto**
 
-2. **`DRIVE_REFRESH_TOKEN` non ha nessun healthcheck.** Quello schedulato controlla solo Gmail (`controlla_credenziali_gmail`): un token Drive morto si scopre dall'alert di backup fallito, cioè a copia di sicurezza già saltata, fino a 24 ore dopo. Al 2026-09-03 il file più recente nella cartella Drive è del **2 settembre** e non risulta nessun alert Discord — il token era valido a quell'esecuzione, il che non dice nulla sulla successiva. Origine §13.6.
+2. **`DRIVE_REFRESH_TOKEN` non ha nessun healthcheck.** Quello schedulato controlla solo Gmail (`controlla_credenziali_gmail`): un token Drive morto si scopre dall'alert di backup fallito, cioè a copia di sicurezza già saltata, fino a 24 ore dopo. **Meno urgente dal 2026-09-04**, perché con la schermata "In production" sparisce la scadenza periodica e resta solo il rischio di revoca o cambio account; ma la cecità del monitoraggio è la stessa. Nella stessa data la cartella Drive è stata interrogata direttamente: contiene i backup del **2, 3 e 4 settembre** (l'ultimo delle 04:00Z), quindi il job notturno gira davvero — verificato, non dedotto dall'assenza di alert. Costo del rimedio, se si decidesse di farlo: la sonda di §17 funziona identica sul token Drive. Origine §13.6.
 3. **Uptime monitor esterno su `/health`, mai configurato.** Confermato osservativamente il 2026-09-02: nei log Railway non compare nessuna chiamata a quell'endpoint. L'endpoint funziona (interrogato a mano risponde), semplicemente nessuno lo interroga — quindi un sito giù si scopre da un cliente che si lamenta. Origine §11, riconfermato §13.5.
 4. **Azioni GitHub su Node.js 20 deprecato.** `actions/checkout@v4` e `actions/setup-python@v5` vengono forzate su Node.js 24 con un'annotazione. Oggi la CI è verde; quando GitHub ritirerà il fallback si fermerà, senza preavviso e in un momento a caso. Si risolve alzando la versione delle due action in `.github/workflows/tests.yml`. Origine §13.5.
 
@@ -975,3 +982,68 @@ pushato: è finito quando è scritto qui.**
 
 ### Backlog
 Nessuna voce nuova aperta, nessuna chiusa. §9.1 resta l'unico elenco da consultare.
+
+---
+
+## 17. Sessione 2026-09-04 — voce 1 del backlog: pubblicata la schermata OAuth, e un monitor che mentiva
+
+### Cosa è stato fatto
+Schermata di consenso OAuth portata da **"Testing"** a **"In production"** sulla Google Cloud
+Console (progetto `652933581816`), entrambi i refresh token rigenerati sotto il nuovo stato e
+sostituiti su Railway **su tutti e due i servizi**. È l'azione che l'elenco chiedeva dal 25/08.
+
+Due ostacoli incontrati, annotati perché non erano previsti e si ripresenterebbero identici:
+- **La pagina Branding va compilata prima**: nome app, email di supporto, contatto sviluppatore.
+  Niente logo — su un'app non verificata caricarlo innesca la richiesta di verifica.
+- **Google ha preteso home page e privacy policy** con URL raggiungibili, più il dominio fra gli
+  *Authorized domains*. Risolto senza scrivere niente di nuovo: `https://vgc-coaching-production.up.railway.app`
+  e `/privacy` esistono già (la privacy è quella del lavoro GDPR di agosto, servita da
+  `backend/main.py:185`), e sono state entrambe interrogate — `200` — prima di dichiararle a Google.
+  Nota per il futuro: `up.railway.app` è nella Public Suffix List, quindi l'host intero vale come
+  dominio principale e Google lo accetta.
+
+Corretto anche un errore che era scritto in tre punti: `gmail.send` era dato per "scope non
+sensibile". Google lo classifica **sensitive**. Non cambia il rimedio — cambia cosa aspettarsi:
+l'app resta "In production / needs verification" e al consenso compare l'avviso "app non
+verificata". Irrilevante con un utente solo; la verifica completa serve solo a toglierlo a terzi.
+
+### Il difetto emerso: l'healthcheck Gmail sondava fuori dallo scope
+Dopo la rigenerazione, la verifica dei token ha dato `Drive OK` e **`Gmail FALLITO`** — ma il token
+Gmail era sano. Interrogando `tokeninfo` di Google: si rinnova correttamente e porta esattamente
+`gmail.send`. Il falso negativo veniva dalla sonda: `verifica_credenziali_gmail()` chiamava
+`users.getProfile()`, cioè una **lettura**, mentre lo scope concesso autorizza **solo a spedire**.
+Google risponde `403 insufficient authentication scopes` anche con credenziali perfette.
+
+Conseguenza concreta, evitata per poche ore: il job gira ogni 24h, quindi entro la notte sarebbe
+partito su Discord un alert *"Refresh token Gmail scaduto — l'invio email è FERMO"*, **falso**, e
+non sarebbe mai rientrato, perché quella sonda non può riuscire sotto `gmail.send`.
+
+Perché solo adesso — **ipotesi, non fatto**: il token precedente doveva portare uno scope più largo,
+concesso prima che lo script fosse ristretto a `gmail.send`. Non è verificabile: quel token non
+esiste più. Quello che è verificato è lo stato attuale, non la storia.
+
+### Il fix
+`backend/services/email_service.py`: la sonda ora è lo **scambio del refresh token con un access
+token** — esattamente l'operazione che fallisce quando il token scade o viene revocato, e che non
+dipende da nessuno scope. Il `refresh()` è esplicito per non fidarsi della cache di
+`credenziali_oauth_google`: un access token ancora fresco proverebbe solo che il controllo
+precedente era andato bene. Aggiornato anche il testo dell'alert in `backend/scheduler.py`, che
+consigliava un rimedio ormai applicato.
+
+Due test nuovi in `tests/test_email_service.py`: la sonda torna `False` se il refresh fallisce, e
+**il test fallisce se qualcuno la fa tornare a chiamare l'API Gmail** — il difetto non può
+rientrare in silenzio. Suite: **85 verdi** (erano 83), coverage 77%.
+
+### Verifiche fatte in questa sessione
+- `Gmail : OK` e `Drive : OK` con la sonda corretta, contro i token veri.
+- **Email di prova realmente spedita** all'account mittente con `_invia_via_gmail`, cioè la stessa
+  funzione che usano le email ai clienti — nessuna scorciatoia. L'API l'ha accettata senza errori;
+  la ricezione in casella va confermata guardando la posta, ed è l'unico anello che il codice non
+  può osservare da solo.
+- Cartella Drive interrogata: backup del **2, 3 e 4 settembre**, l'ultimo delle 04:00Z.
+
+### Cosa resta aperto
+La voce 1 **non si chiude oggi**. L'azione è fatta, l'effetto no: la prova che la scadenza a 7
+giorni sia sparita è un token ancora valido **dopo il 2026-09-11**. Il comando per controllarlo è
+in §9.1, voce 1. Scriverla come risolta adesso sarebbe la stessa scorciatoia che questo progetto ha
+già pagato due volte (§13.1, §13.5): dichiarare verificato ciò che è solo atteso.

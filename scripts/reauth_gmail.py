@@ -9,18 +9,21 @@ lato server. Aggiorna solo l'ambiente locale — la variabile in produzione
 va sostituita a mano dalla dashboard dell'hosting.
 
 QUANDO RILANCIARLO
-Finché la schermata di consenso OAuth resta in stato "Testing", il refresh
-token scade dopo 7 giorni **a prescindere da quanto l'app venga usata**.
-Non è una scadenza per inattività: verificato in produzione il 2026-09-02,
-con il token esercitato ogni giorno dall'healthcheck e dalle email di ogni
-prenotazione. Quindi la scadenza si ripresenta a intervalli regolari, e il
-controllo schedulato che avvisa su Discord la rileva ma non la previene.
+Casi eccezionali: token revocato, cambio dell'account mittente, oppure
+l'alert Discord dell'healthcheck. Non più a cadenza regolare.
 
-L'unico rimedio che la elimina è portare la schermata di consenso da
-"Testing" a "In production" sulla console Google Cloud: non richiede la
-verifica completa dell'app per un singolo scope non sensibile come
-gmail.send. Fatto questo, lo script torna a servire solo in casi
-eccezionali (revoca, cambio account).
+Perché prima serviva spesso: finché la schermata di consenso OAuth è
+rimasta in stato "Testing", il refresh token scadeva dopo 7 giorni **a
+prescindere da quanto l'app venisse usata** — non per inattività: il
+2026-09-02 è scaduto pur essendo esercitato ogni giorno. La schermata è
+stata portata "In production" il 2026-09-04 e i token rigenerati; la
+conferma definitiva è un token ancora valido dopo l'11 settembre 2026
+(STATO_PROGETTO.md, §9.1 voce 1).
+
+Nota sullo scope: gmail.send è classificato **sensitive** da Google. Non
+impedisce di pubblicare — l'app resta "In production / needs verification"
+e al consenso compare l'avviso "app non verificata", da superare con
+Avanzate -> Continua.
 """
 
 import os
