@@ -1,6 +1,6 @@
 # STATO_PROGETTO.md — VGC Coaching App
 
-> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-04** (sezioni 13-18), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), e infine dopo la revisione documentale del 01–03/09 (sezioni 13 e 14). Ogni sessione è stata pushata su `origin/master` con la CI verificata verde sul push reale, non solo sulla suite locale: run GitHub Actions `33529945237` sul commit `61d4554` (01/09) e `33690855235` sul commit `1e17319` (03/09). *Questi due riferimenti sono eventi, e come tali non invecchiano; per sapere dove sia la punta del ramo si guarda `git log`, non questo paragrafo — inseguire l'hash di HEAD a ogni modifica aveva già prodotto tre disallineamenti.* Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
+> Documento generato leggendo il codice sorgente effettivo del repository (branch `master`), **aggiornato al 2026-09-06** (sezioni 13-19), dopo la sessione di conformità GDPR, hardening di sicurezza e enterprise-readiness del 2026-08-25/26 (sezione 11) e il fix della CI del 26/08. Aggiornato ulteriormente dopo la sessione di review indipendente e hardening del 31/08-01/09 (sezione 12), e infine dopo la revisione documentale del 01–03/09 (sezioni 13 e 14). Ogni sessione è stata pushata su `origin/master` con la CI verificata verde sul push reale, non solo sulla suite locale: run GitHub Actions `33529945237` sul commit `61d4554` (01/09) e `33690855235` sul commit `1e17319` (03/09). *Questi due riferimenti sono eventi, e come tali non invecchiano; per sapere dove sia la punta del ramo si guarda `git log`, non questo paragrafo — inseguire l'hash di HEAD a ogni modifica aveva già prodotto tre disallineamenti.* Non presuppone la lettura di nessun'altra conversazione o documento precedente. `ANALYSIS.md` e `ROADMAP.md` (presenti nella root) descrivono una sessione di sviluppo ancora precedente (agosto 2026, prime settimane) e restano **storici di proposito** — non vengono aggiornati. In caso di conflitto **questo file e il codice sorgente hanno la precedenza**.
 
 > **Come si aggiorna questo documento.** Le sezioni **1–9 descrivono il presente**: non portano date di sessione e vanno corrette ogni volta che il codice cambia. Le sezioni **10 in poi sono un diario**: si scrivono una volta, si chiudono, e non si riaprono se non per barrare una voce con la data. Ogni punto ancora aperto vive in **un posto solo**, §9.1 — i backlog dentro le sezioni-diario sono congelati e valgono come fotografia del momento in cui furono scritti, non come elenco da consultare. Vale la pena rispettarla: quasi tutti gli errori trovati nelle revisioni del 01–03/09 stavano esattamente sulla cucitura fra le due nature — un fatto di sessione rimasto congelato in una sezione di stato (§7.2 dava il cookie per non verificato mesi dopo la verifica), o un fatto di stato mai propagato all'indietro (il backlog di §11 elencava come aperte due voci chiuse altrove).
 
@@ -401,7 +401,7 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
-- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-04: **93 test, coverage 78%** (erano 85 prima dei test su login admin e rifiuto dei token, §18; 83 prima dei due test sulla sonda dell'healthcheck, §17; e 82/80% prima che il codice di avvio uscisse dall'import, §13).
+- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-06: **108 test, coverage 80%** (erano 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
 - **CI verde** su ogni push/PR (GitHub Actions) — riconfermato sul push del 01/09 (18 commit, `1732fc2..61d4554`, run `33529945237`), non solo assunto dalla suite locale. Riconfermato di nuovo sul push del 03/09 (8 commit, `61d4554..1e17319`, run `33690855235`), che ha portato in remoto tutto il lavoro della revisione (vedi §13.4).
 - Backup su Google Drive verificato end-to-end con un dump reale, **e confermato il 2026-09-02 che la cartella Drive contiene backup prodotti dalla produzione**, non solo dalle prove in locale.
 - Login admin con la nuova password hashata, verificato live dopo il deploy.
@@ -428,7 +428,7 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 
 2. **`DRIVE_REFRESH_TOKEN` non ha nessun healthcheck.** Quello schedulato controlla solo Gmail (`controlla_credenziali_gmail`): un token Drive morto si scopre dall'alert di backup fallito, cioè a copia di sicurezza già saltata, fino a 24 ore dopo. **Meno urgente dal 2026-09-04**, perché con la schermata "In production" sparisce la scadenza periodica e resta solo il rischio di revoca o cambio account; ma la cecità del monitoraggio è la stessa. Nella stessa data la cartella Drive è stata interrogata direttamente: contiene i backup del **2, 3 e 4 settembre** (l'ultimo delle 04:00Z), quindi il job notturno gira davvero — verificato, non dedotto dall'assenza di alert. Costo del rimedio, se si decidesse di farlo: la sonda di §17 funziona identica sul token Drive. Origine §13.6.
 3. **Uptime monitor esterno su `/health`, mai configurato.** Confermato osservativamente il 2026-09-02: nei log Railway non compare nessuna chiamata a quell'endpoint. L'endpoint funziona (interrogato a mano risponde), semplicemente nessuno lo interroga — quindi un sito giù si scopre da un cliente che si lamenta. Origine §11, riconfermato §13.5.
-4. **Azioni GitHub su Node.js 20 deprecato.** `actions/checkout@v4` e `actions/setup-python@v5` vengono forzate su Node.js 24 con un'annotazione. Oggi la CI è verde; quando GitHub ritirerà il fallback si fermerà, senza preavviso e in un momento a caso. Si risolve alzando la versione delle due action in `.github/workflows/tests.yml`. Origine §13.5.
+4. ~~Azioni GitHub su Node.js 20 deprecato.~~ **Chiusa il 2026-09-06**: alzate a `actions/checkout@v5` e `actions/setup-python@v6`, con la CI riverificata verde sul push reale (§19). Il numero resta occupato perché altre righe di questo documento citano le voci per numero. Origine §13.5.
 
 **Verifica ricorrente, non evento singolo**
 
@@ -456,12 +456,11 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 
 **Debito di test — non blocca nulla, ma è dove un difetto passerebbe inosservato**
 
-11. **Le zone scoperte che restano dopo §18**, in ordine di rischio. Il 22% non coperto non è distribuito in modo uniforme: quasi tutto è I/O verso servizi esterni, mockato per scelta. Quello che resta e che vale la pena coprire:
-    1. **`applica_blocco_eccezionale`** (`availability_service.py:149-177`) — traduce "sono via dal 10 al 15" in slot effettivamente bloccati, conversione di fuso inclusa. È il più concreto: se sbaglia, o resti prenotabile mentre sei via, o l'agenda si chiude in silenzio. La funzione gemella `genera_slot_da_regola` è invece coperta.
-    2. **CRUD di regole e blocchi di disponibilità** (`admin/availability.py`: crea/elimina regola alle 132 e 165-171, crea/elimina blocco alle 194-208 e 224-230) — gli endpoint che decidono quali slot esistono.
-    3. **`GET /users/me/prenotazioni`** (`users.py:79-101`) — legge dati personali filtrando per identità, cioè la categoria che la checklist di §12 dice di controllare sempre.
-    4. **Transizioni dell'alert Gmail** (`scheduler.py:213-232`) — quando avvisare su Discord e quando tacere. Il §17 ha corretto la *sonda*, ma questo meccanismo non ha test: è il codice che avrebbe suonato falso.
-    5. **`controlla_e_anonimizza_clienti_inattivi`** (`scheduler.py:242-254`) — il servizio GDPR sotto è al 100%, il job che lo invoca no.
+11. **Le zone scoperte che restano**, in ordine di rischio. Il 20% non coperto non è distribuito in modo uniforme: quasi tutto è I/O verso servizi esterni, mockato per scelta. I due punti più rischiosi — `applica_blocco_eccezionale` e la CRUD di regole e blocchi — **sono stati coperti il 2026-09-06** (§19). Restano:
+    1. **`GET /users/me/prenotazioni`** (`users.py:79-101`) — legge dati personali filtrando per identità, cioè la categoria che la checklist di §12 dice di controllare sempre.
+    2. **Transizioni dell'alert Gmail** (`scheduler.py:213-232`) — quando avvisare su Discord e quando tacere. Il §17 ha corretto la *sonda*, ma questo meccanismo non ha test: è il codice che avrebbe suonato falso.
+    3. **`controlla_e_anonimizza_clienti_inattivi`** (`scheduler.py:242-254`) — il servizio GDPR sotto è al 100%, il job che lo invoca no.
+    4. **Liste admin e sync calendario** (`admin/availability.py:38-60, 72-73`) — lettura paginata degli slot e sincronizzazione con Google Calendar: rischio minore, la paginazione ha già il suo servizio coperto al 100%.
 
     **Da non inseguire, per scelta già presa**: `calendar_service` (24%), `discord_service` (41%), `google_oauth_service` (36%), i corpi HTML delle email e l'upload di `backup_service` sono I/O verso servizi esterni, mockati in `conftest.py` — testarli significherebbe testare le librerie di Google. Idem `main.py:86-103` e `database.py:41-45`, che partono solo con un server vero (§13). Origine §18.
 
@@ -1101,3 +1100,58 @@ chiave, e solo il claim `type` li distingue. Era una difesa dichiarata, non dimo
 Le zone ancora scoperte sono state elencate e ordinate per rischio in **§9.1, voce 11**, insieme a
 quelle che si è deciso di **non** coprire perché sono I/O verso servizi esterni. Sta lì e non qui
 per la ragione detta in §16: una coda di lavoro descritta solo in una sezione-diario non è tracciata.
+
+---
+
+## 19. Sessione 2026-09-06 — CI riallineata e coperta la logica della disponibilità
+
+Due voci del backlog chiuse: la 4 (azioni GitHub) e i due punti più rischiosi della 11.
+
+### Voce 4 — le action su Node.js deprecato
+`actions/checkout@v4` → **v5**, `actions/setup-python@v5` → **v6** in `.github/workflows/tests.yml`.
+Due righe. Prima giravano su un fallback Node.js 20 che GitHub segnalava a ogni run: la CI era
+verde, ma il giorno del ritiro si sarebbe fermata senza preavviso. **Verificata sul push reale**,
+non assunta: il run su `8e1b838` è `success` e i suoi step mostrano `Run actions/checkout@v5:
+success`, cioè la versione nuova ha davvero girato.
+
+### Voce 11 — coperta la logica che decide quando si può prenotare
+Quindici test in `tests/test_availability.py`, nessuna riga di codice applicativo toccata.
+
+**La parte che contava davvero è `applica_blocco_eccezionale`.** Il rischio non è ovvio: gli slot
+sono salvati in **UTC**, ma il periodo che il coach indica ("sono via dal 10 al 15") è in **giorni
+italiani**. Un confronto fatto sulle date UTC senza conversione sbaglierebbe di un'ora — due
+d'estate — e proprio sui bordi: slot ancora prenotabili mentre il coach è via, o chiusi un giorno
+di troppo. I test stanno tutti su quel confine, ed è il motivo per cui usano orari a cavallo della
+mezzanotte invece di orari comodi:
+
+| Slot (UTC) | In Italia | Blocco 10–15 luglio | Perché |
+|---|---|---|---|
+| 9 lug 21:30 | 9 lug 23:30 | **libero** | è ancora il 9 |
+| 9 lug 22:30 | 10 lug 00:30 | **bloccato** | è già il 10 |
+| 15 lug 21:30 | 15 lug 23:30 | **bloccato** | ultimo giorno, incluso per intero |
+| 15 lug 22:30 | 16 lug 00:30 | **libero** | è già il 16 |
+
+La coppia estate/inverno è la parte che fa il lavoro vero: le 22:30 UTC del **9 luglio** sono già il
+10 in Italia, le stesse 22:30 UTC del **9 gennaio** sono ancora il 9. Se la conversione usasse uno
+scarto fisso invece del fuso reale, uno dei due test fallirebbe. Tutti passano: la conversione è
+corretta, **non è stato trovato nessun difetto** — il valore è che ora c'è una rete sotto.
+
+Coperti anche i comportamenti **controintuitivi**, quelli che qualcuno "correggerebbe" in buona
+fede: un blocco non tocca gli slot già prenotati (annullare una sessione venduta è una decisione
+umana); eliminare un blocco **non riapre** gli slot che aveva chiuso; eliminare una regola **non
+cancella** gli slot già generati.
+
+Dal lato HTTP: periodo alla rovescia rifiutato con 400, blocco di un giorno solo ammesso, conteggio
+degli slot chiusi restituito correttamente, ordinamento delle due liste, e i 404 delle due
+cancellazioni.
+
+### Risultato
+| | Prima | Dopo |
+|---|---|---|
+| `availability_service.py` | 84% | **99%** |
+| `admin/availability.py` | 55% | **83%** |
+| Suite | 93 test | **108 test** |
+| Coverage totale | 78% | **80%** |
+
+Quel che resta scoperto di `admin/availability.py` è la lettura paginata degli slot e la
+sincronizzazione con Google Calendar — spostati in §9.1, voce 11, insieme al resto.
