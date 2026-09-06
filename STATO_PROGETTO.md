@@ -1404,3 +1404,49 @@ su un sito qualsiasi. La prova è simmetrica a come fu accertata l'assenza del m
 comparire chiamate regolari a `/health`, ogni 5 minuti, da un IP esterno**. La CLI di Railway non è
 installata sulla macchina di sviluppo, quindi va guardato dalla dashboard. Da fare alla prossima
 sessione, insieme al controllo del token Gmail dell'11 settembre.
+
+
+### 21.2 Voce 3 — il webhook di UptimeRobot è a pagamento: monitor su GitHub Actions
+
+Configurando il contatto d'allerta è emerso che sul piano gratuito di UptimeRobot i webhook (e le
+integrazioni in genere) sono riservati ai piani Scale e Team: restano email e push dell'app. La
+strada indicata in §21.1 per portare l'avviso su Discord era quindi chiusa.
+
+**Soluzione scelta: `.github/workflows/monitor.yml`.** Un workflow schedulato che interroga
+`/health` ogni 15 minuti e avvisa su Discord. Il repository è **pubblico**, quindi i minuti di
+GitHub Actions sono illimitati e gratuiti — verificato prima di sceglierla, perché su un repo
+privato 96 esecuzioni al giorno avrebbero superato i 2000 minuti mensili del piano Free.
+
+Perché GitHub e non un altro servizio: è l'unica infrastruttura già in uso in questo progetto che
+sia **indipendente da Railway**, ed è esattamente il requisito della voce 3 — un processo spento non
+può essere quello che avvisa di essere spento. In più vive nel repository, quindi è versionato,
+leggibile e modificabile come il resto del codice, invece di stare nella dashboard di un terzo.
+
+**Non sostituisce UptimeRobot**, lo affianca: quello controlla ogni 5 minuti ed è puntuale, questo
+ogni 15 e con i ritardi che GitHub dichiara per i job schedulati, ma parla su Discord. Due monitor
+indipendenti, con modi di rompersi diversi.
+
+**Avvisa solo sulle transizioni**, come gli alert dell'app (§21). Qui però non c'è una variabile in
+cui tenere lo stato fra un'esecuzione e l'altra: lo stato è **l'esito del run precedente**, letto con
+`gh run list`. È il motivo per cui il job esce con codice 1 quando il sito è giù — quell'uscita non
+segnala un errore del workflow, è il modo in cui il controllo successivo sa com'era la situazione.
+
+Tre tentativi distanziati di 20 secondi prima di dichiarare il guasto: un singolo fallimento può
+essere il riavvio di un deploy. Si controlla il **corpo** della risposta e non solo il codice HTTP,
+per la stessa ragione per cui il monitor UptimeRobot è di tipo *Keyword*.
+
+**Provato prima del push**, estraendo lo script dal workflow e iniettando lo stato precedente:
+
+| Caso | Atteso | Esito |
+|---|---|---|
+| sito su, precedente `success` | silenzio | tace, uscita 0 |
+| sito su, precedente `failure` | avviso di rientro | avvisa, uscita 0 |
+| sito giù, precedente `success` | avviso di guasto | avvisa, uscita 1 |
+| sito giù, precedente `failure` | silenzio | tace, uscita 1 |
+| sito giù, nessun run precedente | avviso | avvisa, uscita 1 |
+
+**Cosa manca**: il segreto `DISCORD_WEBHOOK_URL` nelle impostazioni Actions del repository. Senza,
+il workflow funziona lo stesso e il run fallito produce comunque la notifica GitHub al proprietario:
+si perde solo il canale Discord, e il log riporta un `::warning::` esplicito. Da sapere: **i workflow
+schedulati vengono disattivati da GitHub dopo 60 giorni di inattività del repository** — non un
+problema oggi, ma da ricordare se il progetto restasse fermo a lungo.

@@ -1,0 +1,98 @@
+# Sorveglia /health dall'ESTERNO di Railway.
+#
+# È il motivo per cui questo file non è un job dello scheduler dell'app: se
+# il servizio è giù, non può essere lui ad accorgersene e ad avvisare — lo
+# stesso processo che dovrebbe mandare l'alert è quello spento. GitHub è
+# l'unica infrastruttura già in uso in questo progetto che sia indipendente
+# dall'hosting dell'applicazione, quindi il controllo vive qui.
+#
+# Non sostituisce il monitor esterno (UptimeRobot, che controlla ogni 5
+# minuti e avvisa via email): ne è il canale Discord, dove arrivano già
+# tutti gli altri allarmi di sistema. Due monitor indipendenti con modi di
+# rompersi diversi valgono più di uno solo.
+
+name: Monitor produzione
+
+on:
+  schedule:
+    # Ogni 15 minuti. GitHub NON garantisce la puntualità dei job
+    # schedulati: sotto carico possono slittare di parecchio, ed è un
+    # limite dichiarato, non un difetto di questo file. Per "il sito è
+    # giù" un ritardo di qualche minuto resta irrilevante rispetto
+    # all'alternativa, che è scoprirlo da un cliente che si lamenta.
+    - cron: "*/15 * * * *"
+  # Permette di lanciarlo a mano dalla scheda Actions, per provarlo senza
+  # aspettare il prossimo giro.
+  workflow_dispatch:
+
+permissions:
+  # Serve solo a leggere l'esito del run precedente, vedi sotto.
+  actions: read
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Controlla /health e avvisa su Discord se lo stato è cambiato
+        env:
+          URL: https://vgc-coaching-production.up.railway.app/health
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+
+          # --- La sonda ---------------------------------------------------
+          # Tre tentativi distanziati: un singolo fallimento può essere il
+          # riavvio di un deploy, non un guasto. Si controlla il CORPO e non
+          # solo il codice HTTP, perché una pagina di errore
+          # dell'infrastruttura può rispondere 200 con un contenuto sbagliato.
+          stato="giu"
+          for tentativo in 1 2 3; do
+            corpo=$(curl -fsS --max-time 15 "$URL" || true)
+            case "$corpo" in
+              *'"status":"ok"'*) stato="su"; break ;;
+            esac
+            echo "tentativo $tentativo fallito (risposta: '${corpo:0:100}')"
+            [ "$tentativo" -lt 3 ] && sleep 20
+          done
+          echo "Stato rilevato: $stato"
+
+          # --- Solo le transizioni ----------------------------------------
+          # Stessa regola degli alert dell'app (vedi controlla_credenziali
+          # in backend/scheduler.py): si avvisa quando lo stato CAMBIA, non
+          # a ogni esecuzione. Un avviso che arriva ogni quarto d'ora si
+          # impara a ignorare, e diventa inutile proprio quando conta.
+          #
+          # Qui non c'è una variabile di modulo in cui tenere lo stato
+          # precedente: lo si legge dall'esito dell'ultimo run concluso di
+          # questo stesso workflow. È il motivo per cui in fondo il job
+          # esce con 1 quando il sito è giù — quell'uscita È lo stato.
+          precedente=$(gh run list --workflow monitor.yml --status completed \
+                        --limit 1 --json conclusion --jq '.[0].conclusion // ""' || echo "")
+          echo "Esito del controllo precedente: '${precedente:-nessuno}'"
+
+          avviso=""
+          if [ "$stato" = "giu" ] && [ "$precedente" != "failure" ]; then
+            avviso="🔴 **VGC Coaching non risponde** — $URL — nessuna risposta valida dopo tre tentativi: il sito o il database sono fuori uso."
+          elif [ "$stato" = "su" ] && [ "$precedente" = "failure" ]; then
+            avviso="🟢 **VGC Coaching è tornato online** — $URL — il servizio risponde di nuovo normalmente."
+          fi
+
+          # --- L'avviso ---------------------------------------------------
+          if [ -n "$avviso" ]; then
+            if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+              # Senza il segreto il monitoraggio funziona lo stesso: il run
+              # fallito manda comunque la notifica di GitHub al proprietario
+              # del repository. Si perde solo il canale Discord.
+              echo "::warning::DISCORD_WEBHOOK_URL non configurato: avviso non inviato su Discord"
+            else
+              jq -Rn --arg t "$avviso" '{content:$t}' \
+                | curl -sS -X POST -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK_URL"
+              echo "Avviso inviato su Discord"
+            fi
+          else
+            echo "Nessun cambiamento di stato: nessun avviso (è il comportamento voluto)"
+          fi
+
+          # L'uscita è ciò che il prossimo run leggerà come "stato precedente".
+          [ "$stato" = "su" ]

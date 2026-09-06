@@ -377,7 +377,7 @@ Configurato per Railway con builder Nixpacks (`nixpacks.toml`, unica fonte di ve
 4. Aggiorna `FRONTEND_ORIGINS` e `DISCORD_OAUTH_REDIRECT_URI` con il dominio reale.
 5. Aggiungi lo stesso redirect URI di produzione anche sul Discord Developer Portal.
 6. Le migrazioni Alembic vengono eseguite automaticamente all'avvio (con backup di sicurezza automatico se ce ne sono in sospeso — vedi sopra).
-7. Collega un servizio di monitoraggio esterno gratuito (es. [UptimeRobot](https://uptimerobot.com), [Better Uptime](https://betteruptime.com)) all'endpoint `GET /health` del dominio di produzione, a intervalli di qualche minuto — senza, un sito che va giù si scopre solo quando un cliente si lamenta. L'endpoint controlla anche che il database risponda, non solo che il processo sia vivo.
+7. Collega un servizio di monitoraggio esterno all'endpoint `GET /health` del dominio di produzione, a intervalli di qualche minuto — senza, un sito che va giù si scopre solo quando un cliente si lamenta. L'endpoint controlla anche che il database risponda, non solo che il processo sia vivo. Qui è usato [UptimeRobot](https://uptimerobot.com) (monitor di tipo *Keyword* sulla parola `"status":"ok"`, ogni 5 minuti, avviso via email: **sul piano gratuito i webhook non sono disponibili**), affiancato da `.github/workflows/monitor.yml`, che fa lo stesso controllo ogni 15 minuti e manda l'avviso su Discord. Il secondo vive su GitHub e non su Railway di proposito: un processo spento non può essere quello che avvisa di essere spento.
 
 ## Backup e ripristino
 
