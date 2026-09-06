@@ -1687,3 +1687,37 @@ Fatta col browser dopo il deploy, non dedotta dai test.
 **Non verificato**: l'interno del pannello admin, che richiede un login. Le date di creazione in ora
 italiana (§22.2) sono coperte dai test ma non ancora osservate sul sito vero — da guardare alla
 prossima occasione in cui il coach è collegato al pannello.
+
+
+### 22.8 Uno slot "sparito": il form pubblico partiva da 2 ore
+
+Segnalazione del coach: slot da 1 ora creato per il **9 settembre alle 20:00**, visibile nel pannello
+admin ma non sul sito. Seguito lungo tutta la catena:
+
+| Livello | Esito |
+|---|---|
+| Database e `GET /slots/` | **presente**: id 144, 20:00 italiane (18:00 UTC), 1 ora, libero |
+| Form pubblico, vista di partenza | **non compare** |
+| Form pubblico dopo aver scelto "1 ora" | **compare** |
+
+**Nessun difetto nel backend.** La causa era `state.selectedHours: 2` in `app.js`: il form si apriva
+con **"2 ore" preselezionato**, e in quella modalità `renderSlots()` mostra soltanto gli slot che
+iniziano alle 15:00 o alle 17:00 e hanno l'ora successiva libera — il vincolo di prodotto sulle
+sessioni lunghe. Le 20:00 non sono fra gli orari ammessi, quindi la card spariva.
+
+Il meccanismo funzionava come progettato, ma produceva due effetti che nessuno voleva:
+
+1. **Per il coach**: uno slot creato in un orario diverso dai due canonici sembrava non esistere, e
+   senza leggere il codice non c'era modo di capire perché.
+2. **Per il cliente**: la pagina mostrava meno disponibilità di quanta ce ne fosse, senza spiegazione.
+   In una giornata di soli orari "insoliti" avrebbe letto *"nessuno slot disponibile"* — falso.
+
+**Default portato a 1 ora**, allineato fra `state` in `app.js` e il bottone `active` in `index.html`.
+Chi arriva vede ora tutta la disponibilità; chi vuole due ore lo sceglie, e da quel momento valgono
+gli orari ammessi. Il prezzo mostrato all'arrivo diventa €20 invece di €40: è una conseguenza
+commerciale della scelta, decisa dal coach.
+
+Verificato che non introducesse regressioni sui pacchetti: `controllaPacchettoAttivo()` abbina per
+`durata_sessione_ore` e tutti i pacchetti a catalogo sono da 2 ore, ma viene chiamata al passaggio
+dallo step 2 al 3 — quando la durata è già stata scelta. Un cliente con pacchetto seleziona "2 ore"
+nello step 1 e il riquadro compare come prima.

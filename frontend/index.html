@@ -188,10 +188,17 @@
                 <h3 data-i18n="session_duration">Session duration</h3>
                 <div class="duration-buttons">
                     <!-- data-hours/data-price: stesso concetto di data-service sopra, letti da app.js per calcolare il prezzo -->
-                    <button class="duration-btn" data-hours="1" data-price="20" data-i18n="duration_1h">
+                    <!-- Il default è 1 ora, e deve restare allineato a `state` in
+                         app.js: da qui dipende solo l'evidenziazione del bottone,
+                         non la durata effettivamente usata. Parte da 1 ora perché
+                         la vista da 2 ore mostra soltanto gli slot che iniziano
+                         alle 15:00 o alle 17:00, quindi con 2 ore preselezionate
+                         il visitatore vedeva meno disponibilità di quanta ce ne
+                         fosse, senza capire perché. -->
+                    <button class="duration-btn active" data-hours="1" data-price="20" data-i18n="duration_1h">
                         1 hour — €20
                     </button>
-                    <button class="duration-btn active" data-hours="2" data-price="40" data-i18n="duration_2h">
+                    <button class="duration-btn" data-hours="2" data-price="40" data-i18n="duration_2h">
                         2 hours — €40
                     </button>
                 </div>

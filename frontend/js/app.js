@@ -13,8 +13,16 @@
 // Qui salviamo tutto quello che l'utente sceglie durante il flusso
 const state = {
     selectedSlot: null,      // slot scelto
-    selectedHours: 2,        // durata scelta (default 2h, vedi bottone "active" in index.html)
-    selectedPrice: 40,       // prezzo calcolato
+    // Default 1 ora, allineato al bottone "active" in index.html.
+    //
+    // Non è una preferenza estetica: la vista da 2 ore mostra soltanto gli
+    // slot che iniziano alle 15:00 o alle 17:00 (vedi ORE_INIZIO_VALIDE_2H
+    // sotto), quindi partendo da 2 ore il visitatore vedeva una parte sola
+    // della disponibilità, senza nessun indizio del perché. Un orario
+    // "insolito" -- le 20:00, per dire -- sembrava non esistere, e per il
+    // coach uno slot appena creato sembrava sparito.
+    selectedHours: 1,        // durata scelta
+    selectedPrice: 20,       // prezzo calcolato
     selectedService: 'vod_review', // tipo di servizio scelto
     userId: null,              // id utente creato nel DB
     pacchettoAttivo: null,      // { id, nome, sessioni_residue, durata_sessione_ore } se trovato per l'email inserita
