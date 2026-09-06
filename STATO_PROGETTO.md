@@ -456,7 +456,7 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
    gh api repos/cognettadavide97-afk/vgc-coaching/deployments      --jq '.[0].id' | xargs -I{} gh api repos/cognettadavide97-afk/vgc-coaching/deployments/{}/statuses      --jq '.[0].state'
    ```
 
-   **Ultima verifica: 2026-09-03**, commit `2951633` (punta di `origin/master`) → `success`, deploy delle 17:54Z. La verifica precedente della stessa giornata, su `bbe0609`, era anch'essa `success`. Nella stessa occasione è caduto anche il dubbio arretrato di §13.4: `1e17319` era stato deployato regolarmente il 2026-09-02, e risulta `inactive` solo perché nel frattempo superato da deploy più recenti. Origine §13.4.
+   **Ultima verifica: 2026-09-06**, commit `f5adc13` (punta di `origin/master`) → `success`, deploy delle 15:18Z, con `/health` che risponde `200 {"status":"ok"}` e la CI verde sullo stesso commit (run `34041879970`, 124 test). Le verifiche precedenti — `b57017e` il 06/09 e `2951633` il 03/09 — erano anch'esse `success`. Nella stessa occasione è caduto anche il dubbio arretrato di §13.4: `1e17319` era stato deployato regolarmente il 2026-09-02, e risulta `inactive` solo perché nel frattempo superato da deploy più recenti. Origine §13.4.
 
 **Da provare quando si presenta l'occasione**
 
