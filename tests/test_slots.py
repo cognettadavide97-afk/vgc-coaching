@@ -127,3 +127,65 @@ def test_prenotazione_con_durata_fuori_listino_rifiutata_senza_errore_del_server
     })
 
     assert res.status_code == 422
+
+
+def test_slot_restituiti_in_ordine_cronologico(client, db):
+    """Gli slot devono uscire ordinati per data, non nell'ordine in cui il
+    database decide di restituirli.
+
+    Il caso non è teorico: fino al 2026-09-07 la query non aveva `ORDER BY`
+    e in produzione MySQL restituiva gli slot **raggruppati per regola di
+    disponibilità** — tutti i lunedì, poi tutti i mercoledì — perché la
+    generazione notturna scorre una regola alla volta. Sul form pubblico le
+    date saltavano avanti e indietro, dal 30 settembre all'8.
+
+    Non era emerso prima perché la suite gira su SQLite, che con lo stesso
+    indice sceglie un piano di esecuzione che restituisce le righe già
+    ordinate.
+
+    Questo controllo da solo **non basterebbe**: su SQLite passa anche con
+    l'ORDER BY rimosso, verificato con una mutazione. Serve a dichiarare
+    l'intento e a intercettare un ordinamento invertito; quello che difende
+    davvero dalla regressione è il test qui sotto, che guarda la query.
+    """
+    crea_slot(db, INIZIO + timedelta(days=14))
+    crea_slot(db, INIZIO + timedelta(days=2))
+    crea_slot(db, INIZIO + timedelta(days=21))
+    crea_slot(db, INIZIO + timedelta(days=7))
+
+    res = client.get("/slots/")
+
+    date = [s["start_time"] for s in res.json()]
+    assert date == sorted(date), f"slot fuori ordine cronologico: {date}"
+
+
+def test_query_degli_slot_ordina_esplicitamente(client, db):
+    """Il controllo che regge anche su SQLite: la query deve contenere un
+    ORDER BY su start_time.
+
+    Il test sopra confronta il risultato, e su SQLite passerebbe comunque
+    perché quel database restituisce già le righe ordinate. Qui si guarda
+    l'SQL realmente inviato, che è lo stesso su qualunque database: è
+    l'unico modo, con una suite su SQLite, di difendere un comportamento
+    che si rompe solo su MySQL.
+    """
+    from sqlalchemy import event
+    from conftest import TEST_ENGINE
+
+    query_eseguite = []
+
+    def registra(conn, cursor, istruzione, parametri, contesto, molte):
+        query_eseguite.append(istruzione)
+
+    crea_slot(db, INIZIO)
+    event.listen(TEST_ENGINE, "before_cursor_execute", registra)
+    try:
+        client.get("/slots/")
+    finally:
+        event.remove(TEST_ENGINE, "before_cursor_execute", registra)
+
+    select_slot = [q for q in query_eseguite if "FROM slots" in q and q.lstrip().upper().startswith("SELECT")]
+    assert select_slot, f"nessuna SELECT su slots intercettata: {query_eseguite}"
+    assert any("ORDER BY" in q and "start_time" in q.split("ORDER BY")[-1] for q in select_slot), (
+        f"la query sugli slot non ordina per start_time: {select_slot}"
+    )

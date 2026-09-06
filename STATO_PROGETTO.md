@@ -402,7 +402,7 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
-- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-07: **144 test, coverage 83%** (erano 138 prima della revisione modulo per modulo, §22; 135 prima dei test su HEAD /health, §21.3; 124 prima della generalizzazione delle sonde e dei test sulla cadenza, §21; 108 prima dei test sullo storico dello studente, sulle transizioni dell'alert Gmail e sul job di anonimizzazione, §20; 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
+- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-07: **146 test, coverage 83%** (erano 144 prima della correzione sull'ordinamento degli slot, §22.6; 138 prima della revisione modulo per modulo, §22; 135 prima dei test su HEAD /health, §21.3; 124 prima della generalizzazione delle sonde e dei test sulla cadenza, §21; 108 prima dei test sullo storico dello studente, sulle transizioni dell'alert Gmail e sul job di anonimizzazione, §20; 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
 - **CI verde** su ogni push/PR (GitHub Actions), verificata sul push reale e non assunta dalla suite locale: run `33529945237` sul commit `61d4554` (01/09) e `33690855235` su `1e17319` (03/09). Dal **2026-09-06 gira su `actions/checkout@v5` e `actions/setup-python@v6`** (§19), e la prima esecuzione con le versioni nuove è stata controllata step per step, non solo nell'esito complessivo.
 - **Deploy Railway allineato alla punta di `origin/master`**, verificato a ogni push di questa sessione — ultimo: `b57017e` → `success`, con `/health` che risponde `200 {"status":"ok"}`. Il comando è nella voce 5 di §9.1.
 - **Invio email funzionante con il token rigenerato**: email di prova spedita con la funzione di produzione `_invia_via_gmail` e **ricevuta**, confermata dal coach il 2026-09-04 (§17).
@@ -1615,11 +1615,8 @@ usate nei test: due sono diventate chiamate senza nome, con un commento che spie
 serve comunque (l'oggetto deve esistere nel database, il nome no).
 
 ### 22.5 Verificato e lasciato com'era
-- **`GET /slots/` non ha `ORDER BY`.** Sospettavo un bug visibile con più regole di disponibilità,
-  perché gli slot sono generati regola per regola e gli id non seguono l'ordine cronologico.
-  **Provato, e l'ipotesi era sbagliata**: l'ordine esce corretto perché il planner sceglie l'indice
-  su `start_time` (`SEARCH slots USING INDEX ix_slots_start_time`). Non è garantito dalla query, ma
-  non è un difetto attivo: annotato come fragilità latente, non corretto.
+- ~~**`GET /slots/` non ha `ORDER BY`.**~~ Vedi §22.6: la conclusione di questo punto era
+  **sbagliata**, e la verifica sul sito in produzione l'ha ribaltata.
 - **`create_booking` tiene lo slot riservato e non committato mentre chiama Google Calendar.** In
   teoria allunga una transazione su una chiamata di rete. Con poche prenotazioni al giorno il
   rischio reale è nullo, mentre riordinare la funzione più delicata dell'app non lo è. Lasciato.
@@ -1633,3 +1630,60 @@ serve comunque (l'oggetto deve esistere nel database, il nome no).
 | Coverage | 82% | **83%** |
 | Warning di deprecazione dal nostro codice | 13 | **0** |
 | Segnalazioni pyflakes non intenzionali | 4 | **0** |
+
+
+### 22.6 L'ordinamento degli slot: una conclusione sbagliata, ribaltata dal sito vero
+
+Nella revisione avevo ipotizzato che `GET /slots/`, privo di `ORDER BY`, restituisse gli slot fuori
+ordine cronologico: sono generati **una regola alla volta**, quindi tutti i lunedì vengono inseriti
+prima di tutti i mercoledì, e gli id non seguono il calendario. Ho scritto un test, l'ho eseguito, e
+l'ordine usciva corretto. Ho concluso che era una fragilità latente e non un difetto attivo.
+
+**La conclusione era sbagliata, e lo era per un motivo preciso: il test girava su SQLite.** La
+produzione usa MySQL, e i due database scelgono piani di esecuzione diversi. SQLite legge tramite
+l'indice `ix_slots_start_time` e restituisce le righe già ordinate; MySQL no.
+
+Aprendo il sito in produzione, l'ordine reale delle date sul form pubblico era:
+
+> lunedì 7 → 14 → 21 → **mercoledì 16** → 23 → 30 → **venerdì 18** → **martedì 8** → 15 → 22 → 29 →
+> **giovedì 17** → 24 → **lunedì 28** → **mercoledì 9** …
+
+Interrogando direttamente l'API: **83 slot, 8 salti all'indietro nella sequenza**. Un cliente
+scorreva fino al 30 settembre e si ritrovava l'8. Era la prima cosa che vedeva chiunque entrasse sul
+sito, ed è rimasta invisibile a una suite di 144 test.
+
+Corretto con `.order_by(Slot.start_time)`.
+
+#### Il test che non testava niente
+Il primo test scritto per fissare la correzione — inserire slot in ordine sparso e verificare che
+escano ordinati — **passava anche con l'`ORDER BY` rimosso**, verificato con una mutazione. Su
+SQLite non poteva fallire: è lo stesso database che aveva nascosto il difetto in partenza.
+
+È stato aggiunto un secondo test che intercetta l'SQL realmente inviato (via
+`before_cursor_execute`) e verifica che contenga un `ORDER BY` su `start_time`. L'SQL è identico su
+qualunque database: è l'unico modo, con una suite su SQLite, di difendere un comportamento che si
+rompe solo su MySQL. Quello fallisce correttamente quando la clausola viene tolta.
+
+#### Cosa insegna
+È la seconda volta in due giorni che un test verde nasconde un difetto, e le due volte per lo stesso
+motivo: **l'ambiente di prova non è quello di produzione**. Prima era FastAPI che risolve le
+dependency prima dell'endpoint (§21.3), qui è SQLite che ordina dove MySQL non ordina. La verifica
+per mutazione ha trovato entrambi; nessuna delle due sarebbe emersa rileggendo il codice.
+
+Ne segue una regola pratica per questo progetto: **quando un test dipende dal comportamento del
+database, va scritto contro l'SQL e non contro il risultato** — altrimenti verifica SQLite, non
+l'applicazione.
+
+### 22.7 Verifica sul sito in produzione
+Fatta col browser dopo il deploy, non dedotta dai test.
+
+| Pagina | Esito |
+|---|---|
+| Homepage e wizard di prenotazione | carica, gli slot si popolano, nessun errore in console |
+| `/about` | carica, recensioni e palmares corretti |
+| `/admin-panel` | la pagina di login carica correttamente |
+| `/health` | `200` su GET **e HEAD** (la correzione di §21.3, confermata in produzione) |
+
+**Non verificato**: l'interno del pannello admin, che richiede un login. Le date di creazione in ora
+italiana (§22.2) sono coperte dai test ma non ancora osservate sul sito vero — da guardare alla
+prossima occasione in cui il coach è collegato al pannello.
