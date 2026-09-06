@@ -1476,8 +1476,30 @@ monitoraggio si verifica **facendolo scattare**, non rileggendolo.
 | `34064838851` | sito su, precedente `failure` | avviso di rientro | **avviso ricevuto**, stato precedente letto correttamente |
 | `34064910347` | sito su, precedente `success` | silenzio | tace |
 
-Da sapere: **i workflow schedulati vengono disattivati da GitHub dopo 60 giorni di inattività del
-repository** — non un problema oggi, ma da ricordare se il progetto restasse fermo a lungo.
+#### Il limite dei 60 giorni, e cosa conta davvero
+
+Documentazione GitHub, testo esatto: *"In a public repository, scheduled workflows are automatically
+disabled when no repository activity has occurred in 60 days."*
+
+**Conta l'attività sul repository GitHub — in pratica i commit — non che l'app sia viva su Railway.**
+Vale la pena scriverlo esplicitamente perché è la lettura sbagliata più naturale: il sito può restare
+online e funzionante per un anno, ma senza commit per 60 giorni il workflow viene spento lo stesso.
+Le esecuzioni del workflow **non** contano come attività: se contassero, la regola non scatterebbe
+mai, dato che esiste proprio per i repository abbandonati. GitHub non definisce nella documentazione
+cosa conti come "attività", quindi l'unica assunzione prudente sono i commit.
+
+Per questo progetto non è un rischio teorico: l'app è sostanzialmente finita, quindi lunghi periodi
+senza commit sono lo **stato normale previsto**, non un'anomalia — ed è in un periodo lungo e non
+presidiato che un monitor conta di più. Si spegnerebbe da solo proprio mentre diventa utile.
+
+**È il motivo per cui i livelli sono due.** UptimeRobot è esterno e non ha questa regola: continua a
+controllare ogni 5 minuti e a mandare l'email comunque. Un workflow disattivato costerebbe il canale
+Discord, non il monitoraggio. La riattivazione è un clic: scheda *Actions* → il workflow → *Enable
+workflow*, e GitHub avvisa il proprietario quando lo disattiva.
+
+**Da non fare**: un commit automatico periodico per tenerlo sveglio — attività finta per aggirare una
+regola pensata per i progetti abbandonati, che sporcherebbe la cronologia git e risolverebbe un
+problema già coperto dal secondo livello.
 
 #### Cosa resta per chiudere la voce 3
 Il canale Discord è provato. Resta la verifica su UptimeRobot, che è l'altra metà: **nei log Railway
