@@ -534,3 +534,31 @@ uvicorn backend.main:app --reload         # avvio locale
 
 La suite non tocca MySQL né i servizi esterni: usa un database in memoria e integrazioni finte.
 Gira anche in CI su ogni push.
+
+**Come è costruita.** Tutto parte da `tests/conftest.py`, che pytest carica da solo — non va
+importato da nessuna parte. Fa due cose, e valgono per ogni test del progetto:
+
+- **Sostituisce il database.** `app.dependency_overrides[get_db]` dirotta la dependency su uno
+  SQLite **in memoria**. È lo stesso `Depends` del §2, usato al contrario: siccome i router non
+  aprono mai una connessione da soli ma la *chiedono*, basta cambiare chi risponde alla richiesta
+  per spostare l'intera applicazione su un altro database, senza toccare una riga di codice
+  applicativo. È il vantaggio concreto della dependency injection, e si vede davvero solo qui.
+- **Spegne il mondo esterno.** Email, Discord e Calendar diventano funzioni che non fanno nulla.
+  Senza, un test che crea una prenotazione manderebbe email e messaggi Discord **veri**, con le
+  credenziali del `.env`. Non è un'ipotesi prudenziale: in questo progetto è già successo.
+
+**Due trappole che il resto del codice non ti fa incontrare:**
+
+1. **I job dello scheduler non passano da `Depends`.** Aprono la sessione da soli con
+   `SessionLocal()` (§4), quindi l'override qui sopra non li tocca: puntano al `DATABASE_URL`
+   vero. Vanno reindirizzati a mano con `monkeypatch`, ed è la prima riga di ogni test in
+   `test_scheduler.py`.
+2. **Lo stato globale sopravvive da un test all'altro.** `_ultimo_controllo_gmail_ok`, che ricorda
+   se il token Gmail era valido al giro precedente, è una variabile di modulo: un test che la
+   lascia sporca fa passare o fallire quello dopo a seconda dell'ordine di esecuzione. Si riporta
+   al valore voluto con `monkeypatch`, che la ripristina da solo alla fine del test.
+
+**Un test che passa sempre non protegge niente.** Il modo più rapido per accorgersene: rompi di
+proposito la riga che il test dovrebbe difendere, controlla che il test fallisca **davvero**, poi
+rimetti a posto. Se resta verde, non stava guardando dove credevi. Vale la pena farlo appena
+scritto un test, quando costa trenta secondi — non il giorno in cui serviva.

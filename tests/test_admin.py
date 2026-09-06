@@ -1,4 +1,4 @@
-# Copre DELETE /admin/clienti/{id} (backend/routers/admin.py), l'endpoint
+# Copre DELETE /admin/clienti/{id} (backend/routers/admin/clients.py), l'endpoint
 # che implementa il diritto alla cancellazione (Art. 17 GDPR): deve
 # eliminare cliente, prenotazioni, recensioni, note tecniche e pacchetti
 # collegati, e liberare lo slot di ogni prenotazione ancora "confirmed".

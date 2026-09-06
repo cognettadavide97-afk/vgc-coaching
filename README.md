@@ -138,6 +138,29 @@ Non fanno parte dell'app che gira in produzione: si lanciano a mano, una tantum,
 
 16 file di test (124 test in tutto) che girano con `pytest`. `conftest.py` è il file di configurazione condiviso: sostituisce il database MySQL con uno SQLite in memoria e finge le integrazioni esterne (email, Calendar, Discord), così la suite gira ovunque — anche in CI — senza toccare nessun servizio vero.
 
+Ogni file copre un'area, e il commento in cima dice quale e perché:
+
+| File | Test | Cosa copre |
+|---|---|---|
+| `test_availability.py` | 23 | regole ricorrenti e blocchi eccezionali, con i casi al confine fra giorno UTC e giorno italiano |
+| `test_booking.py` | 20 | il cuore del progetto: creazione della prenotazione (durata, sessioni da 2h, prezzo calcolato dal server, identità del prenotante) e cancellazione self-service |
+| `test_scheduler.py` | 14 | i job che girano da soli: promemoria, richieste di recensione, transizioni dell'alert Gmail, anonimizzazione GDPR |
+| `test_admin.py` | 10 | la cancellazione GDPR completa di un cliente (Art. 17) e di tutti i dati collegati |
+| `test_auth.py` | 8 | il perimetro di sicurezza: login admin e rifiuto dei token non validi |
+| `test_users.py` | 7 | lo storico dello studente, filtrato per identità |
+| `test_pagination_service.py` | 7 | la paginazione condivisa dalle liste admin (funzioni pure, nessun database) |
+| `test_email_service.py` | 6 | l'escaping dei campi liberi del cliente nel corpo HTML delle email |
+| `test_reviews.py` | 6 | il giro completo della recensione: invio col token → approvazione admin → vetrina pubblica |
+| `test_discord_auth.py` | 5 | il parametro `state` anti-CSRF nel login Discord |
+| `test_richieste.py` | 5 | i due endpoint pubblici "solo contatto" (consulenza e richiesta pacchetto) |
+| `test_slots.py` | 4 | la lista pubblica degli slot liberi e la creazione di uno slot da admin |
+| `test_retention.py` | 4 | l'anonimizzazione dei clienti inattivi |
+| `test_backup_service.py` | 3 | il backup nei suoi tre esiti: saltato per configurazione mancante, riuscito, fallito a metà |
+| `test_health.py` | 1 | `GET /health`, che interroga davvero il database e non solo il processo |
+| `test_avvio.py` | 1 | che il semplice import dell'app non applichi migrazioni né avvii lo scheduler |
+
+I numeri cambiano a ogni sessione di lavoro: invece di fidarti di quelli scritti qui, lancia `pytest`, che stampa anche il report di coverage.
+
 ### `.github/` — l'automazione su GitHub
 
 `workflows/tests.yml` esegue `pytest` a ogni push e a ogni pull request, sulla stessa versione di Python usata in produzione.
@@ -302,7 +325,7 @@ La stessa suite `pytest` gira automaticamente su ogni push/PR tramite GitHub Act
 ### Gmail API (email)
 SMTP diretto è bloccato dalla rete di Railway (`OSError: Network is unreachable`), quindi l'invio passa dall'API Gmail via HTTPS con autenticazione OAuth2, non da una semplice password.
 1. Su [Google Cloud Console](https://console.cloud.google.com), nello stesso progetto usato per Google Calendar (o uno nuovo), abilita la "Gmail API".
-2. Configura la schermata di consenso OAuth (tipo "Esterno"), aggiungi l'ambito `https://www.googleapis.com/auth/gmail.send`, e aggiungi l'account Gmail mittente come utente di test.
+2. Configura la schermata di consenso OAuth (tipo "Esterno") e aggiungi l'ambito `https://www.googleapis.com/auth/gmail.send`. **Pubblicala subito, non lasciarla in "Testing"**: finché resta in quello stato il refresh token scade dopo 7 giorni a prescindere dall'uso, e l'invio email si ferma in silenzio. Cosa serve per pubblicarla è nel riquadro qui sotto. *(Fino al 2026-09-04 questo passo diceva di aggiungere il mittente come utente di test — cioè esattamente la configurazione che causa la scadenza.)*
 3. Crea credenziali → ID client OAuth → tipo "App per computer" → copia Client ID e Client Secret.
 4. Imposta `GMAIL_CLIENT_ID` e `GMAIL_CLIENT_SECRET` nel `.env`, poi ottieni un `GMAIL_REFRESH_TOKEN` eseguendo `python scripts/reauth_gmail.py` — apre il browser, chiede di autorizzare l'app con l'account Gmail mittente, e alla fine offre di scrivere subito il token nel `.env` locale (va comunque copiato a mano anche su Railway).
 5. Imposta anche `EMAIL_MITTENTE` (lo stesso account autorizzato) ed `EMAIL_ADMIN`.

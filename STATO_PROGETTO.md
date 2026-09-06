@@ -1251,3 +1251,34 @@ verificava ora hanno una rete sotto.
 
 La voce 11 di §9.1 resta aperta ma scende in fondo alla lista: quel che rimane è la lettura paginata
 degli slot admin, la sincronizzazione con Google Calendar e tre endpoint di `users.py` senza logica.
+
+### Riallineamento di README e CODICE_SPIEGATO
+Fatto nella stessa sessione, dopo aver ricontrollato i due documenti contro il codice invece che
+contro la memoria. Tre cose erano fuori posto, una sola davvero dannosa.
+
+**Il passo 2 del setup Gmail nel README diceva di aggiungere il mittente "come utente di test"** —
+cioè esattamente la configurazione "Testing" che, tre righe più sotto, il riquadro spiega essere la
+causa della scadenza a 7 giorni. Chi avesse rifatto il setup seguendo i passi si sarebbe ricreato il
+problema del 02/09 leggendo, nella stessa pagina, come si era risolto. Ora il passo dice di
+pubblicare subito la schermata, e dichiara la correzione invece di nasconderla.
+
+**La sezione `tests/` era l'unica di "Struttura del progetto, file per file" a non elencare nessun
+file**: una riga sola per 16 file e 124 test. Aggiunta la tabella per area, con i conteggi
+verificati a macchina contro i `def test_` reali — non contati a mano — e con l'avvertenza di
+rilanciare `pytest` invece di fidarsi dei numeri scritti lì.
+
+**`CODICE_SPIEGATO.md` non spiegava la suite**, pur essendo il documento didattico e pur essendo la
+suite il lavoro delle ultime due sessioni: quattro righe in tutto, due comandi. Aggiunta la parte
+su come è costruita — `conftest.py` che dirotta `get_db` su SQLite (l'unico punto in cui il
+vantaggio della dependency injection si tocca con mano) e che spegne le integrazioni esterne — e le
+due trappole che il resto del codice non fa incontrare: i job dello scheduler che non passano da
+`Depends` e lo stato globale che sopravvive fra un test e l'altro. Chiude con la verifica per
+mutazione usata sopra, come abitudine e non come episodio.
+
+Corretto anche un riferimento stale in un commento didattico: `tests/test_admin.py` citava
+`backend/routers/admin.py`, diventato un package (l'endpoint sta in `admin/clients.py`).
+
+**Controllati e trovati già allineati**, per non ripetere il lavoro la prossima volta: le variabili
+d'ambiente (nessuna divergenza fra codice, `.env.example` e README, verificato a macchina),
+i default documentati, l'elenco degli endpoint di §3 contro le rotte reali dell'app, la struttura di
+`backend/` file per file, e gli otto job dello scheduler.
