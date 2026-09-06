@@ -77,8 +77,16 @@ jobs:
           # precedente: lo si legge dall'esito dell'ultimo run concluso di
           # questo stesso workflow. È il motivo per cui in fondo il job
           # esce con 1 quando il sito è giù — quell'uscita È lo stato.
-          precedente=$(gh run list --workflow monitor.yml --status completed \
-                        --limit 1 --json conclusion --jq '.[0].conclusion // ""' || echo "")
+          # --repo esplicito: questo job non fa il checkout, quindi `gh` non ha
+          # nessun repository da cui dedurre il contesto. Senza, il comando
+          # fallisce e lo stato precedente risulta sempre vuoto — il che
+          # farebbe ripartire l'avviso a ogni giro mentre il sito è giù,
+          # cioè il difetto che la logica delle transizioni deve evitare.
+          # Scoperto provando davvero il workflow, non leggendolo.
+          if ! precedente=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow monitor.yml --status completed --limit 1 --json conclusion --jq '.[0].conclusion // ""' 2>&1); then
+            echo "::warning::impossibile leggere il run precedente: $precedente"
+            precedente=""
+          fi
           echo "Esito del controllo precedente: '${precedente:-nessuno}'"
 
           avviso=""
