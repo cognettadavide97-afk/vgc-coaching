@@ -158,28 +158,36 @@ def test_richiesta_recensione_non_inviata_se_sessione_non_ancora_conclusa(db, mo
     assert prenotazione.review_email_sent is False
 
 
-# ─── controlla_credenziali_gmail ──────────────────────────────
+# ─── controlla_credenziali ────────────────────────────────────
 #
-# Questo job non manda email: decide quando *avvisare* che l'invio email è
-# fermo. Avvisa solo alla transizione fra valido e non valido, per non
-# ripetere lo stesso alert ogni 24 ore mentre il problema persiste — il che
-# significa che due difetti opposti sono possibili e nessuno dei due si
-# nota subito: un alert che non parte quando il token muore (l'invio email
-# è fermo e nessuno lo sa), o un alert ripetuto all'infinito che si impara
-# a ignorare. È lo stesso meccanismo che nel settembre 2026 ha suonato
-# falso per una sonda sbagliata, quindi qui si controllano tutte e quattro
-# le combinazioni stato-precedente/stato-attuale.
+# Questo job non manda email e non fa backup: decide **quando avvisare e
+# quando tacere** su Gmail, Drive e Calendar. Ha due modi opposti di
+# rompersi, e nessuno dei due si nota subito: un alert che non parte quando
+# una credenziale muore (l'invio email è fermo e nessuno lo sa), o un alert
+# ripetuto a ogni esecuzione, che si impara a ignorare. È lo stesso punto
+# che nel settembre 2026 aveva già suonato falso per una sonda sbagliata,
+# quindi qui si controllano tutte le combinazioni stato-precedente/attuale.
 #
-# Lo stato precedente vive in una variabile globale del modulo, che
-# sopravvive fra un test e l'altro: ogni test la riporta al valore di
-# partenza che gli serve con monkeypatch, che la ripristina da solo a fine
-# test.
+# Lo stato precedente vive in un dizionario di modulo che sopravvive fra un
+# test e l'altro: ogni test lo azzera con monkeypatch, che lo ripristina da
+# solo alla fine.
 
-def prepara_controllo_gmail(monkeypatch, stato_precedente, token_valido):
-    """Imposta lo stato ricordato dall'esecuzione precedente e l'esito del
-    prossimo controllo, e raccoglie gli alert Discord invece di inviarli."""
-    monkeypatch.setattr(scheduler_module, "_ultimo_controllo_gmail_ok", stato_precedente)
-    monkeypatch.setattr(scheduler_module, "verifica_credenziali_gmail", lambda: token_valido)
+
+def credenziale_finta(esito, nome="Prova"):
+    """Una CredenzialeSorvegliata la cui sonda restituisce `esito`."""
+    return scheduler_module.CredenzialeSorvegliata(
+        nome=nome,
+        sonda=lambda: esito,
+        cosa_si_ferma="Qualcosa si è fermato.",
+        come_si_ripara="Rifai l'autorizzazione.",
+    )
+
+
+def prepara_controllo(monkeypatch, stato_precedente, nome="Prova"):
+    """Imposta lo stato ricordato dall'esecuzione precedente e raccoglie gli
+    alert Discord invece di inviarli."""
+    stato = {} if stato_precedente is None else {nome: stato_precedente}
+    monkeypatch.setattr(scheduler_module, "_ultimo_controllo_credenziali", stato)
     alert = []
     monkeypatch.setattr(
         scheduler_module, "invia_alert_sistema",
@@ -188,74 +196,119 @@ def prepara_controllo_gmail(monkeypatch, stato_precedente, token_valido):
     return alert
 
 
-def test_gmail_primo_controllo_con_token_valido_non_avvisa(monkeypatch):
-    # None = mai controllato in questo processo (appena riavviato).
-    alert = prepara_controllo_gmail(monkeypatch, stato_precedente=None, token_valido=True)
+def test_primo_controllo_con_credenziale_valida_non_avvisa(monkeypatch):
+    # Stato assente = mai controllata in questo processo (appena riavviato).
+    alert = prepara_controllo(monkeypatch, stato_precedente=None)
 
-    risultato = scheduler_module.controlla_credenziali_gmail()
+    risultato = scheduler_module.controlla_una_credenziale(credenziale_finta(True))
 
     assert risultato is True
     assert alert == []
-    assert scheduler_module._ultimo_controllo_gmail_ok is True
+    assert scheduler_module._ultimo_controllo_credenziali["Prova"] is True
 
 
-def test_gmail_primo_controllo_con_token_rotto_avvisa(monkeypatch):
-    """Al primo controllo dopo un riavvio lo stato precedente è None, non
+def test_primo_controllo_con_credenziale_rotta_avvisa(monkeypatch):
+    """Al primo controllo dopo un riavvio lo stato precedente è assente, non
     False: l'alert deve partire lo stesso, altrimenti un processo riavviato
-    con il token già morto resterebbe muto per sempre."""
-    alert = prepara_controllo_gmail(monkeypatch, stato_precedente=None, token_valido=False)
+    con la credenziale già morta resterebbe muto per sempre."""
+    alert = prepara_controllo(monkeypatch, stato_precedente=None)
 
-    risultato = scheduler_module.controlla_credenziali_gmail()
+    risultato = scheduler_module.controlla_una_credenziale(credenziale_finta(False))
 
     assert risultato is False
     assert len(alert) == 1
     titolo, descrizione = alert[0]
-    assert "scaduto o non valido" in titolo
-    # L'alert deve dire cosa fare, non solo che qualcosa è rotto.
-    assert "reauth_gmail.py" in descrizione
-    assert scheduler_module._ultimo_controllo_gmail_ok is False
+    assert "Prova" in titolo and "non valide" in titolo
+    # L'alert deve dire cosa si è fermato e cosa fare, non solo che è rotto.
+    assert "Qualcosa si è fermato." in descrizione
+    assert "Rifai l'autorizzazione." in descrizione
 
 
-def test_gmail_transizione_da_valido_a_rotto_avvisa(monkeypatch):
-    alert = prepara_controllo_gmail(monkeypatch, stato_precedente=True, token_valido=False)
+def test_transizione_da_valida_a_rotta_avvisa(monkeypatch):
+    alert = prepara_controllo(monkeypatch, stato_precedente=True)
 
-    scheduler_module.controlla_credenziali_gmail()
+    scheduler_module.controlla_una_credenziale(credenziale_finta(False))
 
     assert len(alert) == 1
-    assert "scaduto o non valido" in alert[0][0]
+    assert "non valide" in alert[0][0]
 
 
-def test_gmail_problema_persistente_non_ripete_l_alert(monkeypatch):
-    """Il token è rotto ed era già rotto al controllo precedente: silenzio.
-    È il motivo per cui esiste la variabile di stato."""
-    alert = prepara_controllo_gmail(monkeypatch, stato_precedente=False, token_valido=False)
+def test_problema_persistente_non_ripete_l_alert(monkeypatch):
+    """La credenziale è rotta ed era già rotta al controllo precedente:
+    silenzio. È il motivo per cui esiste il dizionario di stato."""
+    alert = prepara_controllo(monkeypatch, stato_precedente=False)
 
-    risultato = scheduler_module.controlla_credenziali_gmail()
+    risultato = scheduler_module.controlla_una_credenziale(credenziale_finta(False))
 
     assert risultato is False
     assert alert == []
-    assert scheduler_module._ultimo_controllo_gmail_ok is False
+    assert scheduler_module._ultimo_controllo_credenziali["Prova"] is False
 
 
-def test_gmail_ritorno_alla_normalita_avvisa(monkeypatch):
+def test_ritorno_alla_normalita_avvisa(monkeypatch):
     """Anche il rientro va notificato: senza, chi ha rifatto
     l'autorizzazione non sa dal monitoraggio se ha funzionato."""
-    alert = prepara_controllo_gmail(monkeypatch, stato_precedente=False, token_valido=True)
+    alert = prepara_controllo(monkeypatch, stato_precedente=False)
 
-    risultato = scheduler_module.controlla_credenziali_gmail()
+    risultato = scheduler_module.controlla_una_credenziale(credenziale_finta(True))
 
     assert risultato is True
     assert len(alert) == 1
-    assert "di nuovo valido" in alert[0][0]
-    assert scheduler_module._ultimo_controllo_gmail_ok is True
+    assert "di nuovo valide" in alert[0][0]
+    assert scheduler_module._ultimo_controllo_credenziali["Prova"] is True
 
 
-def test_gmail_tutto_a_posto_non_avvisa(monkeypatch):
-    alert = prepara_controllo_gmail(monkeypatch, stato_precedente=True, token_valido=True)
+def test_tutto_a_posto_non_avvisa(monkeypatch):
+    alert = prepara_controllo(monkeypatch, stato_precedente=True)
 
-    scheduler_module.controlla_credenziali_gmail()
+    scheduler_module.controlla_una_credenziale(credenziale_finta(True))
 
     assert alert == []
+
+
+# --- Le tre credenziali insieme -------------------------------
+
+def test_ogni_credenziale_ha_uno_stato_indipendente(monkeypatch):
+    """Il punto della generalizzazione: se lo stato fosse condiviso, Drive
+    rotto dopo Gmail rotto passerebbe per "nessun cambiamento" e non
+    verrebbe segnalato."""
+    alert = prepara_controllo(monkeypatch, stato_precedente=None)
+
+    scheduler_module.controlla_una_credenziale(credenziale_finta(False, nome="Gmail"))
+    scheduler_module.controlla_una_credenziale(credenziale_finta(False, nome="Drive"))
+
+    assert len(alert) == 2
+    assert "Gmail" in alert[0][0]
+    assert "Drive" in alert[1][0]
+
+
+def test_controlla_credenziali_le_sonda_tutte_e_tre(monkeypatch):
+    """Che il job giri davvero su tutte e tre, e non su una sola: una sonda
+    dimenticata nella lista non farebbe fallire nessun altro test."""
+    monkeypatch.setattr(scheduler_module, "_ultimo_controllo_credenziali", {})
+    monkeypatch.setattr(scheduler_module, "invia_alert_sistema", lambda t, d: None)
+    monkeypatch.setattr(
+        scheduler_module, "CREDENZIALI_SORVEGLIATE",
+        tuple(credenziale_finta(True, nome=n) for n in ("Gmail", "Drive", "Calendar"))
+    )
+
+    esiti = scheduler_module.controlla_credenziali()
+
+    assert esiti == {"Gmail": True, "Drive": True, "Calendar": True}
+
+
+def test_la_lista_reale_sorveglia_le_tre_integrazioni_google():
+    """Controlla la configurazione vera, non una finta: le tre integrazioni
+    Google devono essere tutte sotto sorveglianza, ciascuna con la propria
+    sonda e con un testo di riparazione non vuoto."""
+    per_nome = {c.nome: c for c in scheduler_module.CREDENZIALI_SORVEGLIATE}
+
+    assert set(per_nome) == {"Gmail", "Drive", "Calendar"}
+    assert per_nome["Gmail"].sonda is scheduler_module.verifica_credenziali_gmail
+    assert per_nome["Drive"].sonda is scheduler_module.verifica_credenziali_drive
+    assert per_nome["Calendar"].sonda is scheduler_module.verifica_credenziali_calendario
+    for credenziale in per_nome.values():
+        assert credenziale.cosa_si_ferma and credenziale.come_si_ripara
 
 
 # ─── controlla_e_anonimizza_clienti_inattivi ──────────────────
@@ -329,3 +382,72 @@ def test_anonimizzazione_scrive_davvero_sul_database(db, monkeypatch):
     assert utente.nome == "Cliente anonimizzato"
     assert utente.email != "mario.rossi@example.com"
     assert utente.anonimizzato_at is not None
+
+
+# ─── Cadenza dei job ──────────────────────────────────────────
+#
+# La collocazione oraria di questi due job non è un dettaglio di comodo: è
+# ciò che rende utile la sonda Drive. Controllare le credenziali DOPO il
+# backup significherebbe scoprire il token morto a copia già saltata, cioè
+# esattamente il difetto che la sonda esiste per eliminare. Un riordino
+# fatto in buona fede, o uno dei due job spostato senza l'altro, non
+# romperebbe nessun altro test: per questo l'ordine è fissato qui.
+
+def leggi_job_registrati(monkeypatch):
+    """Registra i job su uno scheduler finto invece di avviarne uno vero.
+
+    Un BackgroundScheduler vero farebbe partire un thread che, a orario,
+    eseguirebbe i job contro il database e i servizi esterni reali.
+    """
+    registrati = {}
+
+    class SchedulerFinto:
+        def add_job(self, funzione, trigger, **opzioni):
+            registrati[opzioni["id"]] = (funzione, trigger, opzioni)
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(scheduler_module, "BackgroundScheduler", SchedulerFinto)
+    scheduler_module.avvia_scheduler()
+    return registrati
+
+
+def test_credenziali_e_backup_girano_una_volta_a_settimana(monkeypatch):
+    job = leggi_job_registrati(monkeypatch)
+
+    for id_job in ("controlla_credenziali", "backup_database"):
+        _, trigger, opzioni = job[id_job]
+        assert trigger == "cron", f"{id_job} deve avere un orario fisso, non un intervallo"
+        assert opzioni["day_of_week"] == "sun", f"{id_job} deve girare la domenica"
+
+
+def test_le_credenziali_si_controllano_prima_del_backup(monkeypatch):
+    """Mezz'ora prima, così un token Drive morto viene segnalato PRIMA che
+    la copia salti — invece che dopo, come succedeva senza la sonda."""
+    job = leggi_job_registrati(monkeypatch)
+
+    _, _, credenziali = job["controlla_credenziali"]
+    _, _, backup = job["backup_database"]
+
+    minuti_credenziali = credenziali["hour"] * 60 + credenziali["minute"]
+    minuti_backup = backup["hour"] * 60 + backup["minute"]
+
+    assert minuti_credenziali < minuti_backup
+    assert minuti_backup - minuti_credenziali == 30
+
+
+def test_gli_altri_job_notturni_restano_giornalieri(monkeypatch):
+    """Solo credenziali e backup passano a settimanale: generazione slot,
+    retention e pulizia restano quotidiane, e la pulizia deve continuare a
+    precedere il backup."""
+    job = leggi_job_registrati(monkeypatch)
+
+    for id_job in ("genera_slot_giornaliero", "controlla_retention_clienti", "pulisci_slot_obsoleti"):
+        _, trigger, opzioni = job[id_job]
+        assert trigger == "cron"
+        assert "day_of_week" not in opzioni, f"{id_job} non deve essere settimanale"
+
+    _, _, pulizia = job["pulisci_slot_obsoleti"]
+    _, _, backup = job["backup_database"]
+    assert pulizia["hour"] * 60 + pulizia["minute"] < backup["hour"] * 60 + backup["minute"]

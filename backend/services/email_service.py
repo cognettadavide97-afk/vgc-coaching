@@ -16,8 +16,7 @@ import logging
 from email.message import EmailMessage
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
-from google.auth.transport.requests import Request
-from backend.services.google_oauth_service import credenziali_oauth_google
+from backend.services.google_oauth_service import credenziali_oauth_google, verifica_credenziali_google
 
 load_dotenv()
 
@@ -102,32 +101,14 @@ def _invia_via_gmail(destinatario: str, oggetto: str, corpo_html: str):
 def verifica_credenziali_gmail() -> bool:
     """Verifica che il refresh token Gmail sia ancora spendibile.
 
-    La sonda è lo **scambio del refresh token con un access token**, cioè
-    esattamente l'operazione che fallisce quando il token scade o viene
-    revocato: il guasto che questo controllo esiste per intercettare.
-
-    Non interroga l'API Gmail, e non è un dettaglio: lo scope concesso è
-    `gmail.send`, che autorizza a spedire e a nient'altro. Una lettura di
-    prova — `users.getProfile()`, che questa funzione usava fino al
-    2026-09-04 — risponde 403 "insufficient authentication scopes" anche
-    con credenziali perfettamente sane, quindi come sonda mentiva:
-    dichiarava fermo un invio email che funzionava. Il refresh forzato non
-    ha quel problema, perché non dipende da nessuno scope.
-
-    Il `refresh()` esplicito serve a non fidarsi della cache di
-    `credenziali_oauth_google`: un access token ancora fresco proverebbe
-    solo che il controllo precedente era andato bene.
-
-    Restituisce l'esito invece di sollevare, così un fallimento non
-    interrompe lo scheduler che la richiama.
+    Il come sta in `verifica_credenziali_google` (perché il refresh e non
+    una lettura di prova, e perché il refresh esplicito): il meccanismo è
+    identico per Gmail, Drive e Calendar, e vive in un posto solo.
     """
-    try:
-        credenziali = credenziali_oauth_google(GMAIL_REFRESH_TOKEN, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET)
-        credenziali.refresh(Request())
-        return credenziali.token is not None
-    except Exception:
-        logger.exception("Controllo credenziali Gmail fallito")
-        return False
+    return verifica_credenziali_google(
+        "Gmail",
+        lambda: credenziali_oauth_google(GMAIL_REFRESH_TOKEN, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET)
+    )
 
 
 def invia_conferma_cliente(

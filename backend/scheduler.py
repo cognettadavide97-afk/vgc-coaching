@@ -5,7 +5,11 @@ APScheduler li esegue su un thread separato, in parallelo al server.
 
 Otto job: promemoria pre-sessione, richieste di recensione, sincronizzazione
 del calendario, generazione notturna degli slot, controllo delle credenziali
-Gmail, data retention, pulizia degli slot obsoleti e backup del database.
+Google, data retention, pulizia degli slot obsoleti e backup del database.
+
+Sei girano ogni giorno; il controllo delle credenziali e il backup girano
+una volta a settimana, la domenica alle 03:30 e alle 04:00 — in
+quest'ordine, di proposito: vedi i commenti in `avvia_scheduler`.
 
 Ogni funzione apre e chiude la propria sessione di database: non essendo
 dentro una richiesta, non può usare la dependency di FastAPI.
@@ -13,6 +17,7 @@ dentro una richiesta, non può usare la dependency di FastAPI.
 
 import os
 from datetime import timedelta
+from typing import Callable, NamedTuple
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import contains_eager, joinedload
 from backend.database import SessionLocal, engine
@@ -22,10 +27,10 @@ from backend.models.availability_rule import AvailabilityRule
 from backend.services.email_service import invia_promemoria_cliente, invia_richiesta_recensione, verifica_credenziali_gmail
 from backend.services.discord_service import invia_promemoria_discord, invia_alert_sistema
 from backend.services.timezone_service import utc_to_rome, ora_utc_naive
-from backend.services.calendar_service import sincronizza_slot_con_calendario
+from backend.services.calendar_service import sincronizza_slot_con_calendario, verifica_credenziali_calendario
 from backend.services.availability_service import genera_slot_da_regola, elimina_slot_obsoleti
 from backend.services.retention_service import anonimizza_clienti_inattivi, RETENTION_MONTHS
-from backend.services.backup_service import esegui_backup_database
+from backend.services.backup_service import esegui_backup_database, verifica_credenziali_drive
 
 REMINDER_HOURS_BEFORE = float(os.getenv("REMINDER_HOURS_BEFORE", "24"))
 CHECK_INTERVAL_MINUTES = int(os.getenv("REMINDER_CHECK_INTERVAL_MINUTES", "5"))
@@ -41,11 +46,53 @@ PUBLIC_BASE_URL = os.getenv(
 
 CALENDAR_SYNC_INTERVAL_MINUTES = int(os.getenv("CALENDAR_SYNC_INTERVAL_MINUTES", "60"))
 
-GMAIL_HEALTHCHECK_INTERVAL_HOURS = float(os.getenv("GMAIL_HEALTHCHECK_INTERVAL_HOURS", "24"))
-# Esito dell'ultimo controllo, per notificare solo la transizione fra stato
-# valido e non valido invece di ripetere l'avviso a ogni esecuzione.
-# None finché il controllo non è mai stato eseguito in questo processo.
-_ultimo_controllo_gmail_ok = None
+# Esito dell'ultimo controllo di ciascuna credenziale, per notificare solo
+# la transizione fra stato valido e non valido invece di ripetere l'avviso
+# a ogni esecuzione. Una chiave assente significa "mai controllata in
+# questo processo", che non è la stessa cosa di "controllata e rotta".
+_ultimo_controllo_credenziali: dict[str, bool] = {}
+
+
+class CredenzialeSorvegliata(NamedTuple):
+    """Una credenziale esterna da controllare periodicamente.
+
+    Tenere insieme sonda e testo dell'avviso evita il caso peggiore di un
+    monitoraggio: un alert che segnala il guasto giusto ma suggerisce la
+    cura sbagliata.
+    """
+    nome: str              # come compare nell'avviso su Discord
+    sonda: Callable[[], bool]
+    cosa_si_ferma: str     # cosa smette di funzionare, per chi legge l'alert
+    come_si_ripara: str    # l'azione concreta, non "controlla la configurazione"
+
+
+# Le tre integrazioni Google, in ordine di danno se cadono. Aggiungerne una
+# quarta significa aggiungere una riga qui, non un job.
+CREDENZIALI_SORVEGLIATE = (
+    CredenzialeSorvegliata(
+        nome="Gmail",
+        sonda=verifica_credenziali_gmail,
+        cosa_si_ferma="L'invio email (conferme, promemoria, richieste recensione) è FERMO.",
+        come_si_ripara="Rifai l'autorizzazione con `python scripts/reauth_gmail.py`, "
+                       "poi aggiorna GMAIL_REFRESH_TOKEN su Railway (entrambi i servizi).",
+    ),
+    CredenzialeSorvegliata(
+        nome="Drive",
+        sonda=verifica_credenziali_drive,
+        cosa_si_ferma="Il backup del database su Google Drive NON può essere caricato: "
+                      "alla prossima esecuzione il database resterà senza copia recente.",
+        come_si_ripara="Rifai l'autorizzazione con `python scripts/reauth_drive.py`, "
+                       "poi aggiorna DRIVE_REFRESH_TOKEN su Railway (entrambi i servizi).",
+    ),
+    CredenzialeSorvegliata(
+        nome="Calendar",
+        sonda=verifica_credenziali_calendario,
+        cosa_si_ferma="La sincronizzazione con Google Calendar è ferma: gli impegni presi "
+                      "fuori dall'app non bloccano più gli slot, e i nuovi eventi non vengono creati.",
+        come_si_ripara="Controlla che il service account esista ancora su Google Cloud e che "
+                       "GOOGLE_PRIVATE_KEY su Railway corrisponda a una chiave non revocata.",
+    ),
+)
 
 
 def _query_prenotazioni_con_slot_e_utente(db):
@@ -202,33 +249,55 @@ def pulisci_slot_obsoleti():
         db.close()
 
 
-def controlla_credenziali_gmail():
-    """Verifica le credenziali Gmail e notifica i cambi di stato.
+def controlla_credenziali():
+    """Verifica le credenziali Google e notifica i cambi di stato.
 
-    Non invia email. Avvisa solo alla transizione fra valido e non valido,
-    in entrambe le direzioni, per non ripetere lo stesso alert a ogni
-    esecuzione mentre il problema persiste.
+    Un solo job per tutte e tre: si rompono allo stesso modo e si
+    verificano allo stesso modo, e tenerle separate significherebbe tre
+    copie della stessa logica di transizione da mantenere allineate.
+
+    Avvisa solo alla **transizione** fra valido e non valido, in entrambe
+    le direzioni. Senza questa condizione l'avviso si ripeterebbe a ogni
+    esecuzione finché il problema persiste, e un avviso che arriva sempre
+    si impara a ignorare — il che lo rende inutile proprio quando conta.
+
+    Restituisce l'esito di ciascuna credenziale, per nome.
     """
-    global _ultimo_controllo_gmail_ok
-    ok = verifica_credenziali_gmail()
+    esiti = {}
+    for credenziale in CREDENZIALI_SORVEGLIATE:
+        esiti[credenziale.nome] = controlla_una_credenziale(credenziale)
+    return esiti
 
-    if not ok and _ultimo_controllo_gmail_ok is not False:
+
+def controlla_una_credenziale(credenziale: CredenzialeSorvegliata) -> bool:
+    """Esegue una sonda e avvisa se lo stato è cambiato dall'ultima volta.
+
+    Separata da `controlla_credenziali` perché è l'unità che ha senso
+    provare da sola: prende la credenziale da controllare invece di
+    leggerla da una lista globale.
+    """
+    ok = credenziale.sonda()
+    precedente = _ultimo_controllo_credenziali.get(credenziale.nome)
+
+    # `is not False` e non `!= False`: al primo giro dopo un riavvio il
+    # valore è None, cioè "mai controllato", e un guasto già in corso deve
+    # comunque produrre l'avviso invece di passare per "nessun cambiamento".
+    if not ok and precedente is not False:
         invia_alert_sistema(
-            "Refresh token Gmail scaduto o non valido",
-            "L'invio email (conferme, promemoria, richieste recensione) è FERMO. "
-            "Rifai l'autorizzazione con `python scripts/reauth_gmail.py`, poi "
-            "aggiorna GMAIL_REFRESH_TOKEN su Railway (entrambi i servizi). "
-            "La schermata di consenso è già \"In production\" dal 2026-09-04, "
-            "quindi non è una scadenza periodica: guarda revoca dell'accesso o "
-            "cambio dell'account mittente."
+            f"Credenziali {credenziale.nome} non valide",
+            f"{credenziale.cosa_si_ferma} "
+            f"{credenziale.come_si_ripara} "
+            "La schermata di consenso Google è \"In production\" dal 2026-09-04, "
+            "quindi non è una scadenza periodica: guarda revoca dell'accesso, "
+            "cambio dell'account o rotazione della chiave."
         )
-    elif ok and _ultimo_controllo_gmail_ok is False:
+    elif ok and precedente is False:
         invia_alert_sistema(
-            "Refresh token Gmail di nuovo valido",
-            "L'invio email è ripreso a funzionare normalmente."
+            f"Credenziali {credenziale.nome} di nuovo valide",
+            f"{credenziale.nome} è tornato a funzionare normalmente."
         )
 
-    _ultimo_controllo_gmail_ok = ok
+    _ultimo_controllo_credenziali[credenziale.nome] = ok
     return ok
 
 
@@ -312,11 +381,22 @@ def avvia_scheduler():
         minute=0,
         id="genera_slot_giornaliero"
     )
+    # Settimanale e non giornaliero: con la schermata di consenso "In
+    # production" la scadenza periodica non esiste più, e restano solo
+    # revoca e cambio account — eventi rari e quasi sempre volontari. Un
+    # controllo a settimana è la precauzione proporzionata al rischio.
+    #
+    # Le 03:30 della domenica non sono un orario qualsiasi: sono mezz'ora
+    # prima del backup. È l'unica collocazione che rende utile la sonda
+    # Drive, perché avvisa PRIMA che la copia salti invece che dopo. Se un
+    # giorno il backup si sposta, questo job va spostato con lui.
     scheduler.add_job(
-        controlla_credenziali_gmail,
-        "interval",
-        hours=GMAIL_HEALTHCHECK_INTERVAL_HOURS,
-        id="controlla_credenziali_gmail"
+        controlla_credenziali,
+        "cron",
+        day_of_week="sun",
+        hour=3,
+        minute=30,
+        id="controlla_credenziali"
     )
     # Cadenza giornaliera: la soglia di retention è in mesi. Sfalsato di un
     # minuto per non sovrapporlo al job precedente.
@@ -327,8 +407,9 @@ def avvia_scheduler():
         minute=1,
         id="controlla_retention_clienti"
     )
-    # Prima del backup, così il dump non include slot che stanno per essere
-    # eliminati.
+    # Resta giornaliero: è una pulizia di routine, non una copia. Girando
+    # comunque prima delle 04:00, la domenica precede il backup e il dump
+    # non include slot che stanno per essere eliminati.
     scheduler.add_job(
         pulisci_slot_obsoleti,
         "cron",
@@ -336,11 +417,18 @@ def avvia_scheduler():
         minute=2,
         id="pulisci_slot_obsoleti"
     )
+    # Settimanale: il volume di dati è basso e cambia poco, quindi sei
+    # dump identici a settimana costerebbero spazio e attenzione senza
+    # aggiungere protezione. La finestra di perdita massima passa da 24 ore
+    # a 7 giorni — accettata consapevolmente, non subita.
+    #
     # Distanziato dagli altri job notturni: il dump legge l'intero
-    # database.
+    # database. Mezz'ora dopo il controllo delle credenziali, così un token
+    # Drive morto viene segnalato prima che la copia salti.
     scheduler.add_job(
         controlla_e_esegui_backup_database,
         "cron",
+        day_of_week="sun",
         hour=4,
         minute=0,
         id="backup_database"

@@ -455,7 +455,13 @@ dopo che `get_admin` è stato definito, perché ognuno di loro lo importa da lì
 libreria diversa da FastAPI: APScheduler, che esegue funzioni a intervalli su un thread separato.
 
 Otto job: promemoria, richieste di recensione, sync calendario, generazione slot notturna,
-controllo del token Gmail, retention GDPR, pulizia slot, backup del database.
+controllo delle credenziali Google, retention GDPR, pulizia slot, backup del database.
+
+Sei girano ogni giorno. **Controllo delle credenziali e backup girano una volta a settimana**, la
+domenica alle 03:30 e alle 04:00 — e quei trenta minuti sono l'unica ragione per cui il primo
+esiste: se girasse dopo, scoprirebbe la chiave morta a copia di sicurezza già saltata, cioè
+esattamente il guasto che deve prevenire. Quando due job dipendono dal loro ordine, l'ordine è
+parte della logica e va protetto da un test, non lasciato alla memoria di chi legge.
 
 Due dettagli che vale la pena notare:
 

@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from dotenv import load_dotenv
-from backend.services.google_oauth_service import credenziali_oauth_google
+from backend.services.google_oauth_service import credenziali_oauth_google, verifica_credenziali_google
 
 load_dotenv()
 
@@ -44,6 +44,25 @@ BACKUP_RETENTION_DAYS = int(os.getenv("BACKUP_RETENTION_DAYS", "30"))
 RIGHE_PER_INSERT = 500
 
 logger = logging.getLogger(__name__)
+
+
+def verifica_credenziali_drive() -> bool:
+    """Verifica che il refresh token Drive sia ancora spendibile.
+
+    Prima che questa sonda esistesse, un token Drive morto si scopriva solo
+    dal fallimento del backup: a copia di sicurezza già saltata. Il
+    meccanismo è in `verifica_credenziali_google`, identico a quello di
+    Gmail e Calendar.
+
+    Un token assente conta come guasto, coerentemente con
+    `esegui_backup_database`, che già oggi restituisce False quando
+    l'integrazione non è configurata: in entrambi i casi il database resta
+    senza copia, ed è quello che va segnalato.
+    """
+    return verifica_credenziali_google(
+        "Drive",
+        lambda: credenziali_oauth_google(DRIVE_REFRESH_TOKEN, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET)
+    )
 
 
 def _get_drive_service():

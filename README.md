@@ -67,7 +67,7 @@ Questa cartella contiene tutto il codice server. È organizzata in sotto-cartell
 - **`main.py`** — Il punto di ingresso di tutto il programma. Quando lanci `uvicorn backend.main:app`, è questo file che viene eseguito per primo. Configura il logging per tutto il progetto (livello da `LOG_LEVEL`), crea l'oggetto `app` di FastAPI, ci "attacca" tutti i router (le famiglie di indirizzi web), configura la sicurezza di base (CORS, rate limiting), e monta la cartella `frontend/` come file statici. Definisce anche i pochi indirizzi che restituiscono direttamente una pagina HTML (`/`, `/about`, `/privacy`, `/admin-panel`) e l'endpoint `/health` per il monitoraggio esterno. Migrazioni del database e scheduler partono invece dall'handler `lifespan`, cioè solo all'avvio di un server vero — vedi "Flusso di esecuzione" più sotto.
 - **`database.py`** — Configura la connessione al database MySQL. Definisce `Base` (la classe da cui ereditano tutti i "model", vedi sotto) e `get_db()`, una funzione che ogni pezzo di codice usa per ottenere una connessione al database in modo sicuro (e che la chiude sempre, anche in caso di errore).
 - **`rate_limit.py`** — Un file piccolissimo che crea un solo oggetto (`limiter`), usato per impedire che qualcuno mandi troppe richieste di fila allo stesso indirizzo (protezione anti-abuso).
-- **`scheduler.py`** — Gli **8 lavori automatici in background** che girano senza che nessuno li chieda: promemoria pre-sessione, richieste di recensione, sync col Google Calendar, generazione notturna degli slot dalle regole ricorrenti, controllo del token Gmail, anonimizzazione GDPR dei clienti inattivi, pulizia degli slot passati, backup del database su Drive. Partono all'avvio del server, non all'import del modulo (vedi `lifespan` in `main.py`).
+- **`scheduler.py`** — Gli **8 lavori automatici in background** che girano senza che nessuno li chieda: promemoria pre-sessione, richieste di recensione, sync col Google Calendar, generazione notturna degli slot dalle regole ricorrenti, controllo delle credenziali Google (Gmail, Drive e Calendar insieme), anonimizzazione GDPR dei clienti inattivi, pulizia degli slot passati, backup del database su Drive. Partono all'avvio del server, non all'import del modulo (vedi `lifespan` in `main.py`). Sei girano ogni giorno; **controllo delle credenziali e backup girano una volta a settimana, la domenica alle 03:30 e alle 04:00** — in quest'ordine di proposito, così una credenziale morta viene segnalata prima che la copia salti.
 
 #### `backend/models/` — la forma dei dati nel database
 
@@ -136,7 +136,7 @@ Non fanno parte dell'app che gira in produzione: si lanciano a mano, una tantum,
 
 ### `tests/` — la suite di test automatici
 
-16 file di test (124 test in tutto) che girano con `pytest`. `conftest.py` è il file di configurazione condiviso: sostituisce il database MySQL con uno SQLite in memoria e finge le integrazioni esterne (email, Calendar, Discord), così la suite gira ovunque — anche in CI — senza toccare nessun servizio vero.
+16 file di test (135 test in tutto) che girano con `pytest`. `conftest.py` è il file di configurazione condiviso: sostituisce il database MySQL con uno SQLite in memoria e finge le integrazioni esterne (email, Calendar, Discord), così la suite gira ovunque — anche in CI — senza toccare nessun servizio vero.
 
 Ogni file copre un'area, e il commento in cima dice quale e perché:
 
@@ -144,12 +144,12 @@ Ogni file copre un'area, e il commento in cima dice quale e perché:
 |---|---|---|
 | `test_availability.py` | 23 | regole ricorrenti e blocchi eccezionali, con i casi al confine fra giorno UTC e giorno italiano |
 | `test_booking.py` | 20 | il cuore del progetto: creazione della prenotazione (durata, sessioni da 2h, prezzo calcolato dal server, identità del prenotante) e cancellazione self-service |
-| `test_scheduler.py` | 14 | i job che girano da soli: promemoria, richieste di recensione, transizioni dell'alert Gmail, anonimizzazione GDPR |
+| `test_scheduler.py` | 20 | i job che girano da soli: promemoria, richieste di recensione, transizioni dell'alert credenziali, anonimizzazione GDPR, e la cadenza settimanale con l'ordine fra controllo e backup |
 | `test_admin.py` | 10 | la cancellazione GDPR completa di un cliente (Art. 17) e di tutti i dati collegati |
 | `test_auth.py` | 8 | il perimetro di sicurezza: login admin e rifiuto dei token non validi |
 | `test_users.py` | 7 | lo storico dello studente, filtrato per identità |
 | `test_pagination_service.py` | 7 | la paginazione condivisa dalle liste admin (funzioni pure, nessun database) |
-| `test_email_service.py` | 6 | l'escaping dei campi liberi del cliente nel corpo HTML delle email |
+| `test_email_service.py` | 11 | l'escaping dei campi liberi del cliente nel corpo HTML delle email, e la sonda condivisa che verifica le credenziali di Gmail, Drive e Calendar |
 | `test_reviews.py` | 6 | il giro completo della recensione: invio col token → approvazione admin → vetrina pubblica |
 | `test_discord_auth.py` | 5 | il parametro `state` anti-CSRF nel login Discord |
 | `test_richieste.py` | 5 | i due endpoint pubblici "solo contatto" (consulenza e richiesta pacchetto) |
@@ -299,10 +299,9 @@ Nella colonna "Obbligatoria", `Sì` senza altro vuol dire che l'app non funziona
 | `PUBLIC_BASE_URL` | No | Dominio pubblico usato per costruire link assoluti nelle email (es. il link di recensione post-sessione). Se assente, si usa la prima origine di `FRONTEND_ORIGINS`. |
 | `REVIEW_CHECK_INTERVAL_MINUTES` | No | Ogni quanti minuti lo scheduler controlla se ci sono richieste di recensione da inviare (default `60`). |
 | `CALENDAR_SYNC_INTERVAL_MINUTES` | No | Ogni quanti minuti lo scheduler sincronizza automaticamente gli slot col calendario Google, oltre al bottone manuale in admin (default `60`). |
-| `GMAIL_HEALTHCHECK_INTERVAL_HOURS` | No | Ogni quante ore lo scheduler controlla che `GMAIL_REFRESH_TOKEN` sia ancora valido, avvisando su Discord se smette di funzionare (default `24`). Vedi la sezione "Gmail API" più sotto. |
 | `DRIVE_REFRESH_TOKEN` | Sì, per il backup automatico | Token OAuth2 per caricare i dump del database su Google Drive. Vedi la sezione "Google Drive (backup automatico database)" più sotto. |
 | `GOOGLE_DRIVE_BACKUP_FOLDER_ID` | Sì, per il backup automatico | ID della cartella Drive di destinazione dei backup. |
-| `BACKUP_RETENTION_DAYS` | No | Dopo quanti giorni un backup viene eliminato automaticamente da Drive (default `30`). |
+| `BACKUP_RETENTION_DAYS` | No | Dopo quanti giorni un backup viene eliminato automaticamente da Drive (default `30`). Da quando i backup sono settimanali, 30 giorni significano circa **4 copie conservate**, non 30. |
 | `RETENTION_MONTHS` | No | Dopo quanti mesi di inattività un cliente viene anonimizzato automaticamente, per conformità GDPR (default `24`). Vedi sezione "Conformità GDPR" più sotto. |
 
 ## Comandi disponibili
@@ -315,7 +314,7 @@ Nella colonna "Obbligatoria", `Sì` senza altro vuol dire che l'app non funziona
 | `python -m alembic revision -m "descrizione"` | Crea una nuova migrazione vuota (da scrivere a mano) |
 | `pip install -r requirements.txt` | Installa/aggiorna le dipendenze |
 | `pip install -r requirements-dev.txt` | Installa anche le dipendenze di test (pytest, httpx, pytest-cov) |
-| `pytest` | Esegue i 124 test automatici (`tests/`) — usa un database SQLite in memoria e non tocca il MySQL di sviluppo o produzione. Migrazioni e scheduler partono solo all'avvio di un server vero (handler `lifespan` in `backend/main.py`), mai al semplice import: è ciò che rende innocuo lanciare la suite con un `.env` popolato. Stampa anche il report di coverage, attivo di default via `pytest.ini` |
+| `pytest` | Esegue i 135 test automatici (`tests/`) — usa un database SQLite in memoria e non tocca il MySQL di sviluppo o produzione. Migrazioni e scheduler partono solo all'avvio di un server vero (handler `lifespan` in `backend/main.py`), mai al semplice import: è ciò che rende innocuo lanciare la suite con un `.env` popolato. Stampa anche il report di coverage, attivo di default via `pytest.ini` |
 | `python scripts/hash_admin_password.py` | Genera l'hash bcrypt da mettere in `ADMIN_PASSWORD_HASH` (chiede la password in modo interattivo, senza echo) |
 
 La stessa suite `pytest` gira automaticamente su ogni push/PR tramite GitHub Actions (`.github/workflows/tests.yml`), così un errore emerge prima del deploy, non dopo.
@@ -338,7 +337,7 @@ Due dettagli della pubblicazione, se dovessi rifarla su un altro progetto:
 - Serve compilare la pagina **Branding** (nome app, email di supporto, contatto sviluppatore) e dichiarare **home page** e **privacy policy** con URL raggiungibili, aggiungendo il dominio agli *Authorized domains*. Qui sono stati usati `https://vgc-coaching-production.up.railway.app` e `/privacy`, che esistono già. **Non** caricare un logo: su un'app non verificata innesca la richiesta di verifica.
 - `gmail.send` è uno scope **sensitive** per Google (questa riga diceva il contrario fino al 2026-09-04). Non impedisce di pubblicare: l'app resta "In production / needs verification", e l'unico effetto pratico è l'avviso "app non verificata" al momento del consenso, da superare con *Avanzate → Continua*. La verifica completa serve solo per togliere quell'avviso a utenti terzi, e qui l'utente è uno solo.
 
-**Rete di sicurezza, sempre attiva**: lo scheduler (`controlla_credenziali_gmail` in `backend/scheduler.py`) verifica il token ogni `GMAIL_HEALTHCHECK_INTERVAL_HOURS` ore e avvisa su Discord se smette di funzionare — a quel punto si rilancia `python scripts/reauth_gmail.py` e si aggiorna `GMAIL_REFRESH_TOKEN` su Railway. Resta utile anche dopo la pubblicazione, perché intercetta revoca e cambio account, non solo la scadenza.
+**Rete di sicurezza, sempre attiva**: lo scheduler (`controlla_credenziali` in `backend/scheduler.py`) verifica **tutte e tre le credenziali Google** — Gmail, Drive e Calendar — la domenica alle 03:30, e avvisa su Discord solo quando lo stato cambia: quando una si rompe e quando torna a funzionare. Per Gmail la cura è rilanciare `python scripts/reauth_gmail.py` e aggiornare `GMAIL_REFRESH_TOKEN` su Railway; l'avviso stesso dice cosa fare, diverso per ciascuna. Resta utile anche dopo la pubblicazione della schermata di consenso, perché intercetta revoca e cambio account, non solo la scadenza. L'orario non è casuale: è mezz'ora prima del backup settimanale, così un token Drive morto viene segnalato **prima** che la copia salti invece che dopo.
 
 ### Google Calendar (sync disponibilità)
 1. Crea un progetto su [Google Cloud Console](https://console.cloud.google.com), abilita la "Google Calendar API".
@@ -347,7 +346,7 @@ Due dettagli della pubblicazione, se dovessi rifarla su un altro progetto:
 4. Imposta `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_CALENDAR_ID`.
 
 ### Google Drive (backup automatico database)
-Il piano Railway attuale (Hobby) non include backup né point-in-time recovery per il database MySQL (verificato nella dashboard Railway, tab "Backups" del servizio MySQL: "Backups and point-in-time recovery (PITR) are only available for customers on the Pro plan"). Per non restare senza nessuna rete di sicurezza, un job schedulato (`controlla_e_esegui_backup_database` in `backend/scheduler.py`, una volta al giorno) genera un dump SQL completo e lo carica su Google Drive — un posto diverso da Railway.
+Il piano Railway attuale (Hobby) non include backup né point-in-time recovery per il database MySQL (verificato nella dashboard Railway, tab "Backups" del servizio MySQL: "Backups and point-in-time recovery (PITR) are only available for customers on the Pro plan"). Per non restare senza nessuna rete di sicurezza, un job schedulato (`controlla_e_esegui_backup_database` in `backend/scheduler.py`, **una volta a settimana, la domenica alle 04:00**) genera un dump SQL completo e lo carica su Google Drive — un posto diverso da Railway. Settimanale e non giornaliero perché il volume di dati è basso e cambia poco: sei dump quasi identici a settimana costerebbero spazio e attenzione senza aggiungere protezione. La contropartita, accettata consapevolmente, è che la finestra di perdita massima passa da 24 ore a 7 giorni.
 
 **⚠️ Non usa il service account** già configurato per Calendar (`GOOGLE_SERVICE_ACCOUNT_EMAIL`), anche se è lo stesso progetto Google Cloud — scoperto testando un upload reale: un service account non ha una propria quota di archiviazione su Drive, quindi ogni file che crea fallisce con `storageQuotaExceeded`, anche in una cartella condivisa con lui in modalità Editor (le Shared Drive risolverebbero, ma sono una funzionalità Google Workspace, non disponibile su un account Gmail personale). La soluzione è OAuth con l'account Google vero del coach, stesso schema già usato per Gmail:
 1. Nello stesso progetto Google Cloud già usato per Calendar/Gmail, abilita la **"Google Drive API"**.
@@ -355,9 +354,9 @@ Il piano Railway attuale (Hobby) non include backup né point-in-time recovery p
 3. Su [Google Drive](https://drive.google.com), con il TUO account normale, crea una cartella dedicata ai backup (nessuna condivisione da fare — è già tua).
 4. Apri la cartella nel browser: l'id è la parte finale dell'URL (`https://drive.google.com/drive/folders/QUESTO_È_L_ID`). Impostalo in `GOOGLE_DRIVE_BACKUP_FOLDER_ID`.
 5. Esegui `python scripts/reauth_drive.py` — apre il browser, autorizza con il tuo account, e offre di scrivere subito `DRIVE_REFRESH_TOKEN` nel `.env` locale (va comunque copiato a mano anche su Railway).
-6. Facoltativo: `BACKUP_RETENTION_DAYS` (default 30) decide dopo quanti giorni un backup viene eliminato da Drive automaticamente, per non accumularsi all'infinito.
+6. Facoltativo: `BACKUP_RETENTION_DAYS` (default 30) decide dopo quanti giorni un backup viene eliminato da Drive automaticamente, per non accumularsi all'infinito. Con la cadenza settimanale corrisponde a circa quattro copie conservate.
 
-Senza `GOOGLE_DRIVE_BACKUP_FOLDER_ID`/`DRIVE_REFRESH_TOKEN` configurati, il job registra solo un avviso nei log e non fa nulla (non blocca l'avvio dell'app) — finché non li imposti, il database resta senza backup. Vale per questo token la stessa vicenda descritta nel box della sezione Gmail API: scadeva a 7 giorni finché la schermata di consenso era in "Testing", ed è stato rigenerato il 2026-09-04 dopo il passaggio a "In production". Attenzione però: l'healthcheck schedulato controlla **solo** `GMAIL_REFRESH_TOKEN` — un `DRIVE_REFRESH_TOKEN` scaduto si scopre dall'alert Discord del backup notturno fallito, quindi fino a 24 ore dopo e a copia di sicurezza già saltata. Il passaggio a "In production" del 2026-09-04 ha riguardato entrambi i token insieme, perché condividono la stessa schermata di consenso.
+Senza `GOOGLE_DRIVE_BACKUP_FOLDER_ID`/`DRIVE_REFRESH_TOKEN` configurati, il job registra solo un avviso nei log e non fa nulla (non blocca l'avvio dell'app) — finché non li imposti, il database resta senza backup. Vale per questo token la stessa vicenda descritta nel box della sezione Gmail API: scadeva a 7 giorni finché la schermata di consenso era in "Testing", ed è stato rigenerato il 2026-09-04 dopo il passaggio a "In production". **Dal 2026-09-06 anche `DRIVE_REFRESH_TOKEN` ha il suo controllo**: la sonda schedulata verifica Gmail, Drive e Calendar insieme, la domenica alle 03:30, cioè mezz'ora prima del backup — così un token morto viene segnalato **prima** che la copia salti, non dopo. Prima esisteva solo per Gmail, e un token Drive scaduto si scopriva dall'alert del backup fallito, a copia già persa. Il passaggio a "In production" del 2026-09-04 ha riguardato entrambi i token insieme, perché condividono la stessa schermata di consenso.
 
 ### Discord — Webhook notifiche
 1. Sul server Discord del coach: Impostazioni canale → Integrazioni → Webhook → Crea Webhook.

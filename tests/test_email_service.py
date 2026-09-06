@@ -93,12 +93,21 @@ def test_nome_cliente_con_html_viene_escapato_in_email_al_cliente(monkeypatch):
     assert "&lt;i&gt;Rossi&lt;/i&gt;" in catturato["corpo"]
 
 
-# --- Sonda dell'healthcheck Gmail -------------------------------------
+# --- Sonda condivisa delle credenziali Google --------------------------
 # Fino al 2026-09-04 verifica_credenziali_gmail() interrogava
 # users.getProfile(): una lettura, mentre lo scope concesso è gmail.send.
 # Con credenziali sane rispondeva 403 e l'healthcheck dichiarava fermo un
-# invio email che funzionava. Questi test fissano le due proprietà che il
-# fix garantisce: la sonda è il refresh del token, e non tocca l'API Gmail.
+# invio email che funzionava.
+#
+# Dal 2026-09-06 il meccanismo è uno solo, in google_oauth_service, e serve
+# Gmail, Drive e Calendar. I test stanno qui perché è qui che il difetto è
+# nato, e fissano le due proprietà che il fix garantisce: la sonda è il
+# refresh della credenziale, e non tocca nessuna API applicativa.
+
+import backend.services.google_oauth_service as oauth_service
+import backend.services.backup_service as backup_service
+import backend.services.calendar_service as calendar_service
+
 
 class CredenzialiFinte:
     def __init__(self, esito_refresh=None):
@@ -109,6 +118,31 @@ class CredenzialiFinte:
         if self._esito_refresh is not None:
             raise self._esito_refresh
         self.token = "access-token-finto"
+
+
+def test_sonda_riesce_quando_il_refresh_riesce():
+    credenziali = CredenzialiFinte()
+
+    assert oauth_service.verifica_credenziali_google("Prova", lambda: credenziali) is True
+    assert credenziali.token is not None
+
+
+def test_sonda_fallisce_se_il_refresh_fallisce():
+    def costruisci():
+        return CredenzialiFinte(
+            esito_refresh=RuntimeError("invalid_grant: Token has been expired or revoked.")
+        )
+
+    assert oauth_service.verifica_credenziali_google("Prova", costruisci) is False
+
+
+def test_sonda_fallisce_se_la_credenziale_non_si_costruisce():
+    """Un token assente o malformato non deve propagare l'eccezione: lo
+    scheduler che la richiama deve poter proseguire con le altre."""
+    def costruisci():
+        raise ValueError("refresh token mancante")
+
+    assert oauth_service.verifica_credenziali_google("Prova", costruisci) is False
 
 
 def test_healthcheck_gmail_non_interroga_lapi_gmail(monkeypatch):
@@ -127,12 +161,37 @@ def test_healthcheck_gmail_non_interroga_lapi_gmail(monkeypatch):
     assert credenziali.token is not None
 
 
-def test_healthcheck_gmail_falso_se_il_refresh_fallisce(monkeypatch):
+def test_healthcheck_drive_usa_il_proprio_refresh_token(monkeypatch):
+    """Gmail e Drive condividono client id e secret ma non il token: se la
+    sonda Drive usasse quello di Gmail direbbe "OK" con Drive già morto."""
+    token_usati = []
+    monkeypatch.setattr(backup_service, "DRIVE_REFRESH_TOKEN", "token-drive")
     monkeypatch.setattr(
-        email_service, "credenziali_oauth_google",
-        lambda refresh_token, client_id, client_secret: CredenzialiFinte(
-            esito_refresh=RuntimeError("invalid_grant: Token has been expired or revoked.")
+        backup_service, "credenziali_oauth_google",
+        lambda refresh_token, client_id, client_secret: (
+            token_usati.append(refresh_token) or CredenzialiFinte()
         )
     )
 
-    assert email_service.verifica_credenziali_gmail() is False
+    assert backup_service.verifica_credenziali_drive() is True
+    assert token_usati == ["token-drive"]
+
+
+def test_healthcheck_calendario_usa_le_credenziali_del_service_account(monkeypatch):
+    credenziali = CredenzialiFinte()
+    monkeypatch.setattr(calendar_service, "_credenziali_service_account", lambda: credenziali)
+    # Come per Gmail: la sonda non deve costruire un client Calendar.
+    def build_vietata(*args, **kwargs):
+        raise AssertionError("la sonda non deve chiamare l'API Calendar")
+    monkeypatch.setattr(calendar_service, "build", build_vietata)
+
+    assert calendar_service.verifica_credenziali_calendario() is True
+
+
+def test_healthcheck_calendario_falso_se_la_chiave_e_revocata(monkeypatch):
+    monkeypatch.setattr(
+        calendar_service, "_credenziali_service_account",
+        lambda: CredenzialiFinte(esito_refresh=RuntimeError("invalid_grant: account not found"))
+    )
+
+    assert calendar_service.verifica_credenziali_calendario() is False

@@ -402,7 +402,7 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
-- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-06: **124 test, coverage 81%** (erano 108 prima dei test sullo storico dello studente, sulle transizioni dell'alert Gmail e sul job di anonimizzazione, §20; 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
+- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-06: **135 test, coverage 82%** (erano 124 prima della generalizzazione delle sonde e dei test sulla cadenza, §21; 108 prima dei test sullo storico dello studente, sulle transizioni dell'alert Gmail e sul job di anonimizzazione, §20; 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
 - **CI verde** su ogni push/PR (GitHub Actions), verificata sul push reale e non assunta dalla suite locale: run `33529945237` sul commit `61d4554` (01/09) e `33690855235` su `1e17319` (03/09). Dal **2026-09-06 gira su `actions/checkout@v5` e `actions/setup-python@v6`** (§19), e la prima esecuzione con le versioni nuove è stata controllata step per step, non solo nell'esito complessivo.
 - **Deploy Railway allineato alla punta di `origin/master`**, verificato a ogni push di questa sessione — ultimo: `b57017e` → `success`, con `/health` che risponde `200 {"status":"ok"}`. Il comando è nella voce 5 di §9.1.
 - **Invio email funzionante con il token rigenerato**: email di prova spedita con la funzione di produzione `_invia_via_gmail` e **ricevuta**, confermata dal coach il 2026-09-04 (§17).
@@ -414,15 +414,14 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 
 ### 9.1 Backlog aperto — elenco unico
 
-Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e una voce chiusa in una sessione restava "aperta" in quello di un'altra: è successo davvero, con il login Discord e il backup notturno. **Questo è l'unico elenco da consultare**; quelli dentro le sezioni-diario sono congelati. Nessuna voce è bloccante. Una sola comporterebbe codice applicativo nuovo (la 2, se si decidesse di aggiungere l'healthcheck Drive); le altre sono verifiche, configurazione o test.
+Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e una voce chiusa in una sessione restava "aperta" in quello di un'altra: è successo davvero, con il login Discord e il backup notturno. **Questo è l'unico elenco da consultare**; quelli dentro le sezioni-diario sono congelati. Nessuna voce è bloccante. Dopo la chiusura della voce 2 (§21) **nessuna comporta più codice applicativo nuovo**: quel che resta è verifiche, configurazione esterna o test.
 
 **Da dove ripartire — ordine consigliato per le prossime sessioni**
 
 | # | Cosa | Chi può farlo | Quando |
 |---|---|---|---|
 | 1 | Controllo del token Gmail dopo la scadenza attesa — il comando è nella voce 1 | chiunque, da terminale | **dal 2026-09-11**: è la prima cosa della prima sessione utile, ed è l'unica con una data |
-| 2 | Healthcheck del token Drive: sonda già pronta (§17), va solo collegata a un job | lavoro di sviluppo, **ma è codice nuovo**: decisione da prendere, non automatica | dopo aver deciso se vale l'aggiunta |
-| 3 | Monitor esterno su `/health` | richiede un account del coach su un servizio di uptime | sessione dedicata |
+| 3 | Monitor esterno su `/health` | **richiede un account del coach** su un servizio di uptime: non chiudibile dal repository | è la prima voce aperta per importanza — copre il caso "sito giù", che nessun altro controllo vede |
 | 8 | Consolidamento delle variabili Railway su un solo servizio | dashboard Railway, **tocca la produzione** | sessione dedicata, con verifica subito dopo |
 | 6, 7, 9, 10 | Occasionali o già decise: link recensione, prova d'abuso in produzione, rotazione password MySQL locale, dominio | — | quando si presenta l'occasione |
 | 11 | Quel che resta del debito di test: liste admin, sync calendario, tre endpoint minori di `users.py` | lavoro di sviluppo, nessun accesso esterno | in fondo alla lista — i punti rischiosi sono chiusi (§19, §20) |
@@ -441,8 +440,9 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 
 **Rischi silenziosi — si scoprono a danno avvenuto**
 
-2. **`DRIVE_REFRESH_TOKEN` non ha nessun healthcheck.** Quello schedulato controlla solo Gmail (`controlla_credenziali_gmail`): un token Drive morto si scopre dall'alert di backup fallito, cioè a copia di sicurezza già saltata, fino a 24 ore dopo. **Meno urgente dal 2026-09-04**, perché con la schermata "In production" sparisce la scadenza periodica e resta solo il rischio di revoca o cambio account; ma la cecità del monitoraggio è la stessa. Nella stessa data la cartella Drive è stata interrogata direttamente: contiene i backup del **2, 3 e 4 settembre** (l'ultimo delle 04:00Z), quindi il job notturno gira davvero — verificato, non dedotto dall'assenza di alert. Costo del rimedio, se si decidesse di farlo: la sonda di §17 funziona identica sul token Drive. Origine §13.6.
-3. **Uptime monitor esterno su `/health`, mai configurato.** Confermato osservativamente il 2026-09-02: nei log Railway non compare nessuna chiamata a quell'endpoint. L'endpoint funziona (interrogato a mano risponde), semplicemente nessuno lo interroga — quindi un sito giù si scopre da un cliente che si lamenta. Origine §11, riconfermato §13.5.
+2. ~~`DRIVE_REFRESH_TOKEN` non ha nessun healthcheck.~~ **Chiusa il 2026-09-06** (§21), e in modo più ampio di come era scritta: la sonda è stata **generalizzata** e ora copre **tre** credenziali, non due. L'audit ha trovato un terzo punto cieco che non era nel backlog — le credenziali di **Google Calendar**, il cui guasto era completamente muto perché `sincronizza_slot_con_calendario` cattura ogni errore e lo lascia solo nei log. Il controllo gira la **domenica alle 03:30, mezz'ora prima del backup**: era la condizione perché la sonda servisse davvero, dato che a parità di cadenza col backup avrebbe scoperto il guasto quando lo si sarebbe scoperto comunque. Il numero resta occupato perché altre righe citano le voci per numero. Origine §13.6.
+
+3. **Uptime monitor esterno su `/health`, mai configurato.** Confermato osservativamente il 2026-09-02: nei log Railway non compare nessuna chiamata a quell'endpoint. L'endpoint funziona (interrogato a mano risponde), semplicemente nessuno lo interroga — quindi un sito giù si scopre da un cliente che si lamenta. **È ora la voce aperta più importante**, ed è l'unica del backlog che non può essere chiusa da dentro il repository: richiede che il coach crei un account su un servizio di uptime (UptimeRobot o simili) e lo punti su `https://vgc-coaching-production.up.railway.app/health`, a intervalli di qualche minuto. Dal lato codice non manca nulla — l'endpoint esiste, ha un test, e verifica anche che il database risponda. Va tenuta distinta dalla sorveglianza delle credenziali chiusa con la voce 2: quella si accorge che una chiave Google è morta, questa che il sito intero è giù. Un servizio spento non manda nessun alert su Discord, perché è lo stesso processo spento a doverlo mandare. Origine §11, riconfermato §13.5.
 4. ~~Azioni GitHub su Node.js 20 deprecato.~~ **Chiusa il 2026-09-06**: alzate a `actions/checkout@v5` e `actions/setup-python@v6`, con la CI riverificata verde sul push reale (§19). Il numero resta occupato perché altre righe di questo documento citano le voci per numero. Origine §13.5.
 
 **Verifica ricorrente, non evento singolo**
@@ -1282,3 +1282,91 @@ Corretto anche un riferimento stale in un commento didattico: `tests/test_admin.
 d'ambiente (nessuna divergenza fra codice, `.env.example` e README, verificato a macchina),
 i default documentati, l'elenco degli endpoint di §3 contro le rotte reali dell'app, la struttura di
 `backend/` file per file, e gli otto job dello scheduler.
+
+
+---
+
+## 21. Sessione 2026-09-06 (3) — una sonda per tre credenziali, e la cadenza settimanale
+
+Chiusa la voce 2, ma non come era scritta: l'audit richiesto prima di implementarla ha cambiato sia
+il perimetro sia la collocazione oraria, e sono le due cose che le danno valore.
+
+### Il difetto nel piano originale
+La voce 2 prometteva di ridurre il tempo di scoperta di un token Drive morto — "fino a 24 ore, a
+copia già saltata". Ma **l'healthcheck esistente girava anch'esso ogni 24 ore**
+(`GMAIL_HEALTHCHECK_INTERVAL_HOURS`, default mai sovrascritto), e il backup girava alle 04:00: una
+sonda Drive con la stessa cadenza avrebbe scoperto il guasto **nella stessa finestra del backup**,
+a volte prima e a volte dopo. Sarebbe stato codice nuovo per un beneficio in gran parte teorico.
+Il valore non stava nella sonda: stava nel **momento in cui gira**.
+
+### Cosa è stato fatto
+**Una sonda sola per tre credenziali.** `verifica_credenziali_google(nome, costruisci_credenziali)`
+vive in `google_oauth_service.py` e riceve una funzione che costruisce le credenziali da provare:
+è ciò che le permette di coprire due refresh token e un service account, che si costruiscono in tre
+modi diversi ma si rompono e si verificano allo stesso. Ogni servizio conserva un involucro con il
+proprio nome (`verifica_credenziali_gmail`, `..._drive`, `..._calendario`), così il chiamante resta
+leggibile e i commenti restano concreti.
+
+**Il terzo punto cieco, che non era nel backlog.** L'audit ha trovato **Google Calendar**: le sue
+credenziali non avevano nessun controllo, e il guasto era *più* silenzioso di quello di Drive.
+`sincronizza_slot_con_calendario` cattura ogni eccezione e la lascia nei log
+(`calendar_service.py:159-160`), quindi una chiave revocata non produce nessun segnale visibile:
+gli impegni presi fuori dall'app smetterebbero di bloccare gli slot senza che nessuno lo sappia.
+Drive almeno faceva fallire il backup, e il backup fallito avvisa.
+
+**Un solo job invece di tre.** `controlla_credenziali` scorre `CREDENZIALI_SORVEGLIATE`, una tupla
+di `CredenzialeSorvegliata` che tiene insieme sonda e testo dell'avviso — perché il caso peggiore
+di un monitoraggio non è l'alert mancante, è l'alert che segnala il guasto giusto suggerendo la
+cura sbagliata. Lo stato delle transizioni è passato da una variabile globale per servizio a un
+dizionario per nome: con lo stato condiviso, Drive rotto dopo Gmail rotto sarebbe passato per
+"nessun cambiamento" e non sarebbe stato segnalato. C'è un test apposta su questo.
+
+**Cadenza settimanale, domenica.** Controllo credenziali alle **03:30**, backup alle **04:00**.
+- Il backup è settimanale perché il volume di dati è basso e cambia poco: sei dump quasi identici
+  a settimana costano spazio e attenzione senza aggiungere protezione. Contropartita accettata
+  consapevolmente: la finestra di perdita massima passa da 24 ore a 7 giorni.
+- Il controllo è settimanale perché con la schermata di consenso "In production" la scadenza
+  periodica non esiste più, e restano revoca e cambio account — eventi rari e quasi sempre
+  volontari.
+- I trenta minuti fra i due **sono la modifica**, non un dettaglio: sono ciò che trasforma la sonda
+  Drive da "scopri il guasto quando lo avresti scoperto comunque" ad "avvisa prima che la copia
+  salti". Tre test proteggono questa collocazione, perché un riordino fatto in buona fede non
+  romperebbe nient'altro.
+
+`GMAIL_HEALTHCHECK_INTERVAL_HOURS` non serve più: rimossa dal codice e da `.env.example`. **Va
+rimossa anche dai due servizi Railway**, dove resta innocua ma fuorviante.
+
+### Verifica
+Le tre sonde sono state eseguite **contro Google vero**, non solo contro i mock: `Gmail: OK`,
+`Drive: OK`, `Calendar: OK`. Quella su Calendar è la conferma che serviva, perché è l'unica costruita
+su un service account invece che su un refresh token.
+
+Tre mutazioni introdotte apposta e poi rimosse, una per proprietà nuova:
+
+| Mutazione | Test che ha fallito |
+|---|---|
+| controllo credenziali spostato **dopo** il backup | `test_le_credenziali_si_controllano_prima_del_backup` |
+| Calendar tolto da `CREDENZIALI_SORVEGLIATE` | `test_la_lista_reale_sorveglia_le_tre_integrazioni_google` |
+| backup tornato giornaliero | `test_credenziali_e_backup_girano_una_volta_a_settimana` |
+
+### Risultato
+| | Prima | Dopo |
+|---|---|---|
+| Credenziali sorvegliate | 1 (Gmail) | **3** (Gmail, Drive, Calendar) |
+| Copie della logica di transizione | 1, non riusabile | **1, condivisa** |
+| Suite | 124 test | **135 test** |
+| Coverage totale | 81% | **82%** |
+
+### Voci 1 e 3, guardate nella stessa sessione
+**Voce 1** — le tre sonde eseguite oggi dicono `OK`, ma **non provano ancora niente**: il token è
+stato rigenerato il 04/09 e anche sotto il vecchio regime sarebbe arrivato vivo all'11. La prova
+resta quella datata: un token ancora valido **dopo il 2026-09-11**. Nota utile: da questa sessione
+la prova arriva anche da sola, perché il primo controllo automatico dopo quella data è **domenica
+13 settembre alle 03:30**, e se una credenziale fosse morta partirebbe l'alert su Discord. Il
+comando manuale resta valido e resta il modo per chiudere la voce.
+
+**Voce 3** — non chiudibile dal repository: richiede un account del coach su un servizio di uptime.
+Dal lato codice non manca nulla. È ora la voce aperta più importante, e il motivo è diventato più
+netto proprio grazie a questa sessione: la sorveglianza delle credenziali è comunque un allarme che
+**parte da dentro il processo**. Se il processo è giù, non parte nessun avviso — e quello è
+esattamente il caso che solo un monitor esterno vede.

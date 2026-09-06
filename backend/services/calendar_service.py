@@ -15,6 +15,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from google.oauth2 import service_account
+from backend.services.google_oauth_service import verifica_credenziali_google
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
 from backend.services.timezone_service import ROME_TZ, ora_utc_naive, intervalli_si_sovrappongono
@@ -31,9 +32,9 @@ PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY", "").replace("\\n", "\n")
 logger = logging.getLogger(__name__)
 
 
-def get_calendar_service():
-    """Costruisce il client autenticato per le API di Google Calendar."""
-    credenziali = service_account.Credentials.from_service_account_info(
+def _credenziali_service_account():
+    """Credenziali del service account, condivise dal client e dalla sonda."""
+    return service_account.Credentials.from_service_account_info(
         {
             "type": "service_account",
             "client_email": SERVICE_ACCOUNT_EMAIL,
@@ -42,7 +43,33 @@ def get_calendar_service():
         },
         scopes=SCOPES
     )
-    return build("calendar", "v3", credentials=credenziali)
+
+
+def get_calendar_service():
+    """Costruisce il client autenticato per le API di Google Calendar."""
+    return build("calendar", "v3", credentials=_credenziali_service_account())
+
+
+def verifica_credenziali_calendario() -> bool:
+    """Verifica che le credenziali del service account siano ancora valide.
+
+    Qui la credenziale non è un refresh token ma una chiave privata, che
+    non scade da sola: il guasto atteso è la revoca della chiave, la
+    cancellazione del service account o una rotazione fatta senza
+    aggiornare `GOOGLE_PRIVATE_KEY`. La prova resta la stessa, perché anche
+    un service account ottiene l'access token scambiando le proprie
+    credenziali.
+
+    Serviva un controllo perché questa integrazione è la più silenziosa
+    delle tre: `sincronizza_slot_con_calendario` cattura ogni errore e lo
+    lascia solo nei log, quindi senza questa sonda una chiave morta non
+    produce nessun segnale visibile.
+
+    Attenzione al limite: verifica l'identità, non il permesso. Un
+    calendario che smettesse di essere condiviso con il service account
+    darebbe credenziali valide e sincronizzazione comunque ferma.
+    """
+    return verifica_credenziali_google("Calendar", _credenziali_service_account)
 
 
 def crea_evento_calendario(
