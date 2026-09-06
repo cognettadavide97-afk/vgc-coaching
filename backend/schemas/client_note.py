@@ -1,6 +1,6 @@
 """Schemi Pydantic per le note tecniche sui clienti."""
 
-from pydantic import BaseModel
+from pydantic import ConfigDict, BaseModel
 from datetime import datetime
 
 
@@ -16,5 +16,4 @@ class ClientNoteResponse(BaseModel):
     nota: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

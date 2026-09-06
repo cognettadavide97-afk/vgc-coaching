@@ -207,9 +207,16 @@
                             (vedi il validator in backend/schemas/slots.py).
                         -->
                         <input type="datetime-local" id="nuovo-slot-data">
+                        <!-- Solo 1 ora. Una sessione da 2 ore non è uno slot
+                             da 2 ore: è l'unione di due slot da 1 ora adiacenti,
+                             decisa al momento della prenotazione. Uno slot da 2
+                             ore creato qui non comparirebbe nemmeno ai clienti,
+                             perché il form pubblico mostra solo quelli da 1 ora,
+                             e salterebbe il vincolo sugli orari di inizio.
+                             Il server rifiuta comunque durate diverse
+                             (backend/schemas/slots.py). -->
                         <select id="nuovo-slot-durata">
                             <option value="1">1 ora</option>
-                            <option value="2">2 ore</option>
                         </select>
                         <button class="btn-primary" onclick="creaSlot()">
                             + Aggiungi

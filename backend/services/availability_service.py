@@ -15,17 +15,13 @@ from backend.models.availability_exception import AvailabilityException
 from backend.services.timezone_service import ROME_TZ, ora_utc_naive, intervalli_si_sovrappongono
 
 
-def slot_si_sovrappone(db: Session, start_time: datetime, duration_hours: int, escludi_id: int = None) -> bool:
+def slot_si_sovrappone(db: Session, start_time: datetime, duration_hours: int) -> bool:
     """Indica se l'intervallo indicato si sovrappone a uno slot esistente.
 
     Considera gli slot in qualsiasi stato. Il claim atomico applicato in
     fase di prenotazione protegge un singolo slot dalla doppia
     prenotazione, ma non impedisce che due slot *distinti* si accavallino
     nel tempo, producendo un doppio impegno reale per il coach.
-
-    `escludi_id` esclude uno slot dal confronto, per poterlo verificare
-    contro tutti gli altri senza che risulti sovrapposto a sé stesso.
-    Nessun chiamante attuale lo usa.
     """
     fine = start_time + timedelta(hours=duration_hours)
 
@@ -34,14 +30,12 @@ def slot_si_sovrappone(db: Session, start_time: datetime, duration_hours: int, e
     # di questo margine non può sovrapporsi.
     margine = timedelta(hours=6)
 
-    query = db.query(Slot).filter(
+    candidati = db.query(Slot).filter(
         Slot.start_time < fine,
         Slot.start_time > start_time - margine
-    )
-    if escludi_id is not None:
-        query = query.filter(Slot.id != escludi_id)
+    ).all()
 
-    for s in query.all():
+    for s in candidati:
         s_fine = s.start_time + timedelta(hours=s.duration_hours)
         if intervalli_si_sovrappongono(start_time, fine, s.start_time, s_fine):
             return True

@@ -402,7 +402,7 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
-- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-07: **138 test, coverage 82%** (erano 135 prima dei test su HEAD /health, §21.3; 124 prima della generalizzazione delle sonde e dei test sulla cadenza, §21; 108 prima dei test sullo storico dello studente, sulle transizioni dell'alert Gmail e sul job di anonimizzazione, §20; 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
+- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-07: **144 test, coverage 83%** (erano 138 prima della revisione modulo per modulo, §22; 135 prima dei test su HEAD /health, §21.3; 124 prima della generalizzazione delle sonde e dei test sulla cadenza, §21; 108 prima dei test sullo storico dello studente, sulle transizioni dell'alert Gmail e sul job di anonimizzazione, §20; 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
 - **CI verde** su ogni push/PR (GitHub Actions), verificata sul push reale e non assunta dalla suite locale: run `33529945237` sul commit `61d4554` (01/09) e `33690855235` su `1e17319` (03/09). Dal **2026-09-06 gira su `actions/checkout@v5` e `actions/setup-python@v6`** (§19), e la prima esecuzione con le versioni nuove è stata controllata step per step, non solo nell'esito complessivo.
 - **Deploy Railway allineato alla punta di `origin/master`**, verificato a ogni push di questa sessione — ultimo: `b57017e` → `success`, con `/health` che risponde `200 {"status":"ok"}`. Il comando è nella voce 5 di §9.1.
 - **Invio email funzionante con il token rigenerato**: email di prova spedita con la funzione di produzione `_invia_via_gmail` e **ricevuta**, confermata dal coach il 2026-09-04 (§17).
@@ -1552,3 +1552,84 @@ Se il monitor è configurato come `HTTP(s)`, usa HEAD e finora riceveva 405: a s
 i codici non-2xx può aver segnalato il sito come giù. Un monitor di tipo `Keyword` deve invece usare
 GET, perché gli serve il corpo. Da verificare nella configurazione, insieme all'eventuale storico di
 avvisi ricevuti.
+
+
+---
+
+## 22. Sessione 2026-09-07 — revisione modulo per modulo
+
+Passata in rassegna ogni parte del backend, dei test e del frontend, con l'obbligo di proporre prima
+di modificare. **Nessun commento rotto**: il controllo automatico su percorsi e funzioni citati nei
+commenti non ha trovato nessun riferimento morto — la separazione fatta in §16 ha tenuto. Sono
+emersi invece due difetti reali, tre deprecazioni e del codice morto.
+
+### 22.1 `duration_hours` senza vincoli — un difetto, quattro conseguenze
+`SlotCreate.duration_hours` era un intero nudo. Riprodotto tutto prima di correggere:
+
+| Provato | Prima | Dopo |
+|---|---|---|
+| `POST /slots/` con durata 3 | 200, slot creato | 422 |
+| `POST /slots/` con 0 e −1 | 200, slot creati | 422 |
+| Prenotare uno slot con durata fuori listino | **`KeyError` → 500** | 422 |
+| Slot da 2h alle 09:00, poi prenotato | **200: vincolo aggirato** | 422 |
+
+La quarta riga è la più seria. `AvailabilityRuleCreate` **vieta già** le durate diverse da 1 ora, e la
+sua docstring dice perché: uno slot da 2 ore salta il vincolo sugli orari di inizio (15:00 o 17:00),
+perché in `create_booking` quel controllo vive nel ramo che confronta durata richiesta e durata dello
+slot — se coincidono, non viene mai eseguito. **Lo stesso invariante era difeso su un percorso e
+lasciato aperto su quello accanto.**
+
+C'era anche un quinto effetto, tutto dentro l'interfaccia: il form admin offriva "2 ore", ma
+`app.js` mostra solo gli slot con `duration_hours === 1`. Uno slot da 2 ore creato dal pannello **non
+sarebbe mai comparso ai clienti**: il coach creava qualcosa che credeva prenotabile e non lo era.
+L'opzione è stata rimossa dal form, con il perché scritto accanto.
+
+Vincolato anche `BookingCreate.duration_hours` a `Literal[1, 2]`, così il `KeyError` resta chiuso
+anche in presenza di eventuali slot legacy con durate anomale già salvati in produzione.
+
+### 22.2 Le date di creazione erano mostrate in UTC
+Tutti gli `start_time` passavano da `formatta_data_ora_rome`; tutti i `created_at` no — in quattro
+punti: lista prenotazioni, export CSV, lista clienti, lista recensioni. Il pannello mostrava quindi
+gli orari di sessione in ora italiana e quelli di creazione in UTC, **sfasati di un'ora d'inverno e
+di due d'estate**, in violazione della convenzione dichiarata da `timezone_service`.
+
+Nessun test se ne accorgeva perché nessuno guardava il *valore*, solo la forma. I due test aggiunti
+usano orari a cavallo della mezzanotte: con la conversione sbagliata non cambia solo l'ora, cambia
+il **giorno**, così una regressione salta all'occhio invece di nascondersi in sessanta minuti.
+
+### 22.3 Deprecazioni: zero warning dal nostro codice
+| Dove | Da | A |
+|---|---|---|
+| `database.py` | `sqlalchemy.ext.declarative.declarative_base` | `sqlalchemy.orm.declarative_base` |
+| 7 file in `schemas/` | `class Config` (11 occorrenze) | `model_config = ConfigDict(...)` |
+| `auth_service.py` | `datetime.utcnow()` | `ora_utc_naive()` |
+
+La seconda contava davvero: `class Config` è deprecata in Pydantic 2 e **rimossa in Pydantic 3**. La
+terza ha un secondo motivo oltre alla deprecazione: `auth_service` era l'unico modulo del progetto
+che non usava l'helper creato apposta per questo.
+
+### 22.4 Codice morto
+`slot_si_sovrappone` aveva un parametro `escludi_id` che nessun chiamante passava — e la docstring lo
+ammetteva: *"Nessun chiamante attuale lo usa"*. Rimosso. Tolte anche tre variabili assegnate e mai
+usate nei test: due sono diventate chiamate senza nome, con un commento che spiega perché la riga
+serve comunque (l'oggetto deve esistere nel database, il nome no).
+
+### 22.5 Verificato e lasciato com'era
+- **`GET /slots/` non ha `ORDER BY`.** Sospettavo un bug visibile con più regole di disponibilità,
+  perché gli slot sono generati regola per regola e gli id non seguono l'ordine cronologico.
+  **Provato, e l'ipotesi era sbagliata**: l'ordine esce corretto perché il planner sceglie l'indice
+  su `start_time` (`SEARCH slots USING INDEX ix_slots_start_time`). Non è garantito dalla query, ma
+  non è un difetto attivo: annotato come fragilità latente, non corretto.
+- **`create_booking` tiene lo slot riservato e non committato mentre chiama Google Calendar.** In
+  teoria allunga una transazione su una chiamata di rete. Con poche prenotazioni al giorno il
+  rischio reale è nullo, mentre riordinare la funzione più delicata dell'app non lo è. Lasciato.
+- **La paginazione ripetuta nei tre router admin**: già estratta in `pagination_service`, quel che
+  resta sono due righe per endpoint che è giusto restino esplicite.
+
+### Risultato
+| | Prima | Dopo |
+|---|---|---|
+| Suite | 138 test | **144 test** |
+| Coverage | 82% | **83%** |
+| Warning di deprecazione dal nostro codice | 13 | **0** |
+| Segnalazioni pyflakes non intenzionali | 4 | **0** |

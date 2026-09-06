@@ -79,7 +79,11 @@ def get_prenotazioni(
             "note_admin": p.note_admin,
             # None se la sessione non è ancora stata recensita.
             "voto": p.review.voto if p.review else None,
-            "creata_il": p.created_at.strftime("%d/%m/%Y %H:%M")
+            # Ora italiana come tutto il resto del pannello. Il valore nel
+            # database è UTC naive: mostrarlo grezzo lo sfalsava di un'ora
+            # d'inverno e di due d'estate rispetto agli orari di sessione
+            # qui accanto, già convertiti.
+            "creata_il": " ".join(formatta_data_ora_rome(p.created_at))
         })
 
     return busta_paginazione(risultato, totale, pagina, per_pagina)
@@ -176,7 +180,7 @@ def export_csv(
             p.price_cents / 100,
             p.note_cliente or "",
             p.note_admin or "",
-            p.created_at.strftime("%d/%m/%Y %H:%M")
+            " ".join(formatta_data_ora_rome(p.created_at))
         ])
 
     # Riporta il cursore all'inizio prima della lettura.

@@ -1,6 +1,6 @@
 """Schemi Pydantic per le prenotazioni."""
 
-from pydantic import BaseModel
+from pydantic import ConfigDict, BaseModel
 from datetime import datetime
 from typing import Optional, Literal
 
@@ -25,7 +25,13 @@ class BookingCreate(BaseModel):
     email: Optional[str] = None
 
     slot_id: int
-    duration_hours: int = 1
+
+    # `Literal` e non `int`: le uniche durate a listino sono 1 e 2 ore
+    # (TABELLA_PREZZI in backend/routers/booking.py). Un valore fuori da
+    # queste due arrivava fino al calcolo del prezzo e sollevava KeyError,
+    # cioè un 500 al posto di un errore leggibile. Pydantic lo respinge
+    # ora con un 422, prima che il router venga eseguito.
+    duration_hours: Literal[1, 2] = 1
     service_type: ServiceType
     note_cliente: Optional[str] = None
     vod_link: Optional[str] = None
@@ -53,8 +59,7 @@ class BookingResponse(BaseModel):
     package_id: Optional[int]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BookingStatoUpdate(BaseModel):
@@ -89,5 +94,4 @@ class BookingResponseStudente(BaseModel):
     package_id: Optional[int]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

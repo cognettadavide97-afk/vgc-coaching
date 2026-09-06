@@ -9,9 +9,10 @@ chiave di firma.
 
 import os
 import bcrypt
-from datetime import datetime, timedelta
+from datetime import timedelta
 from jose import JWTError, jwt
 from dotenv import load_dotenv
+from backend.services.timezone_service import ora_utc_naive
 
 load_dotenv()
 
@@ -40,7 +41,7 @@ def crea_token(username: str) -> str:
     # La scadenza viaggia dentro il token ("exp", claim standard verificato
     # da jwt.decode): non serve alcuno stato lato server per invalidarlo.
     # Di conseguenza un token non può essere revocato prima della scadenza.
-    scadenza = datetime.utcnow() + timedelta(minutes=EXPIRE_MINUTES)
+    scadenza = ora_utc_naive() + timedelta(minutes=EXPIRE_MINUTES)
     dati = {
         "sub": username,
         "type": "admin",
@@ -56,7 +57,7 @@ def crea_token_studente(user_id: int, email: str) -> str:
     Il claim `type` vale "student": è ciò che impedisce di riutilizzarlo
     sugli endpoint di amministrazione.
     """
-    scadenza = datetime.utcnow() + timedelta(minutes=EXPIRE_MINUTES)
+    scadenza = ora_utc_naive() + timedelta(minutes=EXPIRE_MINUTES)
     dati = {
         "sub": email,
         "type": "student",

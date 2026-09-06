@@ -5,7 +5,7 @@ dai model SQLAlchemy: quello che il client invia non coincide con quello
 che il server restituisce, né con quello che è salvato nel database.
 """
 
-from pydantic import BaseModel, EmailStr
+from pydantic import ConfigDict, BaseModel, EmailStr
 from datetime import datetime
 from typing import Optional, Literal
 
@@ -31,8 +31,7 @@ class UserIdResponse(BaseModel):
     """
     id: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserResponse(BaseModel):
@@ -45,7 +44,7 @@ class UserResponse(BaseModel):
     discord_tag: Optional[str]
     created_at: datetime
 
-    class Config:
-        # Consente di costruire lo schema direttamente da un oggetto
-        # SQLAlchemy, così un endpoint può restituire il model così com'è.
-        from_attributes = True
+    # from_attributes consente di costruire lo schema direttamente da un
+    # oggetto SQLAlchemy, così un endpoint può restituire il model così
+    # com'è.
+    model_config = ConfigDict(from_attributes=True)

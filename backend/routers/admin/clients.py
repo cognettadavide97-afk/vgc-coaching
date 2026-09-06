@@ -10,6 +10,7 @@ from backend.models.client_note import ClientNote
 from backend.models.package import Package
 from backend.schemas.client_note import ClientNoteCreate, ClientNoteResponse
 from backend.routers.admin import get_admin
+from backend.services.timezone_service import formatta_data_ora_rome
 from backend.services.booking_service import libera_slot_prenotazione
 from backend.services.pagination_service import pagina_e_offset, busta_paginazione
 from typing import List
@@ -79,7 +80,11 @@ def get_clienti(
             "sessioni_totali": stats_prenotazioni.get(c.id, 0),
             "totale_speso_euro": (spesa_prenotazioni.get(c.id, 0) or 0) / 100,
             "note_totali": conteggio_note.get(c.id, 0),
-            "registrato_il": c.created_at.strftime("%d/%m/%Y")
+            # Ora italiana come tutto il resto del pannello. Il valore nel
+            # database è UTC naive: mostrarlo grezzo lo sfalsava di un'ora
+            # d'inverno e di due d'estate rispetto agli orari di sessione
+            # qui accanto, già convertiti.
+            "registrato_il": formatta_data_ora_rome(c.created_at)[0]
         }
         for c in clienti
     ]

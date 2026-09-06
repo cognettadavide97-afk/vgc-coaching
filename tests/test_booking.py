@@ -269,7 +269,9 @@ def test_prenotazione_guest_senza_email_restituisce_422(client, db):
 def test_redenzione_pacchetto_azzera_prezzo_e_scala_credito(client, db):
     utente = crea_utente(client)
     slot_a = crea_slot(db, INIZIO)
-    slot_b = crea_slot(db, INIZIO + timedelta(hours=1))
+    # Lo slot adiacente deve esistere perché la sessione da 2 ore lo
+    # occupa: il router lo ritrova da solo per orario, non serve un nome.
+    crea_slot(db, INIZIO + timedelta(hours=1))
 
     pacchetto = Package(
         user_id=utente["id"], tipo="intro",

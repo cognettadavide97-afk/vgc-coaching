@@ -301,3 +301,50 @@ def test_aggiorna_note_prenotazione(client, db):
 
     db_prenotazione = db.query(Booking).filter(Booking.id == prenotazione["id"]).first()
     assert db_prenotazione.note_admin == "Cliente puntuale, buon feeling"
+
+
+# ─── Fuso orario delle date di creazione ──────────────────────
+#
+# Fino al 2026-09-07 gli orari di sessione erano convertiti in ora italiana
+# e le date di creazione no: il pannello mostrava le due cose in due fusi
+# diversi, sfalsate di un'ora d'inverno e di due d'estate. Non se ne
+# accorgeva nessun test perché nessuno guardava il valore, solo la forma.
+#
+# Gli orari qui sono scelti a cavallo della mezzanotte apposta: con la
+# conversione sbagliata non cambierebbe solo l'ora, cambierebbe il giorno —
+# così un'eventuale regressione salta all'occhio invece di nascondersi in
+# uno scarto di sessanta minuti.
+
+def test_data_creazione_prenotazione_in_ora_italiana(client, db):
+    utente = crea_utente(client)
+    slot = Slot(start_time=datetime(2026, 7, 20, 12, 0), duration_hours=1, is_available=False)
+    db.add(slot)
+    db.commit()
+    db.refresh(slot)
+
+    prenotazione = Booking(
+        user_id=utente["id"], slot_id=slot.id,
+        duration_hours=1, price_cents=2000, service_type="vod_review",
+        # 22:30 UTC del 14 luglio = 00:30 del 15 luglio in Italia (CEST, UTC+2).
+        created_at=datetime(2026, 7, 14, 22, 30)
+    )
+    db.add(prenotazione)
+    db.commit()
+
+    res = client.get("/admin/prenotazioni", headers=admin_headers())
+
+    assert res.status_code == 200
+    assert res.json()["items"][0]["creata_il"] == "15/07/2026 00:30"
+
+
+def test_data_registrazione_cliente_in_ora_italiana(client, db):
+    utente_id = crea_utente(client)["id"]
+    utente = db.query(User).filter(User.id == utente_id).first()
+    # 23:30 UTC del 14 gennaio = 00:30 del 15 gennaio in Italia (CET, UTC+1).
+    utente.created_at = datetime(2026, 1, 14, 23, 30)
+    db.commit()
+
+    res = client.get("/admin/clienti", headers=admin_headers())
+
+    assert res.status_code == 200
+    assert res.json()["items"][0]["registrato_il"] == "15/01/2026"

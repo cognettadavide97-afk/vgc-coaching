@@ -3,7 +3,7 @@
 # finora senza nessun test dedicato. Vedi tests/conftest.py per come sono
 # preparati client/db.
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 
 from backend.models.slots import Slot
 from backend.models.users import User

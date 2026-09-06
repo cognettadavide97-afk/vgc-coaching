@@ -51,7 +51,9 @@ def test_prenotazioni_senza_login_rifiutate(client):
 
 
 def test_prenotazioni_con_cookie_non_valido_rifiutate(client, db):
-    utente = crea_studente(db)
+    # Lo studente esiste davvero: così il rifiuto dipende dal cookie non
+    # valido, non dal fatto che non ci sia nessun utente nel database.
+    crea_studente(db)
 
     risposta = client.get(
         "/users/me/prenotazioni",

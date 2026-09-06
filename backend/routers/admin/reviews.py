@@ -7,6 +7,7 @@ from backend.models.review import Review
 from backend.models.booking import Booking
 from backend.schemas.review import ReviewApprovazione
 from backend.routers.admin import get_admin
+from backend.services.timezone_service import formatta_data_ora_rome
 from typing import Optional
 
 router = APIRouter()
@@ -40,7 +41,11 @@ def lista_recensioni(
             "voto": r.voto,
             "commento": r.commento,
             "approvata": r.approvata,
-            "created_at": r.created_at.strftime("%d/%m/%Y %H:%M"),
+            # Ora italiana come tutto il resto del pannello. Il valore nel
+            # database è UTC naive: mostrarlo grezzo lo sfalsava di un'ora
+            # d'inverno e di due d'estate rispetto agli orari di sessione
+            # qui accanto, già convertiti.
+            "created_at": " ".join(formatta_data_ora_rome(r.created_at)),
             "cliente": {
                 "nome": r.booking.user.nome,
                 "email": r.booking.user.email
