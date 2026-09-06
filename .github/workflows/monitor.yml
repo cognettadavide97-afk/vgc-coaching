@@ -24,6 +24,16 @@ on:
   # Permette di lanciarlo a mano dalla scheda Actions, per provarlo senza
   # aspettare il prossimo giro.
   workflow_dispatch:
+    inputs:
+      url_di_prova:
+        # Serve a rispondere alla domanda che un monitor non può lasciare
+        # aperta: l'avviso arriva davvero? Un indirizzo inesistente forza
+        # lo stato "giù" e fa partire il messaggio su Discord, senza dover
+        # aspettare un guasto vero né modificare il workflow. Il lancio
+        # successivo, senza questo campo, produce l'avviso di rientro.
+        description: "Indirizzo alternativo da interrogare, per provare che l'avviso parta"
+        required: false
+        default: ""
 
 permissions:
   # Serve solo a leggere l'esito del run precedente, vedi sotto.
@@ -35,7 +45,7 @@ jobs:
     steps:
       - name: Controlla /health e avvisa su Discord se lo stato è cambiato
         env:
-          URL: https://vgc-coaching-production.up.railway.app/health
+          URL: ${{ inputs.url_di_prova || 'https://vgc-coaching-production.up.railway.app/health' }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GH_TOKEN: ${{ github.token }}
         run: |
