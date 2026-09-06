@@ -1445,8 +1445,41 @@ per la stessa ragione per cui il monitor UptimeRobot è di tipo *Keyword*.
 | sito giù, precedente `failure` | silenzio | tace, uscita 1 |
 | sito giù, nessun run precedente | avviso | avvisa, uscita 1 |
 
-**Cosa manca**: il segreto `DISCORD_WEBHOOK_URL` nelle impostazioni Actions del repository. Senza,
-il workflow funziona lo stesso e il run fallito produce comunque la notifica GitHub al proprietario:
-si perde solo il canale Discord, e il log riporta un `::warning::` esplicito. Da sapere: **i workflow
-schedulati vengono disattivati da GitHub dopo 60 giorni di inattività del repository** — non un
-problema oggi, ma da ricordare se il progetto restasse fermo a lungo.
+Segreto `DISCORD_WEBHOOK_URL` impostato sul repository il 2026-09-06. Senza, il workflow
+funzionerebbe lo stesso e il run fallito produrrebbe comunque la notifica GitHub al proprietario: si
+perderebbe solo il canale Discord, con un `::warning::` esplicito nel log.
+
+#### Un difetto trovato solo perché il monitor è stato messo alla prova
+
+Il primo lancio manuale è andato **verde**: sito su, nessuno stato precedente, nessun avviso. Tutto
+corretto — e completamente inutile come verifica, perché un allarme che non ha mai suonato non ha
+dimostrato di saper suonare. Forzando un guasto finto (`workflow_dispatch` con un indirizzo
+inesistente) l'avviso Discord è partito, ma il log diceva `Esito del controllo precedente:
+'nessuno'` mentre un run concluso c'era.
+
+**Causa**: il job non fa il checkout, quindi `gh` non aveva nessun repository da cui dedurre il
+contesto. Il comando falliva e il `|| echo ""` lo inghiottiva, lasciando lo stato precedente sempre
+vuoto. **Effetto**: la logica delle transizioni non avrebbe mai funzionato, e l'avviso sarebbe
+ripartito **a ogni giro** mentre il sito era giù — cioè esattamente il difetto che quella logica
+esiste per evitare. Corretto con `--repo "$GITHUB_REPOSITORY"` esplicito; il fallimento ora produce
+un warning invece di sparire.
+
+È lo stesso insegnamento già costato caro a questo progetto con la sonda Gmail (§17): un
+monitoraggio si verifica **facendolo scattare**, non rileggendolo.
+
+#### Catena provata end-to-end in produzione
+
+| Run | Situazione | Atteso | Esito |
+|---|---|---|---|
+| `34064631314` | sito su, nessuno stato precedente | silenzio | tace |
+| `34064697085` | guasto forzato, primo rilevamento | avviso su Discord | **avviso ricevuto**, uscita 1 |
+| `34064838851` | sito su, precedente `failure` | avviso di rientro | **avviso ricevuto**, stato precedente letto correttamente |
+| `34064910347` | sito su, precedente `success` | silenzio | tace |
+
+Da sapere: **i workflow schedulati vengono disattivati da GitHub dopo 60 giorni di inattività del
+repository** — non un problema oggi, ma da ricordare se il progetto restasse fermo a lungo.
+
+#### Cosa resta per chiudere la voce 3
+Il canale Discord è provato. Resta la verifica su UptimeRobot, che è l'altra metà: **nei log Railway
+devono comparire chiamate regolari a `/health` da un IP esterno**, simmetrica a come ne fu accertata
+l'assenza il 2026-09-02. Va guardata dalla dashboard Railway, alla prossima sessione.
