@@ -402,8 +402,10 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
 - **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-06: **108 test, coverage 80%** (erano 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
-- **CI verde** su ogni push/PR (GitHub Actions) — riconfermato sul push del 01/09 (18 commit, `1732fc2..61d4554`, run `33529945237`), non solo assunto dalla suite locale. Riconfermato di nuovo sul push del 03/09 (8 commit, `61d4554..1e17319`, run `33690855235`), che ha portato in remoto tutto il lavoro della revisione (vedi §13.4).
-- Backup su Google Drive verificato end-to-end con un dump reale, **e confermato il 2026-09-02 che la cartella Drive contiene backup prodotti dalla produzione**, non solo dalle prove in locale.
+- **CI verde** su ogni push/PR (GitHub Actions), verificata sul push reale e non assunta dalla suite locale: run `33529945237` sul commit `61d4554` (01/09) e `33690855235` su `1e17319` (03/09). Dal **2026-09-06 gira su `actions/checkout@v5` e `actions/setup-python@v6`** (§19), e la prima esecuzione con le versioni nuove è stata controllata step per step, non solo nell'esito complessivo.
+- **Deploy Railway allineato alla punta di `origin/master`**, verificato a ogni push di questa sessione — ultimo: `b57017e` → `success`, con `/health` che risponde `200 {"status":"ok"}`. Il comando è nella voce 5 di §9.1.
+- **Invio email funzionante con il token rigenerato**: email di prova spedita con la funzione di produzione `_invia_via_gmail` e **ricevuta**, confermata dal coach il 2026-09-04 (§17).
+- Backup su Google Drive verificato end-to-end con un dump reale, **e confermato che la cartella Drive contiene backup prodotti dalla produzione**, non solo dalle prove in locale: interrogata direttamente il 2026-09-04, conteneva i dump del **2, 3 e 4 settembre** (l'ultimo delle 04:00Z). Il job notturno gira davvero — osservato, non dedotto dall'assenza di alert.
 - Login admin con la nuova password hashata, verificato live dopo il deploy.
 - **Login Discord studente end-to-end in produzione, verificato il 2026-09-02** — con cookie `student_token` marcato `Secure` e `HttpOnly`, controllato da DevTools. Da annotare perché non era solo "non verificato": **non poteva funzionare**, mancavano `DISCORD_CLIENT_ID`/`DISCORD_CLIENT_SECRET` su entrambi i servizi Railway (vedi §13).
 - **Schema di produzione allineato**: `alembic_version` risulta `2eac6f32b19b`, la head della catena in §2.
@@ -411,7 +413,19 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 
 ### 9.1 Backlog aperto — elenco unico
 
-Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e una voce chiusa in una sessione restava "aperta" in quello di un'altra: è successo davvero, con il login Discord e il backup notturno. **Questo è l'unico elenco da consultare**; quelli dentro le sezioni-diario sono congelati. Nessuna voce è bloccante e nessuna richiede di scrivere codice applicativo.
+Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e una voce chiusa in una sessione restava "aperta" in quello di un'altra: è successo davvero, con il login Discord e il backup notturno. **Questo è l'unico elenco da consultare**; quelli dentro le sezioni-diario sono congelati. Nessuna voce è bloccante. Una sola comporterebbe codice applicativo nuovo (la 2, se si decidesse di aggiungere l'healthcheck Drive); le altre sono verifiche, configurazione o test.
+
+**Da dove ripartire — ordine consigliato per le prossime sessioni**
+
+| # | Cosa | Chi può farlo | Quando |
+|---|---|---|---|
+| 1 | Controllo del token Gmail dopo la scadenza attesa — il comando è nella voce 1 | chiunque, da terminale | **dal 2026-09-11**: è la prima cosa della prima sessione utile, ed è l'unica con una data |
+| 11 | I tre punti di test rimasti: `/users/me/prenotazioni`, transizioni dell'alert Gmail, job di anonimizzazione | lavoro di sviluppo, nessun accesso esterno | quando c'è tempo — è il debito più utile rimasto |
+| 2 | Healthcheck del token Drive: sonda già pronta (§17), va solo collegata a un job | lavoro di sviluppo, **ma è codice nuovo**: decisione da prendere, non automatica | dopo aver deciso se vale l'aggiunta |
+| 3 | Monitor esterno su `/health` | richiede un account del coach su un servizio di uptime | sessione dedicata |
+| 8 | Consolidamento delle variabili Railway su un solo servizio | dashboard Railway, **tocca la produzione** | sessione dedicata, con verifica subito dopo |
+| 6, 7, 9, 10 | Occasionali o già decise: link recensione, prova d'abuso in produzione, rotazione password MySQL locale, dominio | — | quando si presenta l'occasione |
+
 
 **Con una data d'innesco**
 
