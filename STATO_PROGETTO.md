@@ -43,7 +43,8 @@ Monolite Python/FastAPI che serve sia le API REST sia i file statici del fronten
 │   │                                (Drive è mockato localmente in test_backup_service.py, non qui)
 │   ├── test_admin.py, test_booking.py, test_slots.py, test_richieste.py, test_discord_auth.py,
 │   │   test_email_service.py, test_retention.py, test_backup_service.py, test_health.py, test_reviews.py,
-│   │   test_availability.py, test_scheduler.py, test_pagination_service.py, test_avvio.py
+│   │   test_availability.py, test_scheduler.py, test_pagination_service.py, test_avvio.py,
+│   │   test_auth.py, test_users.py
 ├── backend/
 │   ├── main.py                      # entrypoint: logging, crea l'app, lifespan (migrazioni + backup pre-migrazione + scheduler),
 │   │                                  monta router e static, CORS ristretto, rate limiter, pagine HTML + /health
@@ -401,7 +402,7 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
-- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-06: **108 test, coverage 80%** (erano 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
+- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-06: **124 test, coverage 81%** (erano 108 prima dei test sullo storico dello studente, sulle transizioni dell'alert Gmail e sul job di anonimizzazione, §20; 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
 - **CI verde** su ogni push/PR (GitHub Actions), verificata sul push reale e non assunta dalla suite locale: run `33529945237` sul commit `61d4554` (01/09) e `33690855235` su `1e17319` (03/09). Dal **2026-09-06 gira su `actions/checkout@v5` e `actions/setup-python@v6`** (§19), e la prima esecuzione con le versioni nuove è stata controllata step per step, non solo nell'esito complessivo.
 - **Deploy Railway allineato alla punta di `origin/master`**, verificato a ogni push di questa sessione — ultimo: `b57017e` → `success`, con `/health` che risponde `200 {"status":"ok"}`. Il comando è nella voce 5 di §9.1.
 - **Invio email funzionante con il token rigenerato**: email di prova spedita con la funzione di produzione `_invia_via_gmail` e **ricevuta**, confermata dal coach il 2026-09-04 (§17).
@@ -420,11 +421,11 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 | # | Cosa | Chi può farlo | Quando |
 |---|---|---|---|
 | 1 | Controllo del token Gmail dopo la scadenza attesa — il comando è nella voce 1 | chiunque, da terminale | **dal 2026-09-11**: è la prima cosa della prima sessione utile, ed è l'unica con una data |
-| 11 | I tre punti di test rimasti: `/users/me/prenotazioni`, transizioni dell'alert Gmail, job di anonimizzazione | lavoro di sviluppo, nessun accesso esterno | quando c'è tempo — è il debito più utile rimasto |
 | 2 | Healthcheck del token Drive: sonda già pronta (§17), va solo collegata a un job | lavoro di sviluppo, **ma è codice nuovo**: decisione da prendere, non automatica | dopo aver deciso se vale l'aggiunta |
 | 3 | Monitor esterno su `/health` | richiede un account del coach su un servizio di uptime | sessione dedicata |
 | 8 | Consolidamento delle variabili Railway su un solo servizio | dashboard Railway, **tocca la produzione** | sessione dedicata, con verifica subito dopo |
 | 6, 7, 9, 10 | Occasionali o già decise: link recensione, prova d'abuso in produzione, rotazione password MySQL locale, dominio | — | quando si presenta l'occasione |
+| 11 | Quel che resta del debito di test: liste admin, sync calendario, tre endpoint minori di `users.py` | lavoro di sviluppo, nessun accesso esterno | in fondo alla lista — i punti rischiosi sono chiusi (§19, §20) |
 
 
 **Con una data d'innesco**
@@ -470,11 +471,9 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 
 **Debito di test — non blocca nulla, ma è dove un difetto passerebbe inosservato**
 
-11. **Le zone scoperte che restano**, in ordine di rischio. Il 20% non coperto non è distribuito in modo uniforme: quasi tutto è I/O verso servizi esterni, mockato per scelta. I due punti più rischiosi — `applica_blocco_eccezionale` e la CRUD di regole e blocchi — **sono stati coperti il 2026-09-06** (§19). Restano:
-    1. **`GET /users/me/prenotazioni`** (`users.py:79-101`) — legge dati personali filtrando per identità, cioè la categoria che la checklist di §12 dice di controllare sempre.
-    2. **Transizioni dell'alert Gmail** (`scheduler.py:213-232`) — quando avvisare su Discord e quando tacere. Il §17 ha corretto la *sonda*, ma questo meccanismo non ha test: è il codice che avrebbe suonato falso.
-    3. **`controlla_e_anonimizza_clienti_inattivi`** (`scheduler.py:242-254`) — il servizio GDPR sotto è al 100%, il job che lo invoca no.
-    4. **Liste admin e sync calendario** (`admin/availability.py:38-60, 72-73`) — lettura paginata degli slot e sincronizzazione con Google Calendar: rischio minore, la paginazione ha già il suo servizio coperto al 100%.
+11. **Le zone scoperte che restano**, in ordine di rischio. Il 19% non coperto non è distribuito in modo uniforme: quasi tutto è I/O verso servizi esterni, mockato per scelta. I punti più rischiosi sono stati chiusi in due sessioni consecutive: `applica_blocco_eccezionale` e la CRUD di regole e blocchi il 2026-09-06 (§19); **lo storico dello studente, le transizioni dell'alert Gmail e il job di anonimizzazione lo stesso giorno** (§20). Resta:
+    1. **Liste admin e sync calendario** (`admin/availability.py:38-60, 72-73`) — lettura paginata degli slot e sincronizzazione con Google Calendar: rischio minore, la paginazione ha già il suo servizio coperto al 100%.
+    2. **Endpoint minori di `users.py`** (righe 61, 67, 113) — la lista admin degli utenti, il profilo dello studente e i pacchetti attivi: tre letture senza logica, ciascuna una riga.
 
     **Da non inseguire, per scelta già presa**: `calendar_service` (24%), `discord_service` (41%), `google_oauth_service` (36%), i corpi HTML delle email e l'upload di `backup_service` sono I/O verso servizi esterni, mockati in `conftest.py` — testarli significherebbe testare le librerie di Google. Idem `main.py:86-103` e `database.py:41-45`, che partono solo con un server vero (§13). Origine §18.
 
@@ -1169,3 +1168,86 @@ cancellazioni.
 
 Quel che resta scoperto di `admin/availability.py` è la lettura paginata degli slot e la
 sincronizzazione con Google Calendar — spostati in §9.1, voce 11, insieme al resto.
+
+---
+
+## 20. Sessione 2026-09-06 (2) — chiusi i tre punti di test della voce 11
+
+Sedici test nuovi, **nessuna riga di codice applicativo toccata**: `tests/test_users.py` (nuovo, 7
+test) e un'aggiunta a `tests/test_scheduler.py` (9). I tre punti erano elencati nella voce 11 di
+§9.1 come "il debito più utile rimasto".
+
+### 1. `GET /users/me/prenotazioni` — lettura di dati personali filtrata per identità
+La categoria che la checklist di §12 dice di controllare sempre, per un motivo preciso: se il
+filtro sull'identità sparisse, **niente fallirebbe**. L'endpoint continuerebbe a rispondere 200 con
+una lista di prenotazioni — solo che sarebbero di tutti. Il test centrale crea due studenti con una
+prenotazione ciascuno e verifica non solo che chi chiama ne veda una, ma che l'id dell'altro **non
+compaia**: contare gli elementi non basterebbe a distinguere "filtrato bene" da "filtrato per
+sbaglio in un altro modo".
+
+Coperto anche il formato, che qui non ha una rete: la risposta è costruita a mano, senza
+`response_model`, quindi **nessuno schema Pydantic la valida**. Le date usano un istante fisso
+(15 gennaio 2026, 14:30 UTC) invece di "adesso", altrimenti le asserzioni varrebbero solo il giorno
+in cui girano i test; e c'è la coppia inverno/estate — le stesse 14:30 UTC sono le 15:30 a gennaio
+e le 16:30 a luglio — perché uno scarto fisso al posto del fuso reale passerebbe metà anno.
+
+### 2. Transizioni dell'alert Gmail (`controlla_credenziali_gmail`)
+Il meccanismo che decide **quando avvisare e quando tacere**. Ha due modi opposti di rompersi, e
+nessuno dei due si nota subito: un alert che non parte quando il token muore (l'invio email è fermo
+e nessuno lo sa) o un alert ripetuto ogni 24 ore, che si impara a ignorare. È lo stesso punto che a
+settembre aveva già suonato falso per una sonda sbagliata (§17): quella volta è stata corretta la
+sonda, ma la logica di transizione era rimasta senza test.
+
+Coperte tutte e quattro le combinazioni, più il caso del riavvio:
+
+| Stato precedente | Token ora | Atteso |
+|---|---|---|
+| `None` (processo appena riavviato) | valido | silenzio |
+| `None` | rotto | **alert** — un processo riavviato con il token già morto non deve restare muto |
+| valido | rotto | **alert** |
+| rotto | rotto | silenzio — è il motivo per cui la variabile di stato esiste |
+| rotto | valido | **alert di rientro** — senza, chi ha rifatto l'autorizzazione non sa se ha funzionato |
+| valido | valido | silenzio |
+
+Lo stato vive in una variabile globale del modulo che sopravvive fra un test e l'altro: ogni test la
+riporta al valore che gli serve con `monkeypatch`, che la ripristina da solo.
+
+### 3. `controlla_e_anonimizza_clienti_inattivi`
+Il servizio sotto era già al 100% (`tests/test_retention.py`); qui si copre il job, cioè le due cose
+che il servizio non decide. Quando notificare — mai, se non è stato anonimizzato nessuno — e
+soprattutto **cosa la notifica può contenere**: scrivere nome o email del cliente nell'alert Discord
+rimetterebbe in circolo esattamente i dati appena rimossi dal database, vanificando
+l'anonimizzazione. Il test asserisce che il conteggio ci sia e che i quattro dati personali dei due
+clienti finti **non compaiano** nel testo.
+
+Un terzo test controlla l'effetto e non il valore di ritorno: il commit avviene dentro il servizio,
+su una sessione che il job chiude subito dopo — se non fosse committato, il conteggio restituito
+sarebbe comunque giusto e il database sbagliato.
+
+### Verifica: i test falliscono davvero se il codice si rompe
+Un test che passa comunque non copre niente. Tre mutazioni introdotte apposta nel codice, una per
+punto, per controllare che la rete regga — e poi rimosse:
+
+| Mutazione | Test che ha fallito |
+|---|---|
+| filtro `Booking.user_id == studente.id` sostituito con `Booking.id > 0` | `test_studente_vede_solo_le_proprie_prenotazioni` |
+| `if not ok and _ultimo_controllo_gmail_ok is not False` → `if not ok` (alert a ogni esecuzione) | `test_gmail_problema_persistente_non_ripete_l_alert` |
+| `if anonimizzati:` → `if True:` (notifica anche con zero) | `test_anonimizzazione_senza_clienti_da_trattare_non_notifica` |
+
+Ogni mutazione ha fatto fallire **solo** il test che doveva, il che dice anche che i test sono
+puntati dove si crede.
+
+### Risultato
+| | Prima | Dopo |
+|---|---|---|
+| `backend/routers/users.py` | 85% | **95%** |
+| `backend/scheduler.py` | 60% | **72%** |
+| Suite | 108 test | **124 test** |
+| Coverage totale | 80% | **81%** |
+
+**Nessun difetto trovato**: tutti e sedici i test sono passati alla prima esecuzione contro il
+codice esistente. Il valore non è una correzione, è che tre comportamenti che prima nessuno
+verificava ora hanno una rete sotto.
+
+La voce 11 di §9.1 resta aperta ma scende in fondo alla lista: quel che rimane è la lettura paginata
+degli slot admin, la sincronizzazione con Google Calendar e tre endpoint di `users.py` senza logica.
