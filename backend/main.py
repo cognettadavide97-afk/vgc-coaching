@@ -162,13 +162,24 @@ app.include_router(pacchetti_richieste.router)
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 
-@app.get("/health")
+# `api_route` con GET e HEAD, non `@app.get`: FastAPI registra solo il
+# metodo dichiarato, quindi una rotta GET risponde **405** a una richiesta
+# HEAD. Non è un dettaglio accademico — i servizi di uptime usano HEAD di
+# default, perché scaricare il corpo per sapere se un sito risponde è
+# sprecato. Osservato nei log di produzione il 2026-09-07:
+# `"HEAD /health HTTP/1.1" 405 Method Not Allowed`, cioè il monitor esterno
+# appena configurato riceveva un errore da un servizio perfettamente sano.
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health(db: Session = Depends(get_db)):
     """Health check per il monitoraggio esterno.
 
     Esegue una query minima sul database invece di rispondere sempre 200: un
     processo vivo ma con il database irraggiungibile è comunque un servizio
     fuori uso, e senza questo controllo il monitor non se ne accorgerebbe.
+
+    La query gira anche per le richieste HEAD, di cui il server scarta poi
+    il corpo: un controllo che rispondesse senza interrogare il database
+    direbbe solo che il processo è acceso.
     """
     db.execute(text("SELECT 1"))
     return {"status": "ok"}

@@ -136,7 +136,7 @@ Non fanno parte dell'app che gira in produzione: si lanciano a mano, una tantum,
 
 ### `tests/` — la suite di test automatici
 
-16 file di test (135 test in tutto) che girano con `pytest`. `conftest.py` è il file di configurazione condiviso: sostituisce il database MySQL con uno SQLite in memoria e finge le integrazioni esterne (email, Calendar, Discord), così la suite gira ovunque — anche in CI — senza toccare nessun servizio vero.
+16 file di test (138 test in tutto) che girano con `pytest`. `conftest.py` è il file di configurazione condiviso: sostituisce il database MySQL con uno SQLite in memoria e finge le integrazioni esterne (email, Calendar, Discord), così la suite gira ovunque — anche in CI — senza toccare nessun servizio vero.
 
 Ogni file copre un'area, e il commento in cima dice quale e perché:
 
@@ -156,7 +156,7 @@ Ogni file copre un'area, e il commento in cima dice quale e perché:
 | `test_slots.py` | 4 | la lista pubblica degli slot liberi e la creazione di uno slot da admin |
 | `test_retention.py` | 4 | l'anonimizzazione dei clienti inattivi |
 | `test_backup_service.py` | 3 | il backup nei suoi tre esiti: saltato per configurazione mancante, riuscito, fallito a metà |
-| `test_health.py` | 1 | `GET /health`, che interroga davvero il database e non solo il processo |
+| `test_health.py` | 4 | `/health` su GET **e HEAD** (il metodo che usano i servizi di uptime), e che entrambi interroghino davvero il database |
 | `test_avvio.py` | 1 | che il semplice import dell'app non applichi migrazioni né avvii lo scheduler |
 
 I numeri cambiano a ogni sessione di lavoro: invece di fidarti di quelli scritti qui, lancia `pytest`, che stampa anche il report di coverage.
@@ -314,7 +314,7 @@ Nella colonna "Obbligatoria", `Sì` senza altro vuol dire che l'app non funziona
 | `python -m alembic revision -m "descrizione"` | Crea una nuova migrazione vuota (da scrivere a mano) |
 | `pip install -r requirements.txt` | Installa/aggiorna le dipendenze |
 | `pip install -r requirements-dev.txt` | Installa anche le dipendenze di test (pytest, httpx, pytest-cov) |
-| `pytest` | Esegue i 135 test automatici (`tests/`) — usa un database SQLite in memoria e non tocca il MySQL di sviluppo o produzione. Migrazioni e scheduler partono solo all'avvio di un server vero (handler `lifespan` in `backend/main.py`), mai al semplice import: è ciò che rende innocuo lanciare la suite con un `.env` popolato. Stampa anche il report di coverage, attivo di default via `pytest.ini` |
+| `pytest` | Esegue i 138 test automatici (`tests/`) — usa un database SQLite in memoria e non tocca il MySQL di sviluppo o produzione. Migrazioni e scheduler partono solo all'avvio di un server vero (handler `lifespan` in `backend/main.py`), mai al semplice import: è ciò che rende innocuo lanciare la suite con un `.env` popolato. Stampa anche il report di coverage, attivo di default via `pytest.ini` |
 | `python scripts/hash_admin_password.py` | Genera l'hash bcrypt da mettere in `ADMIN_PASSWORD_HASH` (chiede la password in modo interattivo, senza echo) |
 
 La stessa suite `pytest` gira automaticamente su ogni push/PR tramite GitHub Actions (`.github/workflows/tests.yml`), così un errore emerge prima del deploy, non dopo.

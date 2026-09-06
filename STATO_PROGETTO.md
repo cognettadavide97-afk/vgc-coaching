@@ -402,7 +402,7 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 
 **Verificato**:
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
-- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-06: **135 test, coverage 82%** (erano 124 prima della generalizzazione delle sonde e dei test sulla cadenza, §21; 108 prima dei test sullo storico dello studente, sulle transizioni dell'alert Gmail e sul job di anonimizzazione, §20; 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
+- **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-07: **138 test, coverage 82%** (erano 135 prima dei test su HEAD /health, §21.3; 124 prima della generalizzazione delle sonde e dei test sulla cadenza, §21; 108 prima dei test sullo storico dello studente, sulle transizioni dell'alert Gmail e sul job di anonimizzazione, §20; 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
 - **CI verde** su ogni push/PR (GitHub Actions), verificata sul push reale e non assunta dalla suite locale: run `33529945237` sul commit `61d4554` (01/09) e `33690855235` su `1e17319` (03/09). Dal **2026-09-06 gira su `actions/checkout@v5` e `actions/setup-python@v6`** (§19), e la prima esecuzione con le versioni nuove è stata controllata step per step, non solo nell'esito complessivo.
 - **Deploy Railway allineato alla punta di `origin/master`**, verificato a ogni push di questa sessione — ultimo: `b57017e` → `success`, con `/health` che risponde `200 {"status":"ok"}`. Il comando è nella voce 5 di §9.1.
 - **Invio email funzionante con il token rigenerato**: email di prova spedita con la funzione di produzione `_invia_via_gmail` e **ricevuta**, confermata dal coach il 2026-09-04 (§17).
@@ -1505,3 +1505,50 @@ problema già coperto dal secondo livello.
 Il canale Discord è provato. Resta la verifica su UptimeRobot, che è l'altra metà: **nei log Railway
 devono comparire chiamate regolari a `/health` da un IP esterno**, simmetrica a come ne fu accertata
 l'assenza il 2026-09-02. Va guardata dalla dashboard Railway, alla prossima sessione.
+
+
+### 21.3 `HEAD /health` rispondeva 405 — trovato dal monitor appena acceso
+
+Nei log Railway del **2026-09-07**, poche ore dopo aver configurato il monitor esterno:
+
+```
+INFO:  100.64.0.2:48168 - "HEAD /health HTTP/1.1" 405 Method Not Allowed
+```
+
+**Due notizie nella stessa riga.** La buona: qualcuno interroga davvero `/health` dall'esterno, il
+che è la prova che mancava alla voce 3 — nessuno dei controlli fatti da qui usa HEAD (i `curl` di
+verifica e il workflow GitHub usano GET), quindi quella richiesta viene dal monitor.
+
+La cattiva: riceveva un errore. `@app.get(...)` registra **solo** GET, e FastAPI — a differenza di
+Starlette puro — non aggiunge HEAD automaticamente. I servizi di uptime usano HEAD di default,
+perché scaricare il corpo per sapere se un sito risponde è sprecato. Risultato: **l'endpoint di
+monitoraggio rispondeva male proprio a chi lo monitora**, facendo sembrare rotto un servizio sano.
+È il tipo di guasto che manda a cercare il problema nel posto sbagliato.
+
+Corretto con `@app.api_route("/health", methods=["GET", "HEAD"])`. Il corpo di una risposta HEAD
+viene scartato dal server, ma la query sul database gira lo stesso — che è il punto: un controllo
+che rispondesse senza interrogare il database direbbe solo che il processo è acceso.
+
+#### Il test sbagliato, e come si è visto che era sbagliato
+La prima stesura simulava il database giù facendo esplodere **la dependency** `get_db`. Sembrava
+ragionevole e i test passavano. La mutazione di controllo — rimuovere del tutto `db.execute` — li ha
+lasciati **tutti e quattro verdi**: FastAPI risolve le dependency *prima* di chiamare la funzione
+dell'endpoint, quindi una dependency che esplode fa fallire la richiesta anche se l'endpoint il
+database non lo tocca affatto. Il test non stava verificando niente di ciò che credeva.
+
+Riscritto con una sessione finta che si apre regolarmente ed esplode alla **prima query**. Ora
+entrambe le mutazioni vengono intercettate:
+
+| Mutazione | Test che hanno fallito |
+|---|---|
+| rotta di nuovo solo `GET` | `test_health_risponde_anche_a_head`, `test_head_interroga_davvero_il_database` |
+| `/health` non interroga più il database | `test_health_fallisce_se_il_database_non_risponde`, `test_head_interroga_davvero_il_database` |
+
+Vale la pena registrarlo: la verifica per mutazione è servita a trovare un difetto **nei test**, non
+nel codice. Senza, questo file sarebbe rimasto in suite come una rete che non prende niente.
+
+#### Da controllare su UptimeRobot
+Se il monitor è configurato come `HTTP(s)`, usa HEAD e finora riceveva 405: a seconda di come tratta
+i codici non-2xx può aver segnalato il sito come giù. Un monitor di tipo `Keyword` deve invece usare
+GET, perché gli serve il corpo. Da verificare nella configurazione, insieme all'eventuale storico di
+avvisi ricevuti.
