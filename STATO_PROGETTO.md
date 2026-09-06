@@ -442,7 +442,7 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 
 2. ~~`DRIVE_REFRESH_TOKEN` non ha nessun healthcheck.~~ **Chiusa il 2026-09-06** (§21), e in modo più ampio di come era scritta: la sonda è stata **generalizzata** e ora copre **tre** credenziali, non due. L'audit ha trovato un terzo punto cieco che non era nel backlog — le credenziali di **Google Calendar**, il cui guasto era completamente muto perché `sincronizza_slot_con_calendario` cattura ogni errore e lo lascia solo nei log. Il controllo gira la **domenica alle 03:30, mezz'ora prima del backup**: era la condizione perché la sonda servisse davvero, dato che a parità di cadenza col backup avrebbe scoperto il guasto quando lo si sarebbe scoperto comunque. Il numero resta occupato perché altre righe citano le voci per numero. Origine §13.6.
 
-3. **Uptime monitor esterno su `/health`, mai configurato.** Confermato osservativamente il 2026-09-02: nei log Railway non compare nessuna chiamata a quell'endpoint. L'endpoint funziona (interrogato a mano risponde), semplicemente nessuno lo interroga — quindi un sito giù si scopre da un cliente che si lamenta. **È ora la voce aperta più importante**, ed è l'unica del backlog che non può essere chiusa da dentro il repository: richiede che il coach crei un account su un servizio di uptime (UptimeRobot o simili) e lo punti su `https://vgc-coaching-production.up.railway.app/health`, a intervalli di qualche minuto. Dal lato codice non manca nulla — l'endpoint esiste, ha un test, e verifica anche che il database risponda. Va tenuta distinta dalla sorveglianza delle credenziali chiusa con la voce 2: quella si accorge che una chiave Google è morta, questa che il sito intero è giù. Un servizio spento non manda nessun alert su Discord, perché è lo stesso processo spento a doverlo mandare. Origine §11, riconfermato §13.5.
+3. **Uptime monitor esterno su `/health`, mai configurato.** Confermato osservativamente il 2026-09-02: nei log Railway non compare nessuna chiamata a quell'endpoint. L'endpoint funziona (interrogato a mano risponde), semplicemente nessuno lo interroga — quindi un sito giù si scopre da un cliente che si lamenta. **È ora la voce aperta più importante**, ed è l'unica del backlog che non può essere chiusa da dentro il repository. **Account UptimeRobot creato dal coach il 2026-09-06**; configurazione del monitor consegnata nella stessa data (§21.1) e **non ancora verificata**: monitor di tipo *Keyword* su `https://vgc-coaching-production.up.railway.app/health`, parola chiave `"status":"ok"`, ogni 5 minuti. Dal lato codice non manca nulla — l'endpoint esiste, ha un test, e verifica anche che il database risponda. Va tenuta distinta dalla sorveglianza delle credenziali chiusa con la voce 2: quella si accorge che una chiave Google è morta, questa che il sito intero è giù. Un servizio spento non manda nessun alert su Discord, perché è lo stesso processo spento a doverlo mandare. Origine §11, riconfermato §13.5.
 4. ~~Azioni GitHub su Node.js 20 deprecato.~~ **Chiusa il 2026-09-06**: alzate a `actions/checkout@v5` e `actions/setup-python@v6`, con la CI riverificata verde sul push reale (§19). Il numero resta occupato perché altre righe di questo documento citano le voci per numero. Origine §13.5.
 
 **Verifica ricorrente, non evento singolo**
@@ -1370,3 +1370,37 @@ Dal lato codice non manca nulla. È ora la voce aperta più importante, e il mot
 netto proprio grazie a questa sessione: la sorveglianza delle credenziali è comunque un allarme che
 **parte da dentro il processo**. Se il processo è giù, non parte nessun avviso — e quello è
 esattamente il caso che solo un monitor esterno vede.
+
+
+### 21.1 Voce 3 — configurazione del monitor esterno consegnata
+
+Account UptimeRobot creato dal coach il **2026-09-06**. Valori consegnati nella stessa sessione,
+dopo aver verificato dal codice e dalla produzione le tre cose che avrebbero potuto farlo fallire:
+
+- **Nessun rate limit su `/health`.** Il decoratore `@limiter.limit` non c'è su quell'endpoint
+  (`backend/main.py:165`), quindi un controllo ogni 5 minuti non rischia di essere respinto —
+  cosa tutt'altro che scontata in un'app che limita a 5/minuto tutti gli endpoint pubblici.
+- **Un solo URL pubblico**, `https://vgc-coaching-production.up.railway.app`: la divisione fra i due
+  servizi Railway (voce 8) non crea un secondo indirizzo da monitorare.
+- **Risposta in ~0,3 s**, 15 byte, `200` — misurata su quattro chiamate reali.
+
+| Campo | Valore |
+|---|---|
+| Monitor Type | `Keyword` |
+| URL | `https://vgc-coaching-production.up.railway.app/health` |
+| Keyword | `"status":"ok"` (tipo *exists*) |
+| Intervallo | 5 minuti |
+
+**Keyword e non HTTP(s)**: sul piano gratuito costano uguale, ma il controllo sul solo codice di
+risposta prenderebbe per buona una pagina di errore dell'infrastruttura che risponde `200` con un
+contenuto sbagliato. Consigliato anche un contatto d'allerta **Webhook verso Discord**, dove già
+arrivano gli altri allarmi — e che ha il pregio di stare **fuori da Railway**: è la ragione stessa
+di questa voce, perché la sorveglianza delle credenziali chiusa con la voce 2 parte da dentro il
+processo, e un processo spento non avvisa nessuno.
+
+**Cosa manca per chiudere la voce.** Non basta che UptimeRobot dica "up": lo direbbe anche puntato
+su un sito qualsiasi. La prova è simmetrica a come fu accertata l'assenza del monitor il 2026-09-02
+(*"nei log Railway non compare nessuna chiamata a quell'endpoint"*): **nei log Railway devono ora
+comparire chiamate regolari a `/health`, ogni 5 minuti, da un IP esterno**. La CLI di Railway non è
+installata sulla macchina di sviluppo, quindi va guardato dalla dashboard. Da fare alla prossima
+sessione, insieme al controllo del token Gmail dell'11 settembre.
