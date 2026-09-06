@@ -16,10 +16,10 @@ jobs:
   pytest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Imposta Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           # Stessa versione dichiarata in nixpacks.toml (l'ambiente di
           # produzione reale su Railway) — la CI deve testare contro la
