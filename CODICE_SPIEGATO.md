@@ -209,14 +209,26 @@ ora_utc = ora_utc_naive()
 slots = db.query(Slot).filter(
     Slot.is_available == True,
     Slot.start_time >= ora_utc
-).all()
+).order_by(Slot.start_time).all()
 ```
 
-Due filtri, due motivi diversi:
+Due filtri e un ordinamento, tre motivi diversi:
 - `is_available == True` → non mostrare slot già presi;
 - `start_time >= ora_utc` → **non mostrare orari già passati**. Serve perché nulla marca uno slot
   come "scaduto": resta `is_available=True` per sempre finché qualcuno non lo prenota. Senza
-  questo secondo filtro il form proporrebbe appuntamenti nel passato.
+  questo secondo filtro il form proporrebbe appuntamenti nel passato;
+- `order_by(Slot.start_time)` → **un risultato SQL senza `ORDER BY` non ha un ordine**. Non "ha
+  l'ordine di inserimento": non ne ha nessuno garantito, e il database è libero di restituire le
+  righe come gli conviene. Qui la riga mancava, e in produzione MySQL le restituiva raggruppate
+  per regola di disponibilità — tutti i lunedì, poi tutti i mercoledì — perché il job notturno
+  genera una regola alla volta. Sul form le date saltavano dal 30 settembre all'8.
+
+> **Trappola da sapere:** il difetto non era emerso dai test perché la suite gira su **SQLite**,
+> che con l'indice su `start_time` sceglie un piano che restituisce le righe già ordinate. MySQL
+> no. Un test che confronta il *risultato* verifica quindi SQLite, non l'applicazione: per un
+> comportamento che dipende dal database va controllato l'**SQL generato**, che è identico
+> ovunque. In `tests/test_slots.py` ci sono entrambe le versioni, e solo la seconda fallisce
+> davvero quando la clausola viene tolta.
 
 Nota che questo endpoint **non ha** `Depends(get_admin)`: è pubblico apposta, deve funzionare per
 chi non ha nessun account.

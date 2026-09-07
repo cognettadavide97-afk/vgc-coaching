@@ -404,7 +404,9 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
 - **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-07: **146 test, coverage 83%** (erano 144 prima della correzione sull'ordinamento degli slot, §22.6; 138 prima della revisione modulo per modulo, §22; 135 prima dei test su HEAD /health, §21.3; 124 prima della generalizzazione delle sonde e dei test sulla cadenza, §21; 108 prima dei test sullo storico dello studente, sulle transizioni dell'alert Gmail e sul job di anonimizzazione, §20; 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
 - **CI verde** su ogni push/PR (GitHub Actions), verificata sul push reale e non assunta dalla suite locale: run `33529945237` sul commit `61d4554` (01/09) e `33690855235` su `1e17319` (03/09). Dal **2026-09-06 gira su `actions/checkout@v5` e `actions/setup-python@v6`** (§19), e la prima esecuzione con le versioni nuove è stata controllata step per step, non solo nell'esito complessivo.
-- **Deploy Railway allineato alla punta di `origin/master`**, verificato a ogni push di questa sessione — ultimo: `b57017e` → `success`, con `/health` che risponde `200 {"status":"ok"}`. Il comando è nella voce 5 di §9.1.
+- **Deploy Railway allineato alla punta di `origin/master`**, verificato a ogni push — ultimo: `13d15dc` → `success`. Il comando è nella voce 5 di §9.1.
+- **Monitoraggio esterno attivo dal 2026-09-07** (§21.2, voce 3 chiusa). Due livelli indipendenti: UptimeRobot ogni 5 minuti con avviso via email, e `.github/workflows/monitor.yml` ogni 15 minuti con avviso su Discord. La catena Discord è stata provata end-to-end forzando un guasto finto: allarme ricevuto, rientro ricevuto, silenzio quando non cambia nulla.
+- **Il sito in produzione osservato col browser, non dedotto dai test** (§22.7): homepage e wizard di prenotazione, `/about`, la pagina di login del pannello admin, e `/health` su GET **e HEAD**. Non verificato l'interno del pannello admin, che richiede un login.
 - **Invio email funzionante con il token rigenerato**: email di prova spedita con la funzione di produzione `_invia_via_gmail` e **ricevuta**, confermata dal coach il 2026-09-04 (§17).
 - Backup su Google Drive verificato end-to-end con un dump reale, **e confermato che la cartella Drive contiene backup prodotti dalla produzione**, non solo dalle prove in locale: interrogata direttamente il 2026-09-04, conteneva i dump del **2, 3 e 4 settembre** (l'ultimo delle 04:00Z). Il job notturno gira davvero — osservato, non dedotto dall'assenza di alert.
 - Login admin con la nuova password hashata, verificato live dopo il deploy.
@@ -421,7 +423,6 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 | # | Cosa | Chi può farlo | Quando |
 |---|---|---|---|
 | 1 | Controllo del token Gmail dopo la scadenza attesa — il comando è nella voce 1 | chiunque, da terminale | **dal 2026-09-11**: è la prima cosa della prima sessione utile, ed è l'unica con una data |
-| 3 | Monitor esterno su `/health` | **richiede un account del coach** su un servizio di uptime: non chiudibile dal repository | è la prima voce aperta per importanza — copre il caso "sito giù", che nessun altro controllo vede |
 | 8 | Consolidamento delle variabili Railway su un solo servizio | dashboard Railway, **tocca la produzione** | sessione dedicata, con verifica subito dopo |
 | 6, 7, 9, 10 | Occasionali o già decise: link recensione, prova d'abuso in produzione, rotazione password MySQL locale, dominio | — | quando si presenta l'occasione |
 | 11 | Quel che resta del debito di test: liste admin, sync calendario, tre endpoint minori di `users.py` | lavoro di sviluppo, nessun accesso esterno | in fondo alla lista — i punti rischiosi sono chiusi (§19, §20) |
@@ -442,7 +443,7 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 
 2. ~~`DRIVE_REFRESH_TOKEN` non ha nessun healthcheck.~~ **Chiusa il 2026-09-06** (§21), e in modo più ampio di come era scritta: la sonda è stata **generalizzata** e ora copre **tre** credenziali, non due. L'audit ha trovato un terzo punto cieco che non era nel backlog — le credenziali di **Google Calendar**, il cui guasto era completamente muto perché `sincronizza_slot_con_calendario` cattura ogni errore e lo lascia solo nei log. Il controllo gira la **domenica alle 03:30, mezz'ora prima del backup**: era la condizione perché la sonda servisse davvero, dato che a parità di cadenza col backup avrebbe scoperto il guasto quando lo si sarebbe scoperto comunque. Il numero resta occupato perché altre righe citano le voci per numero. Origine §13.6.
 
-3. **Uptime monitor esterno su `/health`, mai configurato.** Confermato osservativamente il 2026-09-02: nei log Railway non compare nessuna chiamata a quell'endpoint. L'endpoint funziona (interrogato a mano risponde), semplicemente nessuno lo interroga — quindi un sito giù si scopre da un cliente che si lamenta. **È ora la voce aperta più importante**, ed è l'unica del backlog che non può essere chiusa da dentro il repository. **Account UptimeRobot creato dal coach il 2026-09-06**; configurazione del monitor consegnata nella stessa data (§21.1) e **non ancora verificata**: monitor di tipo *Keyword* su `https://vgc-coaching-production.up.railway.app/health`, parola chiave `"status":"ok"`, ogni 5 minuti. Dal lato codice non manca nulla — l'endpoint esiste, ha un test, e verifica anche che il database risponda. Va tenuta distinta dalla sorveglianza delle credenziali chiusa con la voce 2: quella si accorge che una chiave Google è morta, questa che il sito intero è giù. Un servizio spento non manda nessun alert su Discord, perché è lo stesso processo spento a doverlo mandare. Origine §11, riconfermato §13.5.
+3. ~~Uptime monitor esterno su `/health`, mai configurato.~~ **Chiusa il 2026-09-07.** Aperta dal 25/08 e riconfermata il 02/09 con un'osservazione precisa: *"nei log Railway non compare nessuna chiamata a quell'endpoint"*. La chiusura ha la **prova simmetrica**, e non l'ha prodotta un controllo: è arrivata da sola. Nei log Railway del 2026-09-07 è comparso `"HEAD /health HTTP/1.1"` da `100.64.0.2` — nessuno dei controlli fatti dalla macchina di sviluppo usa HEAD (i `curl` e il workflow GitHub usano GET), quindi quella richiesta viene dal monitor esterno. L'endpoint è ora interrogato da fuori, che era esattamente il punto della voce. **Due monitor indipendenti**: UptimeRobot (tipo *Keyword* su `"status":"ok"`, ogni 5 minuti, avviso via email — sul piano gratuito i webhook sono riservati ai piani a pagamento, §21.2) e `.github/workflows/monitor.yml`, che fa lo stesso controllo ogni 15 minuti e avvisa su Discord. Il secondo vive su GitHub e non su Railway di proposito: un processo spento non può essere quello che avvisa di essere spento. La stessa riga di log ha anche scoperto un difetto — `HEAD` riceveva 405 — corretto in §21.3. Origine §11, riconfermato §13.5.
 4. ~~Azioni GitHub su Node.js 20 deprecato.~~ **Chiusa il 2026-09-06**: alzate a `actions/checkout@v5` e `actions/setup-python@v6`, con la CI riverificata verde sul push reale (§19). Il numero resta occupato perché altre righe di questo documento citano le voci per numero. Origine §13.5.
 
 **Verifica ricorrente, non evento singolo**
@@ -456,7 +457,7 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
    gh api repos/cognettadavide97-afk/vgc-coaching/deployments      --jq '.[0].id' | xargs -I{} gh api repos/cognettadavide97-afk/vgc-coaching/deployments/{}/statuses      --jq '.[0].state'
    ```
 
-   **Ultima verifica: 2026-09-06**, commit `f5adc13` (punta di `origin/master`) → `success`, deploy delle 15:18Z, con `/health` che risponde `200 {"status":"ok"}` e la CI verde sullo stesso commit (run `34041879970`, 124 test). Le verifiche precedenti — `b57017e` il 06/09 e `2951633` il 03/09 — erano anch'esse `success`. Nella stessa occasione è caduto anche il dubbio arretrato di §13.4: `1e17319` era stato deployato regolarmente il 2026-09-02, e risulta `inactive` solo perché nel frattempo superato da deploy più recenti. Origine §13.4.
+   **Ultima verifica: 2026-09-07**, commit `13d15dc` (punta di `origin/master`) → `success`, con la modifica osservata davvero sul sito e non dedotta dal deploy. Tutti i push di questa giornata sono stati verificati uno per uno — `0f64320`, `0123240`, `13d15dc` — e tutti `success`. Le verifiche precedenti — `f5adc13` il 06/09 e `2951633` il 03/09 — erano anch'esse `success`. Nella stessa occasione è caduto anche il dubbio arretrato di §13.4: `1e17319` era stato deployato regolarmente il 2026-09-02, e risulta `inactive` solo perché nel frattempo superato da deploy più recenti. Origine §13.4.
 
 **Da provare quando si presenta l'occasione**
 
@@ -1721,3 +1722,45 @@ Verificato che non introducesse regressioni sui pacchetti: `controllaPacchettoAt
 `durata_sessione_ore` e tutti i pacchetti a catalogo sono da 2 ore, ma viene chiamata al passaggio
 dallo step 2 al 3 — quando la durata è già stata scelta. Un cliente con pacchetto seleziona "2 ore"
 nello step 1 e il riquadro compare come prima.
+
+
+### 22.9 Chiusura della sessione — verifica dei documenti contro il codice
+
+Ultimo passaggio prima di chiudere: i documenti sono stati controllati **contro il codice**, non
+riletti. Dove il controllo poteva essere automatico lo è stato.
+
+**Verificato a macchina, nessun disallineamento**: i conteggi dei test per singolo file (16 file,
+146 test, confrontati con i `def test_` reali), le variabili d'ambiente nelle tre direzioni
+(codice ↔ `.env.example` ↔ README), i valori di default documentati, l'elenco degli endpoint di §3
+contro le 49 rotte reali dell'app, gli otto job dello scheduler, e i percorsi di file e i nomi di
+funzione citati nei commenti del codice.
+
+**Un errore trovato e corretto.** `CODICE_SPIEGATO.md` §3 citava la query di `GET /slots/` **senza
+`order_by`**, com'era prima della correzione di §22.6. Il blocco è stato aggiornato, e l'occasione
+è servita per aggiungere la spiegazione che mancava: un risultato SQL senza `ORDER BY` non ha
+"l'ordine di inserimento" — non ha nessun ordine garantito. Con accanto la trappola SQLite/MySQL, che
+è la parte che vale davvero la pena imparare.
+
+**Nota sul metodo, perché il controllo automatico ha avuto un punto cieco.** Lo script che confronta
+i blocchi di codice citati con i sorgenti **non** ha segnalato quella riga: scarta le righe più
+corte di otto caratteri per non annegare nei falsi positivi, e la differenza stava tutta in
+`).all()`. L'errore è emerso rileggendo. Vale come promemoria: un controllo automatico dice dove
+guardare, non che non ci sia nulla da vedere.
+
+**Falsi positivi noti**, per non riaprirli la prossima volta: `CATALOGO_PACCHETTI` è una costante
+Python e non una variabile d'ambiente; `MYSQL_ROOT_PASSWORD` è generata da Railway e il codice non
+la legge; i re-export in `backend/models/__init__.py` risultano "non usati" a pyflakes ma servono a
+registrare i model su `Base.metadata`; i blocchi di codice "non trovati" in §2 di
+`CODICE_SPIEGATO.md` sono semplificazioni didattiche volute — uno mostra apposta il modo
+**sbagliato** di riservare uno slot, per spiegare la race condition.
+
+### Stato alla chiusura
+| | |
+|---|---|
+| Suite | **146 test, coverage 83%** |
+| Warning di deprecazione dal nostro codice | **0** |
+| Segnalazioni pyflakes non intenzionali | **0** |
+| Voci di backlog aperte | **7** — le 1, 6, 7, 8, 9, 10, 11 (nessuna bloccante, nessuna richiede codice nuovo), più la 5 che è una verifica ricorrente a ogni push |
+| Voci chiuse in questa giornata | **2, 3, 4** |
+
+La prossima sessione riparte dalla voce 1: il controllo del token Gmail, **dall'11 settembre**.
