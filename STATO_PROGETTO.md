@@ -1697,33 +1697,40 @@ dai test, ora è stata osservata dove conta. Nessuna parte dell'applicazione res
 sul sito reale.
 
 
-### 22.8 Uno slot "sparito": il form pubblico partiva da 2 ore
+### 22.8 Il default del form portato a 1 ora
 
-Segnalazione del coach: slot da 1 ora creato per il **9 settembre alle 20:00**, visibile nel pannello
-admin ma non sul sito. Seguito lungo tutta la catena:
+**Non è stata la correzione di un difetto**, e vale la pena scriverlo con precisione perché la prima
+stesura di questa sezione lo raccontava come tale.
+
+Il coach ha creato uno slot da 1 ora per il **9 settembre alle 20:00** e non lo vedeva sul sito. Lo
+slot però non era mai sparito: era visibile scegliendo "1 ora", e il controllo era stato fatto sulla
+vista da **2 ore**. Una svista di lettura, chiarita dal coach stesso — registrata qui perché il
+documento diceva altro.
+
+Il tracciamento resta comunque utile, perché dice dove lo slot c'era:
 
 | Livello | Esito |
 |---|---|
 | Database e `GET /slots/` | **presente**: id 144, 20:00 italiane (18:00 UTC), 1 ora, libero |
-| Form pubblico, vista di partenza | **non compare** |
-| Form pubblico dopo aver scelto "1 ora" | **compare** |
+| Form pubblico, vista da 2 ore | non compare — corretto: le 20:00 non sono un inizio ammesso |
+| Form pubblico, vista da 1 ora | **compare** |
 
-**Nessun difetto nel backend.** La causa era `state.selectedHours: 2` in `app.js`: il form si apriva
-con **"2 ore" preselezionato**, e in quella modalità `renderSlots()` mostra soltanto gli slot che
-iniziano alle 15:00 o alle 17:00 e hanno l'ora successiva libera — il vincolo di prodotto sulle
-sessioni lunghe. Le 20:00 non sono fra gli orari ammessi, quindi la card spariva.
+Il comportamento era quindi giusto in ogni punto della catena. Con "2 ore" selezionate
+`renderSlots()` mostra solo gli slot che iniziano alle 15:00 o alle 17:00 e hanno l'ora successiva
+libera — il vincolo di prodotto sulle sessioni lunghe, applicato come previsto.
 
-Il meccanismo funzionava come progettato, ma produceva due effetti che nessuno voleva:
-
-1. **Per il coach**: uno slot creato in un orario diverso dai due canonici sembrava non esistere, e
-   senza leggere il codice non c'era modo di capire perché.
-2. **Per il cliente**: la pagina mostrava meno disponibilità di quanta ce ne fosse, senza spiegazione.
-   In una giornata di soli orari "insoliti" avrebbe letto *"nessuno slot disponibile"* — falso.
+Resta un'osservazione sull'interfaccia, che l'episodio ha reso evidente: partendo da "2 ore"
+preselezionate, chi arriva sul sito vede **meno disponibilità di quanta ce ne sia**, senza nessun
+indizio del perché. In una giornata di soli orari fuori dai due canonici leggerebbe *"nessuno slot
+disponibile"*, che sarebbe falso. Se ha tratto in inganno il coach, che il vincolo lo conosce, tanto
+più può trarre in inganno un cliente.
 
 **Default portato a 1 ora**, allineato fra `state` in `app.js` e il bottone `active` in `index.html`.
 Chi arriva vede ora tutta la disponibilità; chi vuole due ore lo sceglie, e da quel momento valgono
 gli orari ammessi. Il prezzo mostrato all'arrivo diventa €20 invece di €40: è una conseguenza
-commerciale della scelta, decisa dal coach.
+commerciale della scelta, decisa dal coach — che ha poi confermato che **limitare gli slot a un'ora
+era già nelle sue intenzioni**, indipendentemente dall'episodio. La modifica non nasce quindi da un
+guasto ma da una scelta di prodotto, e va contata fra quelle volute, non fra le correzioni.
 
 Verificato che non introducesse regressioni sui pacchetti: `controllaPacchettoAttivo()` abbina per
 `durata_sessione_ore` e tutti i pacchetti a catalogo sono da 2 ore, ma viene chiamata al passaggio
