@@ -406,7 +406,7 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 - **CI verde** su ogni push/PR (GitHub Actions), verificata sul push reale e non assunta dalla suite locale: run `33529945237` sul commit `61d4554` (01/09) e `33690855235` su `1e17319` (03/09). Dal **2026-09-06 gira su `actions/checkout@v5` e `actions/setup-python@v6`** (§19), e la prima esecuzione con le versioni nuove è stata controllata step per step, non solo nell'esito complessivo.
 - **Deploy Railway allineato alla punta di `origin/master`**, verificato a ogni push — ultimo: `13d15dc` → `success`. Il comando è nella voce 5 di §9.1.
 - **Monitoraggio esterno attivo dal 2026-09-07** (§21.2, voce 3 chiusa). Due livelli indipendenti: UptimeRobot ogni 5 minuti con avviso via email, e `.github/workflows/monitor.yml` ogni 15 minuti con avviso su Discord. La catena Discord è stata provata end-to-end forzando un guasto finto: allarme ricevuto, rientro ricevuto, silenzio quando non cambia nulla.
-- **Il sito in produzione osservato col browser, non dedotto dai test** (§22.7): homepage e wizard di prenotazione, `/about`, la pagina di login del pannello admin, e `/health` su GET **e HEAD**. Non verificato l'interno del pannello admin, che richiede un login.
+- **Il sito in produzione osservato, non dedotto dai test** (§22.7): homepage e wizard di prenotazione, `/about`, `/health` su GET **e HEAD**, e la pagina di login del pannello admin — col browser. L'**interno del pannello** è stato verificato dal coach il 2026-09-07, che ha confermato le date di creazione in ora italiana (§22.2). Nessuna parte dell'applicazione resta non verificata sul sito reale.
 - **Invio email funzionante con il token rigenerato**: email di prova spedita con la funzione di produzione `_invia_via_gmail` e **ricevuta**, confermata dal coach il 2026-09-04 (§17).
 - Backup su Google Drive verificato end-to-end con un dump reale, **e confermato che la cartella Drive contiene backup prodotti dalla produzione**, non solo dalle prove in locale: interrogata direttamente il 2026-09-04, conteneva i dump del **2, 3 e 4 settembre** (l'ultimo delle 04:00Z). Il job notturno gira davvero — osservato, non dedotto dall'assenza di alert.
 - Login admin con la nuova password hashata, verificato live dopo il deploy.
@@ -1598,6 +1598,11 @@ Nessun test se ne accorgeva perché nessuno guardava il *valore*, solo la forma.
 usano orari a cavallo della mezzanotte: con la conversione sbagliata non cambia solo l'ora, cambia
 il **giorno**, così una regressione salta all'occhio invece di nascondersi in sessanta minuti.
 
+**Confermato in produzione dal coach il 2026-09-07**, collegandosi al pannello: le date compaiono in
+ora italiana. È l'unica correzione della giornata che i test coprivano ma che nessuno aveva ancora
+guardato sul sito vero — il pannello richiede un login, e autenticarsi al posto del coach non
+rientra in quello che questa sessione fa.
+
 ### 22.3 Deprecazioni: zero warning dal nostro codice
 | Dove | Da | A |
 |---|---|---|
@@ -1685,9 +1690,11 @@ Fatta col browser dopo il deploy, non dedotta dai test.
 | `/admin-panel` | la pagina di login carica correttamente |
 | `/health` | `200` su GET **e HEAD** (la correzione di §21.3, confermata in produzione) |
 
-**Non verificato**: l'interno del pannello admin, che richiede un login. Le date di creazione in ora
-italiana (§22.2) sono coperte dai test ma non ancora osservate sul sito vero — da guardare alla
-prossima occasione in cui il coach è collegato al pannello.
+**Verificato anche l'interno del pannello admin**: il coach è entrato e ha **confermato il
+2026-09-07** che le date di creazione compaiono in ora italiana (§22.2). Era l'ultima verifica in
+sospeso della giornata, ed è quella che chiude il cerchio: la correzione non era più solo coperta
+dai test, ora è stata osservata dove conta. Nessuna parte dell'applicazione resta non verificata
+sul sito reale.
 
 
 ### 22.8 Uno slot "sparito": il form pubblico partiva da 2 ore
