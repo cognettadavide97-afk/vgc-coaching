@@ -404,7 +404,7 @@ Aggiunte rilevanti dopo il 19/08 — le voci di questo elenco sono citate altrov
 - Tutto quanto già verificato end-to-end in produzione al 19/08 (slot → prenotazione → email → Calendar → Discord → CSV, endpoint protetti → 401 senza token).
 - **Suite verde.** Il numero di test e la coverage cambiano a ogni sessione: per averli aggiornati si esegue il comando della CI — `DATABASE_URL="sqlite:///:memory:" JWT_SECRET="..." pytest` — invece di fidarsi di un numero scritto qui. Al 2026-09-07: **146 test, coverage 83%** (erano 144 prima della correzione sull'ordinamento degli slot, §22.6; 138 prima della revisione modulo per modulo, §22; 135 prima dei test su HEAD /health, §21.3; 124 prima della generalizzazione delle sonde e dei test sulla cadenza, §21; 108 prima dei test sullo storico dello studente, sulle transizioni dell'alert Gmail e sul job di anonimizzazione, §20; 93 prima dei test su disponibilità e blocchi, §19; 85 prima di quelli su login admin e rifiuto dei token, §18; 83 prima dei due sulla sonda dell'healthcheck, §17).
 - **CI verde** su ogni push/PR (GitHub Actions), verificata sul push reale e non assunta dalla suite locale: run `33529945237` sul commit `61d4554` (01/09) e `33690855235` su `1e17319` (03/09). Dal **2026-09-06 gira su `actions/checkout@v5` e `actions/setup-python@v6`** (§19), e la prima esecuzione con le versioni nuove è stata controllata step per step, non solo nell'esito complessivo.
-- **Deploy Railway allineato alla punta di `origin/master`**, verificato a ogni push — ultimo: `13d15dc` → `success`. Il comando è nella voce 5 di §9.1.
+- **Deploy Railway allineato alla punta di `origin/master`**, verificato a ogni push — ultimo: `8b7364d` → `success`, ricontrollato il 2026-09-07 (§23). Il comando è nella voce 5 di §9.1.
 - **Monitoraggio esterno attivo dal 2026-09-07** (§21.2, voce 3 chiusa). Due livelli indipendenti: UptimeRobot ogni 5 minuti con avviso via email, e `.github/workflows/monitor.yml` ogni 15 minuti con avviso su Discord. La catena Discord è stata provata end-to-end forzando un guasto finto: allarme ricevuto, rientro ricevuto, silenzio quando non cambia nulla.
 - **Il sito in produzione osservato, non dedotto dai test** (§22.7): homepage e wizard di prenotazione, `/about`, `/health` su GET **e HEAD**, e la pagina di login del pannello admin — col browser. L'**interno del pannello** è stato verificato dal coach il 2026-09-07, che ha confermato le date di creazione in ora italiana (§22.2). Nessuna parte dell'applicazione resta non verificata sul sito reale.
 - **Invio email funzionante con il token rigenerato**: email di prova spedita con la funzione di produzione `_invia_via_gmail` e **ricevuta**, confermata dal coach il 2026-09-04 (§17).
@@ -426,6 +426,7 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 | 8 | Consolidamento delle variabili Railway su un solo servizio | dashboard Railway, **tocca la produzione** | sessione dedicata, con verifica subito dopo |
 | 6, 7, 9, 10 | Occasionali o già decise: link recensione, prova d'abuso in produzione, rotazione password MySQL locale, dominio | — | quando si presenta l'occasione |
 | 11 | Quel che resta del debito di test: liste admin, sync calendario, tre endpoint minori di `users.py` | lavoro di sviluppo, nessun accesso esterno | in fondo alla lista — i punti rischiosi sono chiusi (§19, §20) |
+| 12 | Parità fra il motore dei test (SQLite) e quello di produzione (MySQL): le foreign key non applicate sono il punto che conta | lavoro di sviluppo, nessun accesso esterno | il primo dei tre passi costa cinque righe, gli altri due sono una scelta |
 
 
 **Con una data d'innesco**
@@ -457,7 +458,7 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
    gh api repos/cognettadavide97-afk/vgc-coaching/deployments      --jq '.[0].id' | xargs -I{} gh api repos/cognettadavide97-afk/vgc-coaching/deployments/{}/statuses      --jq '.[0].state'
    ```
 
-   **Ultima verifica: 2026-09-07**, commit `13d15dc` (punta di `origin/master`) → `success`, con la modifica osservata davvero sul sito e non dedotta dal deploy. Tutti i push di questa giornata sono stati verificati uno per uno — `0f64320`, `0123240`, `13d15dc` — e tutti `success`. Le verifiche precedenti — `f5adc13` il 06/09 e `2951633` il 03/09 — erano anch'esse `success`. Nella stessa occasione è caduto anche il dubbio arretrato di §13.4: `1e17319` era stato deployato regolarmente il 2026-09-02, e risulta `inactive` solo perché nel frattempo superato da deploy più recenti. Origine §13.4.
+   **Ultima verifica: 2026-09-07**, commit `8b7364d` (punta di `origin/master`) → `success`; prima di quella, `13d15dc` → `success`, con la modifica osservata davvero sul sito e non dedotta dal deploy. Tutti i push di questa giornata sono stati verificati uno per uno — `0f64320`, `0123240`, `13d15dc` — e tutti `success`. Le verifiche precedenti — `f5adc13` il 06/09 e `2951633` il 03/09 — erano anch'esse `success`. Nella stessa occasione è caduto anche il dubbio arretrato di §13.4: `1e17319` era stato deployato regolarmente il 2026-09-02, e risulta `inactive` solo perché nel frattempo superato da deploy più recenti. Origine §13.4.
 
 **Da provare quando si presenta l'occasione**
 
@@ -475,6 +476,17 @@ Prima esistevano cinque elenchi paralleli (qui, §11, §12, §13.5, §13.6) e un
 11. **Le zone scoperte che restano**, in ordine di rischio. Il 19% non coperto non è distribuito in modo uniforme: quasi tutto è I/O verso servizi esterni, mockato per scelta. I punti più rischiosi sono stati chiusi in due sessioni consecutive: `applica_blocco_eccezionale` e la CRUD di regole e blocchi il 2026-09-06 (§19); **lo storico dello studente, le transizioni dell'alert Gmail e il job di anonimizzazione lo stesso giorno** (§20). Resta:
     1. **Liste admin e sync calendario** (`admin/availability.py:38-60, 72-73`) — lettura paginata degli slot e sincronizzazione con Google Calendar: rischio minore, la paginazione ha già il suo servizio coperto al 100%.
     2. **Endpoint minori di `users.py`** (righe 61, 67, 113) — la lista admin degli utenti, il profilo dello studente e i pacchetti attivi: tre letture senza logica, ciascuna una riga.
+
+
+12. **La suite gira su SQLite, la produzione su MySQL — e i due motori non si comportano allo stesso modo.** Aperta il 2026-09-07 (§23) dopo aver misurato la distanza reale invece di presumerla. Non è un difetto noto: è una categoria di difetti che la suite, per come è costruita, non può vedere. Tre divergenze verificate sul codice, in ordine di rischio:
+
+    1. **SQLite non applica le foreign key.** Non esiste nessun `PRAGMA foreign_keys=ON` nel progetto (cercato: zero occorrenze); di default SQLite le dichiara e non le verifica, InnoDB sì. Lo schema ha sette FK: **tre puntano a `users.id`** (`bookings.user_id`, `client_notes.user_id`, `packages.user_id`), una a `bookings.id` (`reviews.booking_id`), due a `slots.id` e una a `packages.id`. Il percorso della **cancellazione GDPR** (`DELETE /admin/clienti/{user_id}`, §11) le attraversa quasi tutte, ed è una **catena a due livelli**: `reviews` pende da `bookings`, che pende da `users`. Con i vincoli applicati l'ordine di cancellazione non è libero — le recensioni vanno tolte prima delle prenotazioni, le prenotazioni prima del cliente. **Oggi il codice è corretto, e deliberatamente**: `elimina_cliente` toglie la recensione prima della prenotazione e i pacchetti solo dopo, con due commenti che dicono esattamente perché (`backend/routers/admin/clients.py`). Il problema non è lo stato attuale — è che quella correttezza **poggia sull'attenzione di chi scrive e non su un test**. Su SQLite senza vincoli, una modifica futura che invertisse l'ordine o dimenticasse una tabella figlia lascerebbe la suite verde, e il guasto comparirebbe in produzione come errore di chiave esterna, sulla cancellazione GDPR di un cliente vero. Il `PRAGMA` trasforma quei commenti in un vincolo verificato. **Rimedio: cinque righe di `event.listen` sul connect nel conftest.** È il passo da fare per primo, e da solo vale quasi tutto il valore della voce.
+    2. **L'unicità dell'email.** `users.email` è `unique=True` e il flusso di creazione utente la usa come *get-or-create* (commento in `backend/models/users.py`). SQLite confronta le stringhe case-sensitive, la collation di default di MySQL è case-insensitive: `Mario@x.com` e `mario@x.com` sono due utenti nei test e uno solo in produzione.
+    3. **Le lunghezze dichiarate.** `String(100)`, `String(20)`: SQLite le ignora, MySQL in strict mode solleva *Data too long*.
+
+    **Perché non si migra la suite a MySQL.** Valutato e scartato il 2026-09-07, con il motivo scritto perché non venga riproposto a scatola chiusa. Il costo non è la stringa di connessione, è **l'isolamento**: la fixture `db_pulito` fa `create_all`/`drop_all` a ogni test, 146 volte — istantaneo in memoria, DDL vero e non transazionale su MySQL. Isolare per transazione richiede il giro SAVEPOINT/`join_transaction_mode`, perché il codice applicativo fa `commit()` per conto suo: è una riscrittura della fixture, non un parametro. In più, puntare i test a un MySQL reale aggiunge **un secondo puntatore a un database vero** in un repo che su quella cucitura ha già sbagliato una volta. La via proporzionata, se si vuole la parità davvero, è una **seconda corsia solo in CI** (service container `mysql:8`, engine da variabile d'ambiente, job che può fallire senza bloccare), lasciando il locale su SQLite.
+
+    **Nota separata, emersa dalla stessa analisi**: i test costruiscono lo schema con `Base.metadata.create_all`, **non con la catena Alembic**. Quindi le migrazioni non sono provate da nessun test — né ora né in una eventuale suite su MySQL. È un buco distinto da questa voce, e nessuna delle opzioni sopra lo chiude.
 
     **Da non inseguire, per scelta già presa**: `calendar_service` (24%), `discord_service` (41%), `google_oauth_service` (36%), i corpi HTML delle email e l'upload di `backup_service` sono I/O verso servizi esterni, mockati in `conftest.py` — testarli significherebbe testare le librerie di Google. Idem `main.py:86-103` e `database.py:41-45`, che partono solo con un server vero (§13). Origine §18.
 
@@ -1778,3 +1790,51 @@ registrare i model su `Base.metadata`; i blocchi di codice "non trovati" in §2 
 | Voci chiuse in questa giornata | **2, 3, 4** |
 
 La prossima sessione riparte dalla voce 1: il controllo del token Gmail, **dall'11 settembre**.
+
+---
+
+## 23. Sessione 2026-09-07 (2) — parità fra il database dei test e quello di produzione
+
+Sessione **senza modifiche al codice applicativo**: si è ripreso lo stato, si è risposto a una domanda
+tecnica e si è registrato quel che ne è uscito. L'unico file cambiato è questo.
+
+### 23.1 Verifiche d'apertura
+Fatte a macchina, non dedotte dalla sessione precedente: albero pulito e allineato a `origin/master`
+(`8b7364d`), **146 test verdi, coverage 83%** — identici a quanto §22 aveva lasciato scritto — e
+deploy Railway di `8b7364d` → `success` (voce 5, §9.1 aggiornata).
+
+I 18 warning della suite sono stati controllati uno per uno invece di essere ignorati: vengono
+**tutti dalla stessa riga di terze parti**, `venv/.../fastapi/testclient.py:1`
+(`StarletteDeprecationWarning`, httpx). L'affermazione di §22.3 — zero deprecazioni **dal nostro
+codice** — regge. Va guardata ogni tanto proprio perché quel numero non è zero: è il posto dove una
+deprecazione nostra passerebbe inosservata, mimetizzata fra le altre.
+
+### 23.2 La domanda: conviene spostare la suite su MySQL?
+La risposta è **no** nella forma "sposto la suite", ed è registrata per intero nella **voce 12** di
+§9.1 — divergenze reali, rimedio proporzionato, e il motivo per cui la migrazione completa è stata
+scartata. Qui resta solo la parte che vale come metodo.
+
+**Il caso che motivava la domanda non la sosteneva.** L'esempio naturale era §22.6, l'ordinamento
+degli slot mancante: un difetto che la suite non vide e la produzione sì. Ma una query senza
+`ORDER BY` ha ordine **indefinito su entrambi i motori** — MySQL, su scansione di chiave primaria di
+una tabella piccola, restituisce quasi sempre l'ordine d'inserimento come SQLite. Quel test sarebbe
+stato verde anche su MySQL, per un colpo di fortuna diverso. **La migrazione non avrebbe intercettato
+l'unico difetto di parità che questo progetto ha davvero pagato.**
+
+Vale la pena tenerlo perché è lo schema d'errore più costoso in questa materia: partire da un difetto
+vero, dedurne la causa plausibile, e comprare una soluzione grossa che quel difetto non lo copriva.
+Le tre divergenze che giustificano un intervento sono state trovate **guardando lo schema**, non
+ragionando sul difetto — e sono altre tre.
+
+### Stato alla chiusura
+| | |
+|---|---|
+| Suite | **146 test, coverage 83%** (invariata: nessuna modifica al codice) |
+| Warning | 18, **tutti da terze parti**, nessuno dal nostro codice |
+| Codice applicativo modificato | **nessuno** |
+| Voci di backlog aperte | **8** — le 1, 6, 7, 8, 9, 10, 11, 12, più la 5 che è ricorrente a ogni push |
+| Voci aperte in questa sessione | **12** (parità SQLite/MySQL) |
+
+La voce 1 resta la prima della prossima sessione utile, **dall'11 settembre**: è l'unica con una data.
+Se si volesse lavorare prima di allora, il primo passo della voce 12 — le cinque righe del
+`PRAGMA foreign_keys=ON` — è il più alto rapporto fra valore e costo rimasto nel backlog.
