@@ -378,13 +378,14 @@ def test_lidentificativo_dellevento_viene_azzerato_anche_se_google_non_risponde(
 
 # ─── 3. CANCELLAZIONE E ANONIMIZZAZIONE DEL CLIENTE ──────────
 
-def test_cancellare_un_cliente_con_pacchetto_elimina_i_pacchetti_prima_delle_prenotazioni(client, db):
-    """L'ordine reale degli statement è l'opposto di quello del codice.
+def test_cancellare_un_cliente_con_pacchetto_elimina_le_prenotazioni_prima_dei_pacchetti(client, db):
+    """L'ordine eseguito coincide con l'ordine scritto nel codice.
 
     `db.delete(p)` accoda soltanto: l'SQL parte al commit. Il bulk delete
     dei pacchetti, invece, va al database subito. Con autoflush disattivato
-    (backend/database.py:28) i pacchetti vengono quindi cancellati mentre
-    le prenotazioni che li referenziano esistono ancora.
+    (backend/database.py) i due ordini divergerebbero, e i pacchetti
+    sarebbero cancellati mentre le prenotazioni li referenziano ancora: è
+    il flush esplicito in elimina_cliente a tenerli allineati.
     """
     from sqlalchemy import event
     from conftest import TEST_ENGINE
@@ -420,14 +421,14 @@ def test_cancellare_un_cliente_con_pacchetto_elimina_i_pacchetti_prima_delle_pre
                 return indice
         raise AssertionError(f"nessuno statement contiene {frammento!r}")
 
-    # COMPORTAMENTO SOSPETTO: DELETE FROM packages viene eseguito PRIMA di
-    # DELETE FROM bookings, cioè mentre le prenotazioni referenziano ancora
-    # il pacchetto. Su SQLite passa perché la suite gira senza i vincoli di
-    # chiave esterna attivi (PRAGMA foreign_keys resta OFF); su MySQL, dove
-    # il vincolo fk_bookings_package_id esiste davvero, lo stesso ordine
-    # produce l'errore 1451 e un 500 al pannello, con il cliente NON
-    # cancellato. È l'endpoint che implementa il diritto all'oblio.
-    assert prima_occorrenza("DELETE FROM packages") < prima_occorrenza("DELETE FROM bookings")
+    # DELETE FROM bookings deve venire PRIMA di DELETE FROM packages: è
+    # l'unico ordine che il vincolo fk_bookings_package_id accetta. Le
+    # assert sotto (il 200 e le righe sparite) non bastano da sole a
+    # dimostrarlo — con le chiavi esterne spente passerebbero anche con
+    # l'ordine rovesciato, che su MySQL è invece un errore 1451 e un 500
+    # sull'endpoint del diritto all'oblio. Questa assert guarda l'ordine,
+    # quelle sotto l'esito: servono entrambe.
+    assert prima_occorrenza("DELETE FROM bookings") < prima_occorrenza("DELETE FROM packages")
 
     assert db.query(User).filter(User.id == utente.id).first() is None
     assert db.query(Package).count() == 0

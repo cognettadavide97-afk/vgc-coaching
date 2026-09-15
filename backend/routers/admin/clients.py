@@ -122,6 +122,16 @@ def elimina_cliente(
             db.delete(p.review)
         db.delete(p)
 
+    # Senza questo flush l'ordine SCRITTO qui sopra non è l'ordine ESEGUITO:
+    # db.delete() accoda soltanto (l'SQL parte al commit), mentre il bulk
+    # delete delle righe sotto va al database subito. Con autoflush=False
+    # (backend/database.py) i pacchetti verrebbero quindi cancellati mentre
+    # le prenotazioni li referenziano ancora, e su MySQL il vincolo
+    # fk_bookings_package_id rifiuta con l'errore 1451: 500 al pannello e
+    # cliente NON cancellato, proprio sull'endpoint del diritto all'oblio.
+    # Il flush manda ora le cancellazioni accodate, nell'ordine di dipendenza.
+    db.flush()
+
     # I pacchetti si possono rimuovere solo ora: erano referenziati dalle
     # prenotazioni, eliminate al passo precedente.
     db.query(ClientNote).filter(ClientNote.user_id == user_id).delete()
