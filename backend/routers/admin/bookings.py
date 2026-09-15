@@ -96,11 +96,15 @@ def aggiorna_stato(
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
-    """Cambia lo stato di una prenotazione.
+    """Cambia lo stato di una prenotazione, se la transizione è ammessa.
 
     La cancellazione libera lo slot ed elimina l'evento sul calendario.
     Lo stato no_show non tocca né slot né calendario: la sessione è già
     passata. Uno stato non ammesso viene respinto dallo schema con un 422.
+
+    Transizioni ammesse: da confirmed a cancelled o no_show, da no_show a
+    confirmed (il coach corregge un errore, lo slot resta occupato da questa
+    stessa prenotazione) o a cancelled. Da cancelled non si torna indietro.
     """
     prenotazione = db.query(Booking).filter(
         Booking.id == booking_id
@@ -108,12 +112,39 @@ def aggiorna_stato(
     if not prenotazione:
         raise HTTPException(status_code=404, detail="Prenotazione non trovata")
 
+    # La prenotazione è di un cliente solo, ma lo SLOT passa di mano: una
+    # volta liberato può essere già stato prenotato da qualcun altro. Una
+    # prenotazione cancellata non conserva quindi alcun diritto sul proprio
+    # slot, e ogni ulteriore cambio di stato va rifiutato: ri-cancellarla
+    # rimetterebbe in vendita l'orario del cliente subentrato (la sua
+    # prenotazione resterebbe confermata su uno slot libero, aggirando la
+    # riserva atomica di booking.py:178-187), e riportarla a confirmed
+    # darebbe una prenotazione confermata su uno slot che nessuno ha
+    # ri-occupato. Per rimettere in piedi una prenotazione cancellata si
+    # rifà la prenotazione dal flusso normale, che lo slot lo riserva davvero.
+    if prenotazione.status == "cancelled":
+        raise HTTPException(
+            status_code=409,
+            detail="Una prenotazione cancellata non può cambiare stato: creane una nuova"
+        )
+
+    # 409 e non 200 silenzioso: due clic sullo stesso bottone di solito
+    # significano che la lista a schermo è vecchia, e il coach deve saperlo.
+    if prenotazione.status == dati.nuovo_stato:
+        raise HTTPException(
+            status_code=409,
+            detail=f"La prenotazione è già nello stato {dati.nuovo_stato}"
+        )
+
     # Assegnazione diretta: è un'azione manuale del coach, senza richieste
     # concorrenti sullo stesso oggetto da cui difendersi.
     prenotazione.status = dati.nuovo_stato
 
     if dati.nuovo_stato == "cancelled":
-        # Gestisce anche lo slot secondario delle sessioni da 2 ore.
+        # Sicuro solo grazie alle due guardie sopra: qui lo stato di partenza
+        # è confirmed o no_show, cioè lo slot che stiamo liberando è ancora
+        # di questa prenotazione. Gestisce anche lo slot secondario delle
+        # sessioni da 2 ore.
         libera_slot_prenotazione(prenotazione, db)
 
     db.commit()

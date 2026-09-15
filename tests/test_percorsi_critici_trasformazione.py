@@ -290,8 +290,8 @@ def test_no_show_non_rimette_lo_slot_in_vendita(client, db):
     assert slot.is_available is False
 
 
-def test_cancellare_due_volte_libera_lo_slot_di_un_altro_cliente(client, db):
-    """Cancellare una prenotazione già cancellata tocca lo slot di chi è subentrato."""
+def test_cancellare_due_volte_non_tocca_lo_slot_di_un_altro_cliente(client, db):
+    """Cancellare una prenotazione già cancellata viene rifiutata, non eseguita."""
     primo = crea_utente_db(db, "primo@example.com", nome="Primo")
     secondo = crea_utente_db(db, "secondo@example.com", nome="Secondo")
     slot = crea_slot(db, ORA + timedelta(days=7))
@@ -309,24 +309,24 @@ def test_cancellare_due_volte_libera_lo_slot_di_un_altro_cliente(client, db):
     # aperta con dati vecchi, doppio click, chiamata diretta all'API).
     res = client.patch(f"/admin/prenotazioni/{prenotazione_primo.id}/stato",
                        json={"nuovo_stato": "cancelled"}, headers=admin_headers())
-    assert res.status_code == 200, res.text
+
+    # aggiorna_stato rifiuta ogni cambio di stato che parta da "cancelled":
+    # quella prenotazione ha già rilasciato il proprio slot e non ha più
+    # alcun diritto su di esso. Senza questo rifiuto lo slot del secondo
+    # cliente tornerebbe prenotabile mentre la sua prenotazione è ancora
+    # confermata, aggirando la riserva atomica di booking.py:178-187 che è
+    # la difesa contro la doppia prenotazione.
+    assert res.status_code == 409, res.text
 
     db.refresh(slot)
     db.refresh(prenotazione_secondo)
 
-    # COMPORTAMENTO SOSPETTO: aggiorna_stato non guarda lo stato di
-    # partenza (admin/bookings.py:113-117), quindi libera lo slot ogni
-    # volta che il nuovo stato è "cancelled". Lo slot del secondo cliente
-    # torna prenotabile mentre la sua prenotazione è ancora confermata: da
-    # qui in avanti due clienti possono ritrovarsi sullo stesso orario, e
-    # la riserva atomica di booking.py:178-187 — che è la difesa contro la
-    # doppia prenotazione — viene aggirata da questa strada.
-    assert slot.is_available is True
+    assert slot.is_available is False
     assert prenotazione_secondo.status == "confirmed"
 
 
-def test_riportare_a_confermata_una_prenotazione_cancellata_non_ri_riserva_lo_slot(client, db):
-    """La transizione cancelled -> confirmed è ammessa e non riserva niente."""
+def test_riportare_a_confermata_una_prenotazione_cancellata_viene_rifiutato(client, db):
+    """La transizione cancelled -> confirmed è rifiutata con 409."""
     utente = crea_utente_db(db, "cliente@example.com")
     slot = crea_slot(db, ORA + timedelta(days=7))
     prenotazione = prenota(db, utente, slot)
@@ -336,15 +336,15 @@ def test_riportare_a_confermata_una_prenotazione_cancellata_non_ri_riserva_lo_sl
     res = client.patch(f"/admin/prenotazioni/{prenotazione.id}/stato",
                        json={"nuovo_stato": "confirmed"}, headers=admin_headers())
 
-    assert res.status_code == 200, res.text
+    # Ammetterla darebbe una prenotazione confermata su uno slot che nessuno
+    # ha ri-occupato: il sito continuerebbe a vendere quell'orario. Per
+    # rimettere in piedi una prenotazione cancellata si rifà la prenotazione
+    # dal flusso normale, che lo slot lo riserva davvero.
+    assert res.status_code == 409, res.text
     db.refresh(prenotazione)
     db.refresh(slot)
 
-    # COMPORTAMENTO SOSPETTO: la prenotazione risulta di nuovo confermata,
-    # ma il suo slot è rimasto libero e prenotabile da chiunque. Nessun
-    # errore viene mostrato: il pannello risponde "Stato aggiornato a
-    # confirmed".
-    assert prenotazione.status == "confirmed"
+    assert prenotazione.status == "cancelled"
     assert slot.is_available is True
 
 

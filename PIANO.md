@@ -68,7 +68,7 @@ l'intervento resta aperto, anche se il codice è già scritto: la sezione corris
 |---|---|---|---|---|
 | 1 | ✅ Chiavi esterne attive nella suite | prereq | 🛡 intera suite | — |
 | 2 | ✅ B1 — cancellazione cliente con pacchetto | BLOCCA | 📷 + 🛡 | 1 |
-| 3 | B3 — macchina a stati sulla prenotazione | BLOCCA | 📷 + 🛡 | — |
+| 3 | ✅ B3 — macchina a stati sulla prenotazione | BLOCCA | 📷 + 🛡 | — |
 | 4 | B2a — sblocco degli slot, lato backend | BLOCCA | 📷 + 🛡 | decisione P1 |
 | 5 | B2b — sblocco degli slot, lato pannello | BLOCCA | ⚠️ | 4 |
 | 6 | R17 — chiave della cache OAuth | RISCHIOSO | 🛡 | — |
@@ -181,7 +181,11 @@ rimosse e l'assenza di orfani in `bookings`, `packages`, `client_notes`, `review
 
 ---
 
-## 3. B3 — `aggiorna_stato` non è una macchina a stati
+## 3. ✅ B3 — `aggiorna_stato` non è una macchina a stati
+
+**Chiuso** il 2026-09-15, codice e test nello stesso commit. Verifica su MySQL non richiesta:
+l'intervento non tocca vincoli, collation né bulk delete, e sia il difetto sia la correzione sono
+interamente osservabili sulla suite.
 
 **Cosa si corregge** — `admin/bookings.py` assegna `prenotazione.status = dati.nuovo_stato` senza
 guardare lo stato di partenza e libera lo slot a ogni `cancelled`. Due conseguenze:
@@ -190,24 +194,62 @@ guardare lo stato di partenza e libera lo slot a ogni `cancelled`. Due conseguen
    frattempo l'ha preso, aggirando il claim atomico di `booking.py:178-187`;
 2. `cancelled → confirmed` è ammesso e non ri-riserva nulla: prenotazione confermata su slot libero.
 
-Correzione: transizioni ammesse esplicite — liberare lo slot solo su `confirmed → cancelled`, e
-rifiutare (o ri-riservare atomicamente) `cancelled → confirmed`.
+**Correzione applicata** — due guardie prima dell'assegnazione, invece di una tabella di transizioni
+esplicita: la seconda sarebbe stata più lunga senza dire nulla di più.
+
+1. **partenza `cancelled` → 409.** Una prenotazione cancellata ha già rilasciato il proprio slot e non
+   conserva alcun diritto su di esso: qualunque cambio di stato successivo va rifiutato. Una sola
+   guardia chiude entrambe le conseguenze sopra.
+2. **`nuovo_stato` uguale allo stato attuale → 409**, invece di un 200 silenzioso: due clic sullo
+   stesso bottone di solito significano che la lista a schermo è vecchia, e il coach deve saperlo.
+
+Restano ammesse `confirmed → cancelled`, `confirmed → no_show`, `no_show → confirmed` (il coach
+corregge un errore; lo slot è già occupato da questa stessa prenotazione, quindi non c'è niente da
+ri-riservare) e `no_show → cancelled`. `libera_slot_prenotazione` è rimasta dov'era: è la prima
+guardia a renderla sicura, perché quando ci si arriva lo stato di partenza è `confirmed` o `no_show`,
+cioè lo slot che si libera appartiene ancora a questa prenotazione. Il commento sopra la chiamata lo
+dichiara, così la dipendenza non si perde alla prossima modifica.
+
+`cancelled → confirmed` è **rifiutata, non ri-riservata**: ri-riservare significherebbe riscrivere qui
+il claim atomico di `booking.py:178-187`, gestire il caso «slot nel frattempo occupato» e decidere
+cosa fare dell'evento Google Calendar già cancellato — molto codice in un endpoint usato poche volte
+al giorno. Per rimettere in piedi una prenotazione cancellata si rifà la prenotazione dal flusso
+normale, che lo slot lo riserva davvero.
+
+**Perché 409 e non 400** — la richiesta è ben formata e sarebbe stata valida un minuto prima: l'unica
+cosa cambiata è lo stato della risorsa, che è la definizione di `409 Conflict`. Serve anche al **24**:
+il wrapper unico attorno a `fetch` potrà distinguere `401` (rifai login), `409` (i dati a schermo sono
+vecchi, ricarico la lista) e `400`/`422` (richiesta sbagliata) — e il ramo intermedio, che è quello
+che risolve il problema da solo, si può scrivere solo se il 409 è distinguibile.
 
 **File** — `backend/routers/admin/bookings.py:105-120`. Il percorso self-service
-(`backend/routers/booking.py:281-307`) fa già il controllo giusto a `:298-299` e **non va toccato**:
-è il pannello l'anello debole.
+(`backend/routers/booking.py:281-307`) fa già il controllo giusto a `:298-299` e **non è stato
+toccato**: è il pannello l'anello debole.
 
-**Test**
-- 📷 `tests/test_percorsi_critici_trasformazione.py:293` `test_cancellare_due_volte_libera_lo_slot_di_un_altro_cliente` — **da invertire**.
-- 📷 `tests/test_percorsi_critici_trasformazione.py:328` `test_riportare_a_confermata_una_prenotazione_cancellata_non_ri_riserva_lo_slot` — **da invertire**.
-- 🛡 `tests/test_percorsi_critici_trasformazione.py:263` (cancellazione normale) e `:279` (`no_show` non rimette in vendita).
-- 🛡 `tests/test_admin.py:224`, `:255`.
+**Test** — invertiti nello stesso commit, con i commenti `COMPORTAMENTO SOSPETTO` sostituiti dalla
+motivazione del rifiuto:
+- 📷 → 🛡 `tests/test_percorsi_critici_trasformazione.py:293`, rinominato `test_cancellare_due_volte_non_tocca_lo_slot_di_un_altro_cliente`: la seconda cancellazione risponde 409, lo slot del secondo cliente resta occupato e la sua prenotazione `confirmed`.
+- 📷 → 🛡 `tests/test_percorsi_critici_trasformazione.py:328`, rinominato `test_riportare_a_confermata_una_prenotazione_cancellata_viene_rifiutato`: 409, la prenotazione resta `cancelled`.
+- 🛡 `tests/test_percorsi_critici_trasformazione.py:263` (cancellazione normale) e `:279` (`no_show` non rimette in vendita) — verdi senza modifiche.
+- 🛡 `tests/test_admin.py:224`, `:255` — verdi senza modifiche.
 
-**Dipende da** — niente. Si può fare anche prima del 2.
+Suite dopo la correzione: `186 passed`, copertura di `backend/` al 90%. Nessuna `assert` toccata
+fuori dalle due di fotografia.
 
-**Nota** — `frontend/js/admin.js:427-441` non mostra alcun errore: dopo questo intervento il pannello
-potrà ricevere un 409/400 e continuerà a comportarsi come se tutto fosse andato bene. È il difetto
-R3 (intervento 24), che diventa più visibile ma non più grave.
+**Dipende da** — niente. Si poteva fare anche prima del 2.
+
+**Debito aperto, deliberato** — `booking.py:299` rifiuta il caso gemello sul percorso self-service
+(«prenotazione non attiva») con un **400**, quindi lo stesso concetto ha ora due codici in due
+endpoint. L'allineamento a 409 è stato valutato e **rimandato**, non scartato: costa una riga di
+codice e una riga di test (`tests/test_booking.py:557`, l'unico che lo asserisce) ed è invisibile al
+frontend, che a `app.js:199-203` guarda `res.ok` e mostra il `detail` senza leggere il numero.
+Separato il ramo `:301` («sessione già passata»), che è privo di test e va trattato con la procedura
+della Fascia D — prima il test, poi la modifica.
+
+**Nota** — `frontend/js/admin.js:427-441` non mostra alcun errore: il pannello ora riceve un 409 e
+continua a comportarsi come se tutto fosse andato bene — ricarica la lista e tace. È il difetto R3
+(intervento 24), che diventa più visibile ma non più grave: il coach non vede il rifiuto, ma lo slot
+del cliente subentrato non viene più rimesso in vendita, che era il danno vero.
 
 ---
 
