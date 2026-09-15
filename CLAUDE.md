@@ -56,7 +56,8 @@ Punti fragili censiti in `PROBLEMI.md`; leggere la voce prima di intervenire.
 - `routers/admin/__init__.py` — `get_admin` e l'import dei sotto-router in fondo: la catena
   `booking → users → admin → 6 sotto-router` si percorre a ogni import (D1, D2).
 - `services/google_oauth_service.py:23,33-42` — cache indicizzata solo sul refresh token (R17).
-- `tests/conftest.py` — `PRAGMA foreign_keys=ON` è corretto ma fa emergere difetti oggi invisibili.
+- `tests/conftest.py` — il listener `PRAGMA foreign_keys=ON` allinea SQLite a MySQL sui vincoli:
+  toglierlo rimette a verde test che oggi fotografano difetti reali (B1 in primo luogo).
 
 ## Regole di lavoro
 - Prima di modificare codice, descrivi il piano e attendi conferma esplicita.

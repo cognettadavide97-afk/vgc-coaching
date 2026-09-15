@@ -17,7 +17,7 @@
 #    sostituiamo con funzioni "finte" che non fanno nulla.
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
@@ -34,6 +34,28 @@ TEST_ENGINE = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
+
+@event.listens_for(TEST_ENGINE, "connect")
+def _attiva_chiavi_esterne(connessione_dbapi, _record):
+    """
+    SQLite legge le FOREIGN KEY dichiarate nei model, le registra... e poi
+    NON le applica: per compatibilità con le versioni storiche il controllo
+    è disattivato di default e va acceso con un PRAGMA, per ogni connessione.
+    MySQL (sviluppo locale e produzione) le applica sempre e non si possono
+    spegnere: senza questa riga il database della suite è più permissivo di
+    quello vero, e i test certificano come funzionanti operazioni che in
+    produzione finiscono con un errore 1451 e un 500.
+
+    Va fatto sull'evento "connect" perché il PRAGMA viene ignorato in
+    silenzio se eseguito dentro una transazione già aperta. Con StaticPool
+    la connessione è una sola e riusata, quindi scatta una volta per sessione
+    di test.
+    """
+    cursore = connessione_dbapi.cursor()
+    cursore.execute("PRAGMA foreign_keys=ON")
+    cursore.close()
+
+
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=TEST_ENGINE)
 
 
