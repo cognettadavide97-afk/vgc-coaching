@@ -60,10 +60,14 @@ Applicati nell'ordine dichiarato: **① BLOCCA**, **② coperto da test esistent
 interventi**, **④ cosmetico**. L'intervento 1 precede tutto pur non essendo BLOCCA: è il prerequisito
 di osservabilità del primo BLOCCA, e costa una riga.
 
+Un **✅** davanti al nome segna un intervento **chiuso**: codice applicato, test aggiornati nello
+stesso commit e — dove il piano la richiede — verifica su MySQL eseguita. Senza tutte e tre le cose
+l'intervento resta aperto, anche se il codice è già scritto: la sezione corrispondente dice cosa manca.
+
 | # | Intervento | Gravità | Copertura | Dipende da |
 |---|---|---|---|---|
-| 1 | Chiavi esterne attive nella suite | prereq | 🛡 intera suite | — |
-| 2 | B1 — cancellazione cliente con pacchetto | BLOCCA | 📷 + 🛡 | 1 |
+| 1 | ✅ Chiavi esterne attive nella suite | prereq | 🛡 intera suite | — |
+| 2 | ✅ B1 — cancellazione cliente con pacchetto | BLOCCA | 📷 + 🛡 | 1 |
 | 3 | B3 — macchina a stati sulla prenotazione | BLOCCA | 📷 + 🛡 | — |
 | 4 | B2a — sblocco degli slot, lato backend | BLOCCA | 📷 + 🛡 | decisione P1 |
 | 5 | B2b — sblocco degli slot, lato pannello | BLOCCA | ⚠️ | 4 |
@@ -105,7 +109,10 @@ di osservabilità del primo BLOCCA, e costa una riga.
 
 # Fascia A — prerequisito e BLOCCA
 
-## 1. Attivare le chiavi esterne nella suite di test
+## 1. ✅ Attivare le chiavi esterne nella suite di test
+
+**Chiuso** il 2026-09-15, commit `e3b52f5`. La suite è rimasta a 186 verdi con il listener attivo:
+nessun difetto nuovo è emerso oltre a B1, che era atteso.
 
 **Cosa si corregge** — la suite gira su SQLite senza `PRAGMA foreign_keys`, quindi i vincoli che in
 produzione (MySQL) esistono davvero non vengono mai applicati. È la causa comune di B1, R6 e della
@@ -125,15 +132,17 @@ non aggirati.
 già su `localhost`. Il metro di paragone non è ipotetico: dopo la modifica, un difetto di vincolo deve
 fallire **in entrambi**.
 
-> ⚠️ **Contraddizione con `CLAUDE.md`** — la sezione *NON TOCCARE SENZA CHIEDERE* elenca
-> «`tests/conftest.py` — `PRAGMA foreign_keys=ON` è corretto ma fa emergere difetti oggi invisibili»,
-> come se la riga esistesse. **Non esiste**: `tests/conftest.py` non contiene alcun `PRAGMA`
-> (verificato sul file, riga per riga). La voce va letta come raccomandazione anticipata, e
-> `CLAUDE.md` va corretto insieme a questo intervento.
+> ⚠️ **Contraddizione con `CLAUDE.md`, risolta con questo intervento** — la sezione *NON TOCCARE
+> SENZA CHIEDERE* elencava `tests/conftest.py` e il suo `PRAGMA foreign_keys=ON` come se la riga
+> esistesse già. **Non esisteva**: era una raccomandazione scritta al futuro. Ora la riga c'è davvero
+> e la voce di `CLAUDE.md` è stata riformulata di conseguenza, nello stesso commit.
 
 ---
 
-## 2. B1 — La cancellazione di un cliente con pacchetto fallisce con 500
+## 2. ✅ B1 — La cancellazione di un cliente con pacchetto fallisce con 500
+
+**Chiuso** il 2026-09-15, commit `ec62a89` per codice e test, verifica su MySQL locale eseguita lo
+stesso giorno (esito in fondo alla sezione).
 
 **Cosa si corregge** — `elimina_cliente` accoda `db.delete(p)` sulle prenotazioni (SQL differito al
 commit) e poi esegue un **bulk delete** sui pacchetti (SQL immediato). Con `autoflush=False`
@@ -154,10 +163,21 @@ prenotazioni, eliminate al passo precedente»).
 **Dipende da** — 1 (senza le FK attive il test continuerebbe a passare anche con l'ordine sbagliato,
 e la correzione non sarebbe dimostrabile).
 
-**Verifica su MySQL** — `fk_bookings_package_id` esiste sul MySQL locale: il 500 da errore 1451 si
-riproduce lì **prima** della correzione, creando un cliente con un pacchetto usato e chiamando
-`DELETE /admin/clienti/{id}` dal pannello. È la prova che il test di fotografia, che osserva solo
-l'ordine degli statement, non può dare.
+**Verifica su MySQL — eseguita il 2026-09-15, esito atteso su entrambi i rami.** Su `vgc_coaching`
+(MySQL 9.7.0, collation `utf8mb4_unicode_ci`), con `fk_bookings_package_id` confermato presente, è
+stato costruito uno scenario completo — cliente, nota, slot occupato, pacchetto e prenotazione
+confermata che lo consuma, più una recensione — e `elimina_cliente` è stato invocato due volte:
+
+- con la sequenza **pre-correzione** (bulk delete dei pacchetti senza flush delle prenotazioni
+  accodate): `IntegrityError (1451, 'Cannot delete or update a parent row: a foreign key constraint
+  fails (vgc_coaching.bookings, CONSTRAINT fk_bookings_package_id ...)')`, cioè il 500 al pannello con
+  il cliente **non** cancellato;
+- con il **codice attuale**: 200, `DELETE FROM bookings` allo statement 5 e `DELETE FROM packages` al
+  7, nessuna riga residua.
+
+Il difetto non era quindi dedotto dall'ordine degli statement: è stato **osservato** come errore 1451
+vero, ed è la prova che il test di fotografia su SQLite non può dare. Le righe di prova sono state
+rimosse e l'assenza di orfani in `bookings`, `packages`, `client_notes`, `reviews` è stata verificata.
 
 ---
 
