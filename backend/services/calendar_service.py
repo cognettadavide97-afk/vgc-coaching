@@ -201,6 +201,16 @@ def sincronizza_slot_con_calendario(db: Session) -> int:
 
     ora = ora_utc_naive()
 
+    # Solo gli slot ancora liberi: la sincronizzazione chiude, non riapre.
+    # Estendere il filtro agli slot con blocked_external=True per riaprire
+    # quelli il cui impegno è sparito sarebbe comodo, ma oggi non è sicuro:
+    # leggi_eventi_calendario restituisce [] sia con l'agenda vuota sia
+    # quando Google non risponde (vedi il suo except). Un minuto di
+    # irraggiungibilità basterebbe a far concludere "nessun impegno" e a
+    # rimettere in vendita tutti gli orari realmente occupati. Prerequisito
+    # per la riapertura automatica: far distinguere alla lettura il guasto
+    # dall'agenda vuota. Nel frattempo la via d'uscita è esplicita,
+    # POST /admin/slots/{slot_id}/sblocca.
     slot_liberi = db.query(Slot).filter(
         Slot.is_available == True,
         Slot.start_time >= ora

@@ -106,6 +106,54 @@ def elimina_slot(
     db.commit()
     return {"message": "Slot eliminato"}
 
+@router.post("/slots/{slot_id}/sblocca")
+def sblocca_slot(
+    slot_id: int,
+    admin: str = Depends(get_admin),
+    db: Session = Depends(get_db)
+):
+    """Rimette in vendita uno slot chiuso da un blocco, manuale o da calendario.
+
+    È l'unica via d'uscita dai due blocchi: sia la sincronizzazione col
+    calendario sia i blocchi eccezionali scrivono `blocked_external` e
+    `blocked_admin` solo a True e non li riaprono mai (vedi il commento in
+    `calendar_service.sincronizza_slot_con_calendario` e il docstring di
+    `elimina_blocco_eccezionale`). Senza questo endpoint un impegno
+    cancellato dal calendario o una settimana di ferie inserita per sbaglio
+    toglie quegli orari dalla vendita in modo definitivo.
+    """
+    slot = db.query(Slot).filter(Slot.id == slot_id).first()
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot non trovato")
+
+    if slot.is_available:
+        # 409 e non un 200 silenzioso: se il coach chiede di sbloccare uno
+        # slot già libero, la lista che ha davanti è vecchia e deve saperlo.
+        raise HTTPException(status_code=409, detail="Questo slot è già disponibile")
+
+    # I due flag sono l'unico modo per distinguere "bloccato" da "prenotato":
+    # quando sono entrambi False e lo slot non è disponibile, quell'ora è
+    # stata venduta a un cliente (vedi backend/models/slots.py:29-32).
+    # Riaprirla la rimetterebbe in vendita creando un doppio impegno reale,
+    # che è esattamente il danno chiuso lato prenotazioni in aggiorna_stato.
+    if not slot.blocked_external and not slot.blocked_admin:
+        raise HTTPException(
+            status_code=409,
+            detail="Questo slot non è bloccato: è prenotato da un cliente. Per liberarlo si cancella la prenotazione."
+        )
+
+    # Entrambi i flag, non solo quello acceso: descrivono *perché* lo slot è
+    # chiuso, quindi su uno slot aperto devono essere entrambi falsi. Se ne
+    # restasse uno a True il pannello continuerebbe a mostrarlo bloccato.
+    slot.is_available = True
+    slot.blocked_external = False
+    slot.blocked_admin = False
+    db.commit()
+
+    # Nessun controllo sul calendario: se l'impegno esiste ancora, la
+    # sincronizzazione notturna richiude lo slot da sola.
+    return {"message": "Slot sbloccato"}
+
 # ─── DISPONIBILITÀ RICORRENTE ─────────────────────────────────
 @router.get("/disponibilita/regole", response_model=List[AvailabilityRuleResponse])
 def lista_regole_disponibilita(
@@ -218,8 +266,12 @@ def elimina_blocco_eccezionale(
 ):
     """Elimina un blocco eccezionale.
 
-    Gli slot che aveva bloccato non vengono riaperti: vanno sbloccati a
-    mano se necessario.
+    Gli slot che aveva chiuso non vengono riaperti: vanno sbloccati uno per
+    uno con `POST /admin/slots/{slot_id}/sblocca`. Non è una dimenticanza:
+    il blocco non registra da nessuna parte *quali* slot abbia chiuso, e
+    riaprirli in automatico significherebbe riaprire tutto ciò che cade
+    nell'intervallo di date — compresi gli slot chiusi da un secondo blocco
+    sovrapposto, che deve restare in vigore.
     """
     blocco = db.query(AvailabilityException).filter(AvailabilityException.id == blocco_id).first()
     if not blocco:

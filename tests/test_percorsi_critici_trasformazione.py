@@ -185,7 +185,7 @@ def test_calendario_irraggiungibile_non_blocca_nulla_e_non_solleva(db, monkeypat
     assert leggi_eventi_calendario(ORA, ORA + timedelta(days=1)) == []
 
 
-def test_lo_slot_bloccato_non_viene_riaperto_quando_levento_sparisce(db, calendario):
+def test_la_sincronizzazione_non_riapre_da_sola_lo_slot_bloccato(db, calendario):
     """Il blocco automatico è a senso unico: si mette, non si toglie."""
     inizio = ORA + timedelta(days=7)
     slot = crea_slot(db, inizio)
@@ -204,19 +204,20 @@ def test_lo_slot_bloccato_non_viene_riaperto_quando_levento_sparisce(db, calenda
     sincronizza_slot_con_calendario(db)
     db.refresh(slot)
 
-    # COMPORTAMENTO SOSPETTO: lo slot resta chiuso per sempre. La query di
-    # sincronizzazione considera solo gli slot con is_available == True
-    # (calendar_service.py:204-207), quindi uno slot già bloccato non viene
-    # mai più esaminato, e in tutto il backend non esiste una riga che
-    # riporti blocked_external o blocked_admin a False. Nemmeno il pannello
-    # offre una via d'uscita: il pulsante di eliminazione compare solo per
-    # gli slot disponibili (frontend/js/admin.js:855).
+    # Voluto: la query di sincronizzazione considera solo gli slot con
+    # is_available == True, quindi uno slot già bloccato non viene più
+    # esaminato. Riaprirlo qui non sarebbe sicuro finché
+    # leggi_eventi_calendario restituisce [] anche quando Google non
+    # risponde: un minuto di irraggiungibilità rimetterebbe in vendita
+    # tutti gli orari realmente occupati. La via d'uscita è esplicita,
+    # POST /admin/slots/{slot_id}/sblocca — vedi i test dedicati in
+    # tests/test_availability.py.
     assert slot.is_available is False
     assert slot.blocked_external is True
 
 
-def test_uno_slot_bloccato_non_e_nemmeno_eliminabile_se_ha_uno_storico(client, db, calendario):
-    """L'unica altra uscita — eliminare lo slot — è chiusa se è già stato usato."""
+def test_uno_slot_bloccato_non_e_eliminabile_se_ha_uno_storico(client, db, calendario):
+    """Eliminare uno slot già usato resta vietato: si sblocca, non si cancella."""
     inizio = ORA + timedelta(days=7)
     slot = crea_slot(db, inizio)
 
@@ -230,10 +231,10 @@ def test_uno_slot_bloccato_non_e_nemmeno_eliminabile_se_ha_uno_storico(client, d
 
     res = client.delete(f"/admin/slots/{slot.id}", headers=admin_headers())
 
-    # COMPORTAMENTO SOSPETTO: preservare lo storico è ragionevole, ma
-    # sommato all'impossibilità di sbloccare uno slot (test precedente)
-    # significa che quell'orario esce definitivamente dalla vendita, senza
-    # alcuna azione possibile dall'interfaccia.
+    # Preservare lo storico è corretto e resta così: la prenotazione
+    # cancellata perderebbe il riferimento all'orario a cui si riferiva.
+    # Non è più un vicolo cieco, però: per rimettere in vendita quell'ora
+    # c'è lo sblocco, che non tocca lo storico.
     assert res.status_code == 400
     assert db.query(Slot).filter(Slot.id == slot.id).first() is not None
 

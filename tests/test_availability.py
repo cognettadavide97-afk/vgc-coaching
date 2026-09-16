@@ -334,10 +334,13 @@ def test_elimina_blocco_inesistente_risponde_404(client, db):
 def test_elimina_blocco_non_riapre_gli_slot_che_aveva_chiuso(client, db):
     """Comportamento voluto, non dimenticanza.
 
-    Riaprire in automatico rimetterebbe in vendita orari che il coach
-    potrebbe aver chiuso anche per altri motivi; la riapertura è una
-    decisione esplicita. Il test lo fissa perché è controintuitivo, e
-    senza una prova qualcuno lo "correggerebbe" in buona fede.
+    Il blocco non registra quali slot abbia chiuso: riaprirli in automatico
+    vorrebbe dire riaprire tutto ciò che cade nell'intervallo di date,
+    compresi gli slot chiusi da un secondo blocco sovrapposto che deve
+    restare in vigore. La riapertura è quindi una decisione esplicita, slot
+    per slot, tramite POST /admin/slots/{slot_id}/sblocca. Il test lo fissa
+    perché è controintuitivo, e senza una prova qualcuno lo "correggerebbe"
+    in buona fede.
     """
     slot = crea_slot(db, datetime(2030, 7, 12, 10, 0))
     creato = client.post(
@@ -351,6 +354,91 @@ def test_elimina_blocco_non_riapre_gli_slot_che_aveva_chiuso(client, db):
     assert res.status_code == 200
     db.refresh(slot)
     assert slot.is_available is False and slot.blocked_admin is True
+
+
+# ─── SBLOCCO DI UNO SLOT ──────────────────────────────────────
+# È l'unica riga del backend che riporti blocked_external e blocked_admin a
+# False: senza, un impegno cancellato dal calendario o una settimana di
+# ferie sbagliata toglie quegli orari dalla vendita in modo definitivo.
+# La guardia che conta è quella sullo slot prenotato: i due flag sono
+# l'unico modo per distinguerlo da uno bloccato.
+
+def test_sblocca_slot_bloccato_da_ferie_lo_rimette_in_vendita(client, db):
+    slot = crea_slot(db, FUTURO)
+    blocco(db, FUTURO.date(), FUTURO.date())
+    db.refresh(slot)
+    assert slot.is_available is False and slot.blocked_admin is True
+
+    res = client.post(f"/admin/slots/{slot.id}/sblocca", headers=admin_headers())
+
+    assert res.status_code == 200, res.text
+    db.refresh(slot)
+    assert slot.is_available is True
+    # Entrambi i flag, non solo quello che era acceso: su uno slot aperto
+    # non c'è più un "perché è chiuso" da conservare.
+    assert slot.blocked_admin is False and slot.blocked_external is False
+
+
+def test_sblocca_slot_bloccato_dal_calendario_lo_rimette_in_vendita(client, db):
+    """L'altro dei due blocchi, che nasce dalla sincronizzazione notturna."""
+    slot = crea_slot(db, FUTURO, is_available=False)
+    slot.blocked_external = True
+    db.commit()
+
+    res = client.post(f"/admin/slots/{slot.id}/sblocca", headers=admin_headers())
+
+    assert res.status_code == 200, res.text
+    db.refresh(slot)
+    assert slot.is_available is True
+    assert slot.blocked_external is False and slot.blocked_admin is False
+
+
+def test_sblocca_rifiuta_uno_slot_prenotato_da_un_cliente(client, db):
+    """La guardia che impedisce di vendere due volte la stessa ora.
+
+    Uno slot prenotato ha is_available False come uno bloccato, ma entrambi
+    i flag a False. Riaprirlo lo rimetterebbe nella lista pubblica mentre
+    un cliente lo ha già comprato.
+    """
+    slot = crea_slot(db, FUTURO, is_available=False)
+    utente = User(nome="Cliente", email="c@example.com", categoria="senior")
+    db.add(utente)
+    db.commit()
+    db.add(Booking(user_id=utente.id, slot_id=slot.id, duration_hours=1,
+                   price_cents=2000, service_type="vod_review", status="confirmed"))
+    db.commit()
+
+    res = client.post(f"/admin/slots/{slot.id}/sblocca", headers=admin_headers())
+
+    assert res.status_code == 409
+    db.refresh(slot)
+    assert slot.is_available is False
+
+
+def test_sblocca_rifiuta_uno_slot_gia_disponibile(client, db):
+    """409 e non un 200 silenzioso: la lista a schermo del coach è vecchia."""
+    slot = crea_slot(db, FUTURO)
+
+    res = client.post(f"/admin/slots/{slot.id}/sblocca", headers=admin_headers())
+
+    assert res.status_code == 409
+
+
+def test_sblocca_slot_inesistente_risponde_404(client, db):
+    res = client.post("/admin/slots/9999/sblocca", headers=admin_headers())
+    assert res.status_code == 404
+
+
+def test_slot_sbloccato_ricompare_nella_lista_pubblica(client, db):
+    """Il punto dell'intervento: l'ora torna prenotabile dal sito, non solo nel pannello."""
+    slot = crea_slot(db, FUTURO)
+    blocco(db, FUTURO.date(), FUTURO.date())
+
+    assert slot.id not in [s["id"] for s in client.get("/slots/").json()]
+
+    client.post(f"/admin/slots/{slot.id}/sblocca", headers=admin_headers())
+
+    assert slot.id in [s["id"] for s in client.get("/slots/").json()]
 
 
 def test_crea_regola_rifiuta_ora_fine_non_successiva(client, db):

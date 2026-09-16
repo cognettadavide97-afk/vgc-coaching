@@ -21,7 +21,8 @@ commento `COMPORTAMENTO SOSPETTO`. Distinguo quindi tre casi, perché comportano
   commit separato che deve fallire (o passare fotografando l'errore) prima della modifica.
 
 **Baseline verificata** — `pytest` al 2026-09-15: `186 passed`, copertura di `backend/` al 90%.
-Ogni intervento riparte da qui.
+Ogni intervento riparte da qui. Il conteggio sale solo quando un intervento **aggiunge** test: dopo il
+**4** è `192 passed`, sempre al 90%.
 
 ## Dove si verifica: tre ambienti, non due
 
@@ -69,7 +70,7 @@ l'intervento resta aperto, anche se il codice è già scritto: la sezione corris
 | 1 | ✅ Chiavi esterne attive nella suite | prereq | 🛡 intera suite | — |
 | 2 | ✅ B1 — cancellazione cliente con pacchetto | BLOCCA | 📷 + 🛡 | 1 |
 | 3 | ✅ B3 — macchina a stati sulla prenotazione | BLOCCA | 📷 + 🛡 | — |
-| 4 | B2a — sblocco degli slot, lato backend | BLOCCA | 📷 + 🛡 | decisione P1 |
+| 4 | ✅ B2a — sblocco degli slot, lato backend | BLOCCA | 🛡 | decisione P1 |
 | 5 | B2b — sblocco degli slot, lato pannello | BLOCCA | ⚠️ | 4 |
 | 6 | R17 — chiave della cache OAuth | RISCHIOSO | 🛡 | — |
 | 7 | R5 — esito della cancellazione dell'evento | RISCHIOSO | 📷 + 🛡 | — |
@@ -104,6 +105,11 @@ l'intervento resta aperto, anche se il codice è già scritto: la sezione corris
 | 36 | C1d — `telefono` e `attiva`: completare o rimuovere | prodotto | — | decisione P6 |
 | 37 | `AUDIT.md` — due omissioni dichiarate | documentazione | — | 21 |
 | 38 | Documentare l'orizzonte "fino a fine mese" | documentazione | 🛡 | — |
+| 39 | Esiti ambigui dei servizi esterni: quattro marcatori senza voce | RISCHIOSO | 📷 | 7 |
+
+La voce **39** è nata dall'intervento 4: non veniva da `PROBLEMI.md` né da `DRIFT.md`. Il numero la
+mette in coda per data di scoperta, non per ordine di applicazione — appartiene alla Fascia B, accanto
+al 7 di cui condivide la forma.
 
 ---
 
@@ -253,27 +259,72 @@ del cliente subentrato non viene più rimesso in vendita, che era il danno vero.
 
 ---
 
-## 4. B2a — Sblocco degli slot: endpoint e riapertura automatica
+## 4. ✅ B2a — Sblocco degli slot: endpoint e riapertura automatica
+
+**Chiuso** il 2026-09-15, codice e test nello stesso commit. Verifica su MySQL non richiesta, per la
+stessa ragione dell'intervento 3: nessun vincolo, nessuna collation, nessun bulk delete — un `UPDATE`
+su due booleani di una riga esistente, con difetto e correzione interamente osservabili sulla suite.
 
 **Cosa si corregge** — `blocked_external` e `blocked_admin` vengono scritti **solo a `True`**: in
 tutto `backend/` non esiste una riga che li riporti a `False`. Un errore di sincronizzazione o una
 settimana di ferie inserita per sbaglio toglie quegli orari dalla vendita **per sempre**, e l'unico
 rimedio è un `UPDATE` a mano sul database di produzione.
 
-**File** — `backend/routers/admin/availability.py` (nuovo endpoint di sblocco; e `:213-230`
-`elimina_blocco_eccezionale`, il cui docstring rimanda a un "a mano" che non esiste),
-`backend/services/calendar_service.py:204-227` (la query di sync esamina solo gli slot con
-`is_available == True`: va estesa a quelli con `blocked_external=True` se si sceglie la riapertura
-automatica). Nessuna migrazione: le colonne esistono già.
+**Decisione P1, presa** — **sblocco esplicito**, non riapertura automatica. Il motivo non è di
+preferenza: la riapertura automatica oggi **non è implementabile in sicurezza**. `leggi_eventi_calendario`
+restituisce `[]` sia con l'agenda vuota sia quando Google non risponde (`calendar_service.py:186-188`),
+quindi una sync che riaprisse gli slot con `blocked_external=True` in assenza di eventi rimetterebbe in
+vendita, dopo un minuto di irraggiungibilità, **tutti** gli orari realmente occupati. Si scambierebbe un
+difetto che sottrae ore alla vendita con uno che le vende due volte. La riapertura automatica non è
+scartata: è il **39**, e questo ne è il prerequisito.
 
-**Test**
-- 📷 `tests/test_percorsi_critici_trasformazione.py:188` `test_lo_slot_bloccato_non_viene_riaperto_quando_levento_sparisce` — **da invertire** se si sceglie la riapertura automatica.
-- 📷 `tests/test_percorsi_critici_trasformazione.py:218` `test_uno_slot_bloccato_non_e_nemmeno_eliminabile_se_ha_uno_storico` — resta vero (preservare lo storico è corretto); va aggiornato il commento, che oggi motiva l'`assert` con l'impossibilità di sbloccare.
-- 📷 `tests/test_availability.py:334` `test_elimina_blocco_non_riapre_gli_slot_che_aveva_chiuso` — **da invertire** se lo sblocco diventa parte dell'eliminazione del blocco.
-- 🛡 `tests/test_percorsi_critici_trasformazione.py:82,102,121,142,162` — la sincronizzazione calendario nel suo complesso.
-- 🛡 `tests/test_availability.py:189-334` — i blocchi eccezionali.
+Per un motivo diverso, anche `elimina_blocco_eccezionale` continua a **non** riaprire nulla: il blocco
+non registra da nessuna parte *quali* slot abbia chiuso, quindi riaprirli significherebbe riaprire
+tutto ciò che cade nell'intervallo di date — compresi gli slot chiusi da un **secondo blocco
+sovrapposto**, che deve restare in vigore.
 
-**Dipende da** — **decisione P1** (vedi in fondo).
+**Correzione applicata** — `POST /admin/slots/{slot_id}/sblocca`, che riapre lo slot e azzera
+**entrambi** i flag (descrivono *perché* è chiuso: su uno slot aperto devono essere entrambi falsi,
+altrimenti il pannello continua a etichettarlo). Tre guardie:
+
+1. **404** se lo slot non esiste;
+2. **409** se è già disponibile, invece di un 200 silenzioso — è la scelta dell'intervento 3: due clic
+   di solito significano che la lista a schermo è vecchia, e il coach deve saperlo;
+3. **409** se ha `is_available` falso ed entrambi i flag falsi. Quello slot non è bloccato, è
+   **prenotato da un cliente**: i due flag sono l'unico modo per distinguere i due casi
+   (`models/slots.py:29-32`). Riaprirlo lo rimetterebbe in vendita mentre quell'ora è già stata
+   comprata — lo stesso danno che B3 ha chiuso dal lato delle prenotazioni.
+
+Non c'è una seconda query sulle prenotazioni: uno slot bloccato non può averne una attiva, perché sia
+`applica_blocco_eccezionale` sia `sincronizza_slot_con_calendario` toccano **solo** gli slot con
+`is_available == True`; una prenotazione *cancellata* nello storico non ha più diritti sullo slot ed è
+esattamente lo scenario del test `:218`. La regola sui due flag è autosufficiente.
+
+Lo sblocco **non** ricontrolla il calendario (se l'impegno c'è ancora, la sync notturna richiude lo slot
+da sola) e **non** rifiuta gli slot passati (inutile ma innocuo: `GET /slots` filtra già su
+`start_time >= ora`). È **per singolo slot**: lo sblocco di una settimana di ferie è un ciclo di
+chiamate lato pannello (intervento 5). Un'operazione di massa riaprirebbe la domanda dei blocchi
+sovrapposti e merita una decisione a sé.
+
+**File** — `backend/routers/admin/availability.py:109-155` (l'endpoint) e `:265-273` (il docstring di
+`elimina_blocco_eccezionale`, che rimandava a un "a mano" inesistente e ora nomina l'endpoint);
+`backend/services/calendar_service.py:204-213` — **solo un commento**: la query resta su
+`is_available == True` e il commento registra il prerequisito per estenderla, così il vincolo non si
+perde. Nessuna migrazione: le colonne esistevano già.
+
+**Test** — nessuna `assert` invertita: la decisione P1 rende **vere** tre motivazioni che erano false o
+incomplete, invece di ribaltare i comportamenti che descrivono.
+- 📷 → 🛡 `tests/test_percorsi_critici_trasformazione.py:188`, rinominato `test_la_sincronizzazione_non_riapre_da_sola_lo_slot_bloccato`: `assert` invariate, il `COMPORTAMENTO SOSPETTO` sostituito dal motivo vero (il `[]` ambiguo), con il rimando all'endpoint.
+- 📷 → 🛡 `tests/test_percorsi_critici_trasformazione.py:218`, rinominato `test_uno_slot_bloccato_non_e_eliminabile_se_ha_uno_storico`: 400 invariato, cade la frase «senza alcuna azione possibile dall'interfaccia».
+- 📷 → 🛡 `tests/test_availability.py:334`: `assert` invariate, il docstring guadagna il caso dei blocchi sovrapposti.
+- 🛡 **nuovi**, `tests/test_availability.py:356-436`: sblocco di uno slot `blocked_admin` e di uno `blocked_external` (200, entrambi i flag a falso), slot prenotato (409, stato invariato), slot già libero (409), slot inesistente (404), e quello che chiude il cerchio — dopo lo sblocco lo slot **ricompare in `GET /slots/`**, che è il punto dell'intervento.
+- 🛡 verdi senza modifiche: `tests/test_percorsi_critici_trasformazione.py:82,102,121,142,162`, `tests/test_availability.py:189-334`.
+
+Suite dopo la correzione: `192 passed` (186 + 6 nuovi), copertura di `backend/` al 90%.
+
+**Dipende da** — **decisione P1**, presa qui sopra. **Resta aperto** — il **5**: l'endpoint esiste ma
+`admin.js:855` continua a non disegnare alcun bottone sugli slot bloccati, quindi dall'interfaccia non
+è ancora raggiungibile. Finché il 5 non è fatto, la via d'uscita è una chiamata HTTP, non un clic.
 
 ---
 
@@ -505,6 +556,50 @@ un id e si romperebbe se `POST /users/` smettesse di restituirlo).
 **Dipende da** — **decisione P3**. Se la decisione è "non ora", l'intervento si riduce a rendere onesti
 i commenti di `booking.py:99-109` e `:153-155`, che oggi affermano una protezione inesistente: quello
 è un commit da fare comunque, e subito.
+
+---
+
+## 39. Esiti ambigui dei servizi esterni: quattro marcatori senza voce
+
+**Provenienza** — emerge dall'intervento 4. Verificando se `PIANO.md` mantenesse l'invariante «ogni
+`COMPORTAMENTO SOSPETTO` nei test ha una voce che lo chiude», si scopre che **non la mantiene**:
+quattro marcatori non erano tracciati da nessuna parte. Una voce sola, non quattro: è lo stesso difetto
+quattro volte.
+
+**La forma comune** — un servizio verso l'esterno cattura l'eccezione e restituisce un valore che il
+chiamante non sa distinguere dal caso normale. Non è una svista, è la convenzione dichiarata in
+`CLAUDE.md` (*«catturano, loggano e restituiscono `None`/`False`/lista vuota»*): protegge il chiamante
+dal crash e gli toglie il modo di sapere se l'operazione è avvenuta. L'intervento **7** (R5) è già
+l'eccezione ritagliata su una di queste funzioni.
+
+**Costo misurato il 2026-09-16** — il codice è poche righe quasi ovunque; quello che non è poche righe,
+in due casi, è la decisione attaccata. Il caso 3 è l'unico che **non passa** il vaglio "poche righe" e
+resta registrato senza essere un lavoro da fare.
+
+| | Caso | Codice | Cosa non è codice |
+|---|---|---|---|
+| 1 | `test_percorsi_critici_uscita.py:183` — email e note del cliente **in chiaro** nella descrizione dell'evento Google Calendar, condiviso col service account e con chiunque acceda a quel calendario. È l'unico che riguarda un **contenuto** e non un esito: tocca dati personali. | **2 righe** (`calendar_service.py:107-110`) | il coach probabilmente usa email e note dal calendario sul telefono: toglierle gli peggiora il lavoro |
+| 2 | `test_percorsi_critici_uscita.py:265` — l'invio email non restituisce nulla e `scheduler.py:156` marca `reminder_sent = True` comunque: il cliente non riceve niente e il sistema è convinto di avergli scritto. | **4 righe** (`return True`/`False` in `invia_promemoria_cliente`, un `if` attorno a `:156`) | non marcare significa che il job riprova, e rimanda anche il promemoria **Discord**, che era partito |
+| 3 | `test_percorsi_critici_uscita.py:202` — `crea_evento_calendario` restituisce `None` sia se Google rifiuta sia se l'evento non è stato richiesto; la prenotazione si salva senza evento e nessuno lo sa. | ❌ **non poche righe**: cambiare il valore di ritorno non produce nulla di utile, la correzione vera è **avvisare** il coach, cioè un canale di alert nuovo | — |
+| 4 | `test_percorsi_critici_trasformazione.py:162` — `leggi_eventi_calendario` restituisce `[]` sia con l'agenda vuota sia quando non è riuscita a leggere (`calendar_service.py:186-188`): il pannello annuncia *"Sincronizzazione completata: 0 slot bloccati"* anche se la sync non è mai avvenuta. | **~10 righe** su 4 file (`None` nell'`except`, il controllo nel chiamante, il messaggio nel router e in `admin.js`) | — |
+
+**Il caso 4 è QoL superficiale e non va fatto per sé** — deciso il 2026-09-16. Il guasto duraturo
+(credenziali rotte, sync ferma per giorni) è **già coperto** dalla sonda settimanale
+`CredenzialeSorvegliata("Calendar")` (`scheduler.py:87-93`), che manda su Discord l'avviso giusto con
+la riparazione; quello passeggero si ripara da solo al job notturno successivo. Resta scoperto il
+singolo clic manuale fallito, e lì il coach la conferma ce l'ha già: guarda se lo slot è sparito dal
+pannello. Se e quando si tocca questa famiglia, il 4 viene dietro agli altri, non da solo.
+
+**Vincolo che resta vero comunque** — finché il caso 4 è aperto, la riapertura automatica degli slot
+bloccati **non è implementabile** (decisione P1, intervento 4): una sync che riaprisse gli slot in
+assenza di eventi rimetterebbe in vendita, dopo un minuto di irraggiungibilità di Google, tutti gli
+orari realmente occupati. Il commento in `calendar_service.py:204-213` lo dichiara sul posto, quindi il
+vincolo non dipende da questa voce per sopravvivere.
+
+**Test** — 📷 tutti e quattro i marcatori sono già pinzati: le `assert` vanno invertite insieme alla
+rispettiva correzione, una per una.
+
+**Dipende da** — niente. Da fare **insieme al 7** o subito dopo: stessa forma, stessa correzione.
 
 ---
 
@@ -912,11 +1007,11 @@ nel codice (finestra scorrevole a N giorni) e sarebbe una decisione nuova, non u
 # Decisioni da prendere prima di aprire l'editor
 
 Sei nodi in cui il codice non basta a scegliere. Ogni intervento che vi dipende è fermo finché non
-sono sciolti.
+sono sciolti. **P1 è sciolto**; restano cinque.
 
 | | Decisione | Blocca |
 |---|---|---|
-| **P1** | Uno slot bloccato si riapre **da solo** quando l'evento sparisce dal calendario, o solo con un'azione esplicita del coach? La prima è più comoda e più rischiosa (un errore di sincronizzazione rimette in vendita un orario occupato); la seconda richiede che il coach si accorga del blocco. | 4, 5 |
+| ~~**P1**~~ | ✅ **Sciolto il 2026-09-15: azione esplicita del coach**, sblocco per singolo slot. La riapertura automatica non è scartata ma rimandata: richiede il **39** come prerequisito, perché con `leggi_eventi_calendario` che confonde il guasto con l'agenda vuota rimetterebbe in vendita orari realmente occupati. Motivazione estesa nell'intervento 4. | 4 ✅, 5 |
 | **P2** | Lo scheduler passa a `timezone=ROME_TZ`? Sposta l'orario **reale** di tutti i job (03:00 UTC → 03:00 Roma). L'alternativa è lasciare i job in UTC e correggere solo `date.today()` in `availability_service.py:65`, che è la causa vera del difetto e non sposta niente. | 13, 17 |
 | **P3** | Prenotare resta possibile senza login? Le strade sono tre: login obbligatorio, conferma via email del guest checkout, oppure nessuna delle due e i commenti resi onesti. | 14 |
 | **P4** | `/docs`, `/redoc` e `/openapi.json` restano pubblici? | 21, 37 |
