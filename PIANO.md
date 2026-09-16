@@ -71,7 +71,7 @@ l'intervento resta aperto, anche se il codice è già scritto: la sezione corris
 | 2 | ✅ B1 — cancellazione cliente con pacchetto | BLOCCA | 📷 + 🛡 | 1 |
 | 3 | ✅ B3 — macchina a stati sulla prenotazione | BLOCCA | 📷 + 🛡 | — |
 | 4 | ✅ B2a — sblocco degli slot, lato backend | BLOCCA | 🛡 | decisione P1 |
-| 5 | B2b — sblocco degli slot, lato pannello | BLOCCA | ⚠️ | 4 |
+| 5 | ✅ B2b — sblocco degli slot, lato pannello | BLOCCA | ⚠️ | 4 |
 | 6 | R17 — chiave della cache OAuth | RISCHIOSO | 🛡 | — |
 | 7 | R5 — esito della cancellazione dell'evento | RISCHIOSO | 📷 + 🛡 | — |
 | 8 | R7 — anonimizzazione di note e prenotazioni | RISCHIOSO | 📷 + 🛡 | — |
@@ -322,25 +322,83 @@ incomplete, invece di ribaltare i comportamenti che descrivono.
 
 Suite dopo la correzione: `192 passed` (186 + 6 nuovi), copertura di `backend/` al 90%.
 
-**Dipende da** — **decisione P1**, presa qui sopra. **Resta aperto** — il **5**: l'endpoint esiste ma
-`admin.js:855` continua a non disegnare alcun bottone sugli slot bloccati, quindi dall'interfaccia non
-è ancora raggiungibile. Finché il 5 non è fatto, la via d'uscita è una chiamata HTTP, non un clic.
+**Dipende da** — **decisione P1**, presa qui sopra. **Chiuso dal 5**, il 2026-09-16: l'endpoint ha il
+suo bottone e la via d'uscita è tornata a essere un clic. Con il 5 si chiude anche B2 per intero.
 
 ---
 
-## 5. B2b — Sblocco degli slot: il bottone nel pannello
+## 5. ✅ B2b — Sblocco degli slot: il bottone nel pannello
+
+**Chiuso** il 2026-09-16. Nessun test automatico nello stesso commit, perché non è possibile scriverne
+(vedi **Test**): al suo posto una verifica manuale sul pannello, eseguita e documentata qui sotto.
+Verifica su MySQL **eseguita comunque** — non perché l'intervento tocchi il DB, che non lo tocca, ma
+perché il pannello è stato provato contro il MySQL locale invece che contro la suite in memoria.
 
 **Cosa si corregge** — `frontend/js/admin.js:855` mostra il pulsante 🗑 Elimina **solo** quando
 `s.disponibile` è vero: proprio gli slot bloccati non hanno alcun bottone. Senza questo intervento,
 l'endpoint del 4 esiste ma non è raggiungibile dall'interfaccia.
 
-**File** — `frontend/js/admin.js:845-861`, `frontend/admin.html` se serve un secondo bottone.
+**Correzione applicata** — la cella Azioni passa da due rami a tre, con lo stesso ordine di
+valutazione che la colonna Stato usa due righe sopra:
+
+| Stato | Azioni |
+|---|---|
+| `disponibile` | 🗑 Elimina (invariato) |
+| `bloccato_da_calendario` **o** `bloccato_da_admin` | 🗑 Elimina + 🔓 Sblocca |
+| ramo residuo, cioè prenotato | `—` (invariato) |
+
+Il bottone Elimina sugli slot bloccati **non** è un'aggiunta: è la seconda metà di B2, che nel titolo
+dice "né sbloccabile né eliminabile **dal pannello**". `DELETE /admin/slots/{id}`
+(`routers/admin/availability.py:75-107`) non guarda affatto la disponibilità — rifiuta solo se lo slot
+compare in una prenotazione — quindi uno slot bloccato il server lo cancellava già. Era solo
+l'interfaccia a nascondere la porta.
+
+**Elimina va per primo, Sblocca per secondo**, benché Sblocca sia l'azione principale. Il motivo è
+emerso dalla verifica manuale e non dalla lettura del codice: dopo uno sblocco la riga si ridisegna
+con il solo Elimina, e nell'ordine naturale (Sblocca, Elimina) quest'ultimo scivolava **nella
+posizione appena occupata da Sblocca**. Chi clicca due volte — il caso che l'intervento 4 prevede
+esplicitamente con il suo 409 — trovava il secondo clic su un bottone distruttivo. Tenendo Elimina
+ancorato in prima posizione, quel punto resta vuoto. Il commento nel codice lo dichiara, altrimenti
+il primo riordino "logico" (azione principale per prima) rimette il difetto dov'era.
+
+`sbloccaSlot` ricalca `eliminaSlot`: `confirm()`, `alert(errore.detail)` su `!res.ok`, e
+`caricaSlots(paginaCorrente.slots)` — la pagina corrente, non la prima, per non far perdere al coach
+il punto della lista in cui stava lavorando. Il `detail` del server **va mostrato**: i due 409 del 4
+sono scritti per essere letti dal coach, e ingoiarli renderebbe invisibili le sue guardie.
+
+**File** — `frontend/js/admin.js:854-870` (la cella), `:877-890` (il commento didattico esteso),
+`:1146-1176` (`sbloccaSlot`). `frontend/admin.html` **non toccato**: i bottoni nascono dentro il
+template string, non nel markup. `frontend/css/admin.css` **non toccato**: `action-confirm` esisteva
+già. Nessuna riga di backend.
 
 **Test** — ⚠️ **scoperto e non copribile**: il progetto non ha alcuna attrezzatura di test JavaScript
-(nessun `package.json`, nessun runner). Verifica manuale sul pannello, da dichiarare nel messaggio di
-commit.
+(nessun `package.json`, nessun runner; `node` non è nemmeno installato sulla macchina di sviluppo).
+La suite Python resta a `192 passed` e dimostra soltanto che il backend non è stato toccato.
+
+**Verifica manuale eseguita** il 2026-09-16 sul pannello reale contro il MySQL locale, con tre slot di
+prova creati e poi cancellati (DB riportato allo stato iniziale). `confirm`/`alert` sostituiti da stub
+che ne registrano il testo, perché una finestra modale blocca l'automazione del browser:
+
+- i quattro stati mostrano i bottoni attesi, `Prenotato` compreso (`—`);
+- sblocco: la riga passa a `Libero` restando sulla stessa pagina della lista;
+- 409 slot già disponibile → *"Questo slot è già disponibile"*;
+- 409 slot prenotato → *"…è prenotato da un cliente. Per liberarlo si cancella la prenotazione."*;
+- 404 slot inesistente → *"Slot non trovato"*;
+- Elimina su slot bloccato: riga rimossa;
+- **il cerchio si chiude**: `GET /slots/` passa da `[3]` a `[3, 8]` dopo lo sblocco dal pannello — lo
+  slot torna davvero in vendita al pubblico, che è lo scopo dell'intero B2;
+- **collisione dei bottoni**: cliccato 🔓 Sblocca alle coordinate reali, dopo il ridisegno
+  `elementFromPoint` su quel punto restituisce un `TD`, non un `BUTTON`. Elimina occupa 1078-1158, il
+  clic era a 1231. Da notare che Elimina si sposta comunque di 23px (la colonna si restringe: la
+  tabella è a layout automatico), ma si allontana dal punto del clic invece di avvicinarcisi — è
+  l'ordine a proteggere, non la larghezza della colonna.
 
 **Dipende da** — 4.
+
+**Nota** — durante la verifica `caricaSlots` è esploso con `TypeError: Cannot read properties of
+undefined (reading 'length')` (`admin.js:818`) alla scadenza della sessione: è R3 (intervento **24**),
+che elenca proprio `admin.js:816` fra le letture senza `res.ok`. Riprodotto, non corretto: R3 riguarda
+26 chiamate `fetch` e si risolve con un wrapper unico, non con una toppa qui.
 
 ---
 

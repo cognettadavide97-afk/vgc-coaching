@@ -9,7 +9,7 @@ un pannello admin. Backend FastAPI + MySQL, frontend statico servito dallo stess
 ```bash
 pip install -r requirements-dev.txt                    # runtime + test (include requirements.txt)
 uvicorn backend.main:app --host 0.0.0.0 --port 8000    # avvio (in prod: --port $PORT)
-pytest                                                 # 186 test, copertura di backend/ di default
+pytest                                                 # 192 test, copertura di backend/ di default
 ```
 
 Sempre dalla radice del repository. Nessun build: il frontend non ha bundler né `package.json`; le
@@ -45,8 +45,10 @@ backup, retention): i router chiamano i servizi, i servizi non importano i route
 Punti fragili censiti in `PROBLEMI.md`; leggere la voce prima di intervenire.
 
 - `routers/admin/clients.py:115-132` — `db.delete` pendenti + bulk delete rompono la FK `package_id` su MySQL (B1).
-- `blocked_external`/`blocked_admin` scritti **solo** a `True`: uno slot bloccato non è sbloccabile né
-  eliminabile, riaprirlo è una decisione di prodotto (B2).
+- `blocked_external`/`blocked_admin` sono l'unico modo per distinguere uno slot **bloccato** da uno
+  **prenotato** (`models/slots.py:29-32`): entrambi falsi con `is_available` falso significa venduto a
+  un cliente. `POST /admin/slots/{id}/sblocca` li azzera **tutti e due** e rifiuta con 409 lo slot
+  prenotato; la riapertura resta manuale, quella automatica è l'intervento 39 (B2, chiuso da 4 e 5).
 - `routers/admin/bookings.py:105-120` — `aggiorna_stato` non è una macchina a stati: libera lo slot di un altro cliente (B3).
 - `routers/booking.py:178-245` — Google Calendar chiamato dentro la transazione che blocca lo slot, senza timeout (R4).
 - `services/booking_service.py:20-22` — l'id evento è azzerato anche se Google non l'ha cancellato (R5).

@@ -857,6 +857,15 @@ async function caricaSlots(pagina = 1) {
                                         onclick="eliminaSlot(${s.id})">
                                         🗑 Elimina
                                     </button>
+                                ` : (s.bloccato_da_calendario || s.bloccato_da_admin) ? `
+                                    <button class="action-btn action-delete"
+                                        onclick="eliminaSlot(${s.id})">
+                                        🗑 Elimina
+                                    </button>
+                                    <button class="action-btn action-confirm"
+                                        onclick="sbloccaSlot(${s.id})">
+                                        🔓 Sblocca
+                                    </button>
                                 ` : '—'}
                             </td>
                         </tr>
@@ -867,6 +876,16 @@ async function caricaSlots(pagina = 1) {
         `;
         // L'ordine dei casi conta: "prenotato" è il ramo residuo, quando
         // nessun flag di blocco è attivo.
+        // Lo stesso ordine vale per la colonna Azioni: uno slot bloccato si
+        // sblocca o si elimina (il server accetta la DELETE su uno slot non
+        // disponibile: rifiuta solo se ha prenotazioni collegate), mentre su
+        // quello prenotato non c'è azione possibile dal pannello — quell'ora
+        // è stata venduta e si libera solo cancellando la prenotazione.
+        // Elimina va per primo anche se l'azione principale è Sblocca: dopo
+        // uno sblocco la riga si ridisegna con il solo Elimina, e se questo
+        // scivolasse nella posizione appena occupata da Sblocca il secondo
+        // clic di chi clicca due volte cadrebbe su un bottone distruttivo.
+        // Tenendolo ancorato in prima posizione, quel punto resta vuoto.
     } catch (error) {
         console.error('Errore slots:', error);
     }
@@ -1126,6 +1145,39 @@ async function eliminaSlot(id) {
     } catch (error) {
         console.error('Errore eliminazione slot:', error);
         alert('Errore di connessione durante l\'eliminazione.');
+    }
+}
+
+async function sbloccaSlot(id) {
+    // La conferma non è simmetrica a quella di eliminaSlot: lo sblocco
+    // rimette l'ora in vendita al pubblico subito, e per richiuderla
+    // servirebbe un nuovo blocco eccezionale o una sincronizzazione. Un
+    // clic sulla riga sbagliata va intercettato prima, non dopo.
+    if (!confirm('Sbloccare questo slot? Tornerà subito prenotabile dal pubblico.')) return;
+
+    try {
+        const res = await fetch(`/admin/slots/${id}/sblocca`, {
+            method: 'POST',
+            headers: authHeaders()
+        });
+
+        // Il detail del server va mostrato, non ingoiato: i due 409
+        // dell'endpoint ("già disponibile", "è prenotato da un cliente")
+        // sono scritti per essere letti dal coach e distinguono una lista
+        // vecchia a schermo da un'ora davvero venduta.
+        if (!res.ok) {
+            const errore = await res.json();
+            alert(errore.detail || 'Errore durante lo sblocco dello slot.');
+            return;
+        }
+
+        // Si ricarica la pagina corrente, non la prima: la riga sparisce
+        // dai bloccati senza far perdere al coach il punto della lista in
+        // cui stava lavorando.
+        caricaSlots(paginaCorrente.slots);
+    } catch (error) {
+        console.error('Errore sblocco slot:', error);
+        alert('Errore di connessione durante lo sblocco.');
     }
 }
 
