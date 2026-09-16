@@ -72,7 +72,7 @@ l'intervento resta aperto, anche se il codice è già scritto: la sezione corris
 | 3 | ✅ B3 — macchina a stati sulla prenotazione | BLOCCA | 📷 + 🛡 | — |
 | 4 | ✅ B2a — sblocco degli slot, lato backend | BLOCCA | 🛡 | decisione P1 |
 | 5 | ✅ B2b — sblocco degli slot, lato pannello | BLOCCA | ⚠️ | 4 |
-| 6 | R17 — chiave della cache OAuth | RISCHIOSO | 🛡 | — |
+| 6 | ✅ R17 — chiave della cache OAuth | RISCHIOSO | 🛡 | — |
 | 7 | R5 — esito della cancellazione dell'evento | RISCHIOSO | 📷 + 🛡 | — |
 | 8 | R7 — anonimizzazione di note e prenotazioni | RISCHIOSO | 📷 + 🛡 | — |
 | 9 | R6 — normalizzazione dell'email | RISCHIOSO | 📷 + 🛡 | — |
@@ -404,7 +404,24 @@ che elenca proprio `admin.js:816` fra le letture senza `res.ok`. Riprodotto, non
 
 # Fascia B — RISCHIOSO coperto da test esistenti
 
-## 6. R17 — La cache delle credenziali Google è indicizzata solo sul refresh token
+## 6. ✅ R17 — La cache delle credenziali Google è indicizzata solo sul refresh token
+
+**Chiuso** il 2026-09-16, codice e test nello stesso commit. Verifica su MySQL non richiesta: la
+modifica non tocca il database: una cache in memoria di processo, con difetto e correzione
+interamente osservabili sulla suite.
+
+Applicate entrambe le vie che la voce lasciava aperte, perché chiudono cose diverse: il rifiuto
+esplicito di un `refresh_token` vuoto elimina la collisione alla radice (la chiave `None` non viene
+mai scritta), la chiave composita `(refresh_token, client_id)` rende l'indicizzazione corretta per
+come Google emette gli access token — per la coppia account + applicazione — invece che per la
+coincidenza che oggi Gmail e Drive condividano lo stesso client OAuth.
+
+Il `ValueError` non viola la regola per cui i servizi verso l'esterno non propagano eccezioni: i
+quattro punti d'uso sono già protetti (`verifica_credenziali_google` cattura e restituisce `False`
+con il nome giusto nell'avviso; l'invio email e `esegui_backup_database` hanno i propri `try/except`).
+A livello di applicazione il comportamento con una variabile non configurata resta il degrado
+silenzioso di sempre — cambia solo che nei log il token mai configurato non si confonde più con
+quello scaduto.
 
 **Cosa si corregge** — `_credenziali_cache` usa il refresh token come chiave. Se `GMAIL_REFRESH_TOKEN`
 e `DRIVE_REFRESH_TOKEN` sono entrambi assenti, le due chiamate condividono la chiave `None` e la
@@ -415,9 +432,16 @@ seconda riceve l'oggetto della prima: la sonda Drive riporterebbe l'errore di Gm
 **File** — `backend/services/google_oauth_service.py:23,33,42` (chiave composita
 `(refresh_token, client_id)` e/o rifiuto esplicito di un `refresh_token` `None`). Cinque righe, un file.
 
-**Test** — 🛡 `tests/test_email_service.py:148` `test_healthcheck_gmail_non_interroga_lapi_gmail`,
-`:164` `test_healthcheck_drive_usa_il_proprio_refresh_token`, `:180`, `:191`. Il `:164` è quello che
-verifica proprio la separazione fra le due credenziali.
+**Test** — 🛡 `tests/test_email_service.py:199` `test_healthcheck_gmail_non_interroga_lapi_gmail`,
+`:215` `test_healthcheck_drive_usa_il_proprio_refresh_token`, `:231`, `:242`, rimasti verdi senza
+modifiche. Il `:215` è quello che verifica proprio la separazione fra le due credenziali.
+
+Nessuno dei quattro però arriva alla cache: la aggirano tutti, sostituendo `credenziali_oauth_google`
+nei moduli chiamanti. Aggiunti quindi due test sul servizio, dove il difetto vive: `:159`
+`test_refresh_token_assente_non_finisce_in_cache` — che asserisce la proprietà vera, cioè la cache
+vuota, non il sollevamento — e `:181` `test_la_cache_distingue_le_credenziali_per_client`, senza il
+quale la chiave composita resterebbe a copertura zero e potrebbe essere «semplificata» da chiunque.
+Suite da 192 a 194 verdi.
 
 **Dipende da** — niente. È l'intervento con il miglior rapporto fra rischio e superficie: primo della fascia.
 

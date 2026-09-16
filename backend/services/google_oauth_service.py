@@ -18,19 +18,37 @@ from google.auth.transport.requests import Request
 
 logger = logging.getLogger(__name__)
 
-# Cache per refresh token: l'access token ottenuto dura circa un'ora, e
-# senza cache verrebbe richiesto a Google a ogni singola email o backup.
-_credenziali_cache: dict[str, Credentials] = {}
+# Cache dell'access token, che dura circa un'ora: senza, verrebbe
+# richiesto a Google a ogni singola email o backup. La chiave è la coppia
+# (refresh token, client id) perché Google emette l'access token per una
+# combinazione di account **e** applicazione registrata: indicizzare sul
+# solo token sarebbe corretto per coincidenza, finché tutte le
+# integrazioni condividono lo stesso client OAuth.
+_credenziali_cache: dict[tuple[str, str], Credentials] = {}
 
 
 def credenziali_oauth_google(refresh_token: str, client_id: str, client_secret: str) -> Credentials:
     """Restituisce credenziali con un access token valido.
 
     `client_id`/`client_secret` identificano l'applicazione registrata su
-    Google Cloud; `refresh_token` identifica l'account che l'ha autorizzata
-    ed è quindi la chiave giusta per la cache.
+    Google Cloud, `refresh_token` l'account che l'ha autorizzata: insieme
+    formano la chiave della cache qui sopra.
+
+    Un `refresh_token` assente è un errore, non una voce di cache. I token
+    arrivano da variabili d'ambiente, e una variabile non configurata vale
+    `None`: cacheggiarlo significherebbe dare a Gmail e Drive la stessa
+    chiave, e far ricevere alla seconda integrazione l'oggetto costruito
+    dalla prima. La sonda di Drive riporterebbe allora il guasto di Gmail,
+    suggerendo `reauth_drive.py` per un problema che sta altrove — proprio
+    l'errore che `CredenzialeSorvegliata` esiste per evitare.
     """
-    credenziali = _credenziali_cache.get(refresh_token)
+    if not refresh_token:
+        raise ValueError(
+            "refresh token assente: l'integrazione Google non è configurata"
+        )
+
+    chiave = (refresh_token, client_id)
+    credenziali = _credenziali_cache.get(chiave)
     if credenziali is None:
         credenziali = Credentials(
             token=None,
@@ -39,7 +57,7 @@ def credenziali_oauth_google(refresh_token: str, client_id: str, client_secret: 
             client_secret=client_secret,
             token_uri="https://oauth2.googleapis.com/token",
         )
-        _credenziali_cache[refresh_token] = credenziali
+        _credenziali_cache[chiave] = credenziali
 
     if not credenziali.valid:
         credenziali.refresh(Request())

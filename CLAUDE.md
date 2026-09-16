@@ -9,7 +9,7 @@ un pannello admin. Backend FastAPI + MySQL, frontend statico servito dallo stess
 ```bash
 pip install -r requirements-dev.txt                    # runtime + test (include requirements.txt)
 uvicorn backend.main:app --host 0.0.0.0 --port 8000    # avvio (in prod: --port $PORT)
-pytest                                                 # 192 test, copertura di backend/ di default
+pytest                                                 # 194 test, copertura di backend/ di default
 ```
 
 Sempre dalla radice del repository. Nessun build: il frontend non ha bundler né `package.json`; le
@@ -57,7 +57,11 @@ Punti fragili censiti in `PROBLEMI.md`; leggere la voce prima di intervenire.
   toccarlo sposta l'orario reale di tutti i job (R11, D3).
 - `routers/admin/__init__.py` — `get_admin` e l'import dei sotto-router in fondo: la catena
   `booking → users → admin → 6 sotto-router` si percorre a ogni import (D1, D2).
-- `services/google_oauth_service.py:23,33-42` — cache indicizzata solo sul refresh token (R17).
+- `services/google_oauth_service.py:27,45-60` — la cache è indicizzata su `(refresh_token, client_id)` e
+  un `refresh_token` vuoto **solleva** invece di finire in cache: è l'unica cosa che impedisce a Gmail
+  e Drive di condividere la chiave `None` quando le due variabili mancano, e alla sonda di una di
+  attribuire all'altra il guasto (R17, chiuso da 6). Non trasformare quel `raise` in un `None`
+  restituito: i quattro chiamanti lo catturano già, e a livello di app il degrado resta silenzioso.
 - `tests/conftest.py` — il listener `PRAGMA foreign_keys=ON` allinea SQLite a MySQL sui vincoli:
   toglierlo rimette a verde test che oggi fotografano difetti reali (B1 in primo luogo).
 

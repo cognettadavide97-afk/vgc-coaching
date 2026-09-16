@@ -104,6 +104,8 @@ def test_nome_cliente_con_html_viene_escapato_in_email_al_cliente(monkeypatch):
 # nato, e fissano le due proprietà che il fix garantisce: la sonda è il
 # refresh della credenziale, e non tocca nessuna API applicativa.
 
+import pytest
+
 import backend.services.google_oauth_service as oauth_service
 import backend.services.backup_service as backup_service
 import backend.services.calendar_service as calendar_service
@@ -143,6 +145,55 @@ def test_sonda_fallisce_se_la_credenziale_non_si_costruisce():
         raise ValueError("refresh token mancante")
 
     assert oauth_service.verifica_credenziali_google("Prova", costruisci) is False
+
+
+class CredenzialiCostruite:
+    """Sta al posto di `Credentials` per provare la cache senza rete: si
+    dichiara già valida, così `credenziali_oauth_google` non tenta il
+    refresh e il test osserva solo quale oggetto viene restituito."""
+    def __init__(self, **argomenti):
+        self.argomenti = argomenti
+        self.valid = True
+
+
+def test_refresh_token_assente_non_finisce_in_cache(monkeypatch):
+    """La collisione che il rifiuto esplicito chiude.
+
+    I refresh token arrivano da variabili d'ambiente, e una variabile non
+    configurata vale `None`. Con la cache indicizzata sul solo token e
+    GMAIL_REFRESH_TOKEN e DRIVE_REFRESH_TOKEN entrambi assenti, Gmail
+    archiviava la propria credenziale sotto la chiave `None` — prima
+    ancora di provarla — e Drive se la ritrovava: la sonda Drive riportava
+    il guasto di Gmail e allegava `reauth_drive.py`, la cura sbagliata.
+    """
+    monkeypatch.setattr(oauth_service, "_credenziali_cache", {})
+
+    with pytest.raises(ValueError):
+        oauth_service.credenziali_oauth_google(None, "client-id", "client-secret")
+
+    # Il punto non è che sollevi: è che non lasci residui da riciclare.
+    assert oauth_service._credenziali_cache == {}
+
+    with pytest.raises(ValueError):
+        oauth_service.credenziali_oauth_google(None, "client-id", "client-secret")
+
+
+def test_la_cache_distingue_le_credenziali_per_client(monkeypatch):
+    """Google emette l'access token per la coppia account + applicazione:
+    lo stesso refresh token speso con due client id diversi dà due
+    credenziali diverse, e la cache non deve confonderle. Oggi Gmail e
+    Drive condividono il client, quindi questo test guarda avanti."""
+    monkeypatch.setattr(oauth_service, "_credenziali_cache", {})
+    monkeypatch.setattr(oauth_service, "Credentials", CredenzialiCostruite)
+
+    prima = oauth_service.credenziali_oauth_google("token", "client-a", "secret-a")
+    altro_client = oauth_service.credenziali_oauth_google("token", "client-b", "secret-b")
+    di_nuovo_prima = oauth_service.credenziali_oauth_google("token", "client-a", "secret-a")
+
+    assert prima is not altro_client
+    # E la cache deve continuare a fare il suo mestiere: stessa coppia,
+    # stesso oggetto, nessuna chiamata a Google in più.
+    assert di_nuovo_prima is prima
 
 
 def test_healthcheck_gmail_non_interroga_lapi_gmail(monkeypatch):
