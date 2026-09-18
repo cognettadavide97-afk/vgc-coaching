@@ -31,19 +31,23 @@ riferimenti erano già sfasati prima dell'intervento 1, su punti che nessuno ave
 
 ## Dove siamo
 
-**Chiusi: gli interventi 1-7**, cioè l'intera Fascia A (prerequisito e tutti e tre i BLOCCA) più i
-primi due della Fascia B. Suite a **197 verdi**, copertura di `backend/` al **91%**.
+**Chiusi: gli interventi 1-8**, cioè l'intera Fascia A (prerequisito e tutti e tre i BLOCCA) più i
+primi tre della Fascia B. Suite a **198 verdi**, copertura di `backend/` al **91%**.
 
-**Aperti: 31** (39 voci in tutto, meno le 7 chiuse e la 37 decaduta).
+**Aperti: 30** (39 voci in tutto, meno le 8 chiuse e la 37 decaduta).
 
 Di questi, **otto non si sbloccano scrivendo codice**, perché dietro c'è una delle sei decisioni
 aperte: cinque **direttamente** — 13 (P2), 14 (P3), 21 (P4), 22 (P5), 36 (P6a **e** P6b) — e tre **di rimbalzo**,
 il 17 dietro il 13 e il 23 e il 33 dietro il 22. **P5 da sola ne blocca tre.** Altri due aspettano un
 altro intervento (12 dietro l'11, 16 dietro il 15) e uno un'azione esterna (35, la riautorizzazione su
-Google Cloud): **pronti da iniziare subito ne restano 20**.
+Google Cloud): **pronti da iniziare subito ne restano 19**.
 
-**Prossimo nell'ordine dichiarato: l'intervento 8** (R7, l'anonimizzazione GDPR che non ripulisce le
-note). Il 10 tocca la stessa funzione e va tenuto separato nel tempo, non accorpato.
+**Prossimo nell'ordine dichiarato: l'intervento 9** (R6, l'email con maiuscole diverse). Prima di
+aprirlo va misurata la collation del MySQL di Railway: è l'accertamento che il riquadro «Da verificare»
+qui sotto rimanda proprio al 9.
+
+Il **10** riscrive la funzione appena toccata dall'8 (`anonimizza_clienti_inattivi`): l'ordine
+dichiarato lo tiene già dopo, e le due modifiche restano in commit separati.
 
 ## Quale commit ha fatto cosa
 
@@ -60,6 +64,7 @@ commit precedente. La storia non si riscrive, quindi la corrispondenza vera vive
 | 5 — B2b, bottone nel pannello | `b348c30` | sì |
 | 6 — R17, chiave della cache OAuth | `aee536b` | **no**: dice *«cancella le prenotazioni prima dei pacchetti in elimina_cliente (B1)»*, ma tocca `google_oauth_service.py` e `test_email_service.py` — è il **6** |
 | 7 — R5, esito della cancellazione | `90062f9` | sì |
+| 8 — R7, anonimizzazione delle note | `132a5a2` (documenti nel commit successivo) | sì |
 
 Senza questa tabella, chi cercasse l'intervento 6 in `git log` troverebbe un messaggio che parla di B1
 e concluderebbe che il 6 non è mai stato fatto — mentre il codice c'è, e i due test che lo coprono
@@ -98,7 +103,8 @@ commento `COMPORTAMENTO SOSPETTO`. Distinguo quindi tre casi, perché comportano
 
 **Baseline verificata** — `pytest` al 2026-09-15: `186 passed`, copertura di `backend/` al 90%.
 Ogni intervento riparte da qui. Il conteggio sale solo quando un intervento **aggiunge** test: dopo il
-**4** è `192 passed` e dopo il **6** `194 passed`, sempre al 90%; dopo il **7** è `197 passed` al 91%.
+**4** è `192 passed` e dopo il **6** `194 passed`, sempre al 90%; dopo il **7** è `197 passed` al 91%,
+dopo l'**8** `198 passed` ancora al 91%.
 
 ## Dove si verifica: tre ambienti, non due
 
@@ -123,8 +129,19 @@ Due proprietà del MySQL locale, misurate:
   dedotto dall'ordine degli statement.
 
 Ne segue una regola operativa per gli interventi che toccano il database: **suite verde non basta**.
-Gli interventi **1, 2, 9, 10, 13** e ogni migrazione nuova vanno provati anche contro il MySQL locale
-prima di considerarli chiusi — è una prova a costo quasi nullo che oggi il piano non sfruttava.
+Gli interventi **1, 2, 8, 9, 10, 13** e ogni migrazione nuova vanno provati anche contro il MySQL
+locale prima di considerarli chiusi — è una prova a costo quasi nullo che oggi il piano non sfruttava.
+
+> L'**8** è stato aggiunto a questo elenco *durante* l'8 stesso: la voce prevedeva di azzerare tre
+> campi, la correzione ha finito per introdurre un bulk delete e un bulk update, cioè la famiglia di
+> B1. **Il criterio non è quale voce tocca il database, ma quali costrutti usa la correzione** — e
+> quello si conosce solo quando la correzione ha una forma. Da rivalutare all'inizio di ogni
+> intervento, non solo leggendo questo elenco.
+>
+> Nota pratica, misurata durante l'8: l'utente del `DATABASE_URL` locale **non ha il permesso di creare
+> database** (errore 1044), quindi la prova non si può isolare in uno schema usa-e-getta. Va eseguita
+> dentro `vgc_coaching`, il che significa: prima contare le righe che il codice sotto prova potrebbe
+> toccare, e ripulire in un `finally` quelle create.
 
 > **Da verificare** — la versione e la collation del MySQL di Railway non sono state misurate e
 > potrebbero non coincidere con il 9.7.0 / `utf8mb4_unicode_ci` locale. La collation in particolare
@@ -150,7 +167,7 @@ l'intervento resta aperto, anche se il codice è già scritto: la sezione corris
 | 5 | ✅ B2b — sblocco degli slot, lato pannello | BLOCCA | ⚠️ | 4 |
 | 6 | ✅ R17 — chiave della cache OAuth | RISCHIOSO | 🛡 | — |
 | 7 | ✅ R5 — esito della cancellazione dell'evento | RISCHIOSO | 📷 + 🛡 | — |
-| 8 | R7 — anonimizzazione di note e prenotazioni | RISCHIOSO | 📷 + 🛡 | — |
+| 8 | ✅ R7 — anonimizzazione di note e prenotazioni | RISCHIOSO | 📷 + 🛡 | — |
 | 9 | R6 — normalizzazione dell'email | RISCHIOSO | 📷 + 🛡 | — |
 | 10 | R16 — job che caricano l'intera tabella | RISCHIOSO | 🛡 | — |
 | 11 | R4a — timeout sul client Google | RISCHIOSO | 🛡 | — |
@@ -593,7 +610,11 @@ l'esito.
 
 ---
 
-## 8. R7 — L'anonimizzazione GDPR lascia i dati personali nelle note
+## 8. ✅ R7 — L'anonimizzazione GDPR lascia i dati personali nelle note
+
+**Chiuso** il 2026-09-18, commit `132a5a2`: codice e test insieme, questa voce e le correzioni al
+piano nel commit successivo. **Provato anche contro il MySQL locale**, contro quanto prevedeva la
+riga 126 di questo piano: vedi «Verifica su MySQL» qui sotto.
 
 **Cosa si corregge** — `anonimizza_clienti_inattivi` azzera i campi di `users` ma non tocca
 `client_notes.nota`, `bookings.note_cliente` e `bookings.note_admin`: testo libero che può contenere
@@ -601,14 +622,67 @@ nome e contatti, e che resta attribuibile via `user_id`/`booking_id`. Il docstri
 che dopo l'anonimizzazione «il cliente collegato smette di essere identificabile»: non è vero.
 `elimina_cliente` (`clients.py:127`) le cancella davvero — sono le **due vie** a divergere.
 
-**File** — `backend/services/retention_service.py:43-56`.
+**Correzione applicata** — il ciclo accumula gli `id` dei clienti trattati; dopo il ciclo e prima del
+`db.commit()`, dentro la stessa guardia, due soli statement di massa: `DELETE` delle `client_notes` con
+`user_id IN (...)` e `UPDATE` di `bookings` che mette a `NULL` `note_cliente` e `note_admin`. La
+funzione restituisce `len(id_anonimizzati)` invece di un contatore parallelo.
 
-**Test**
-- 📷 `tests/test_percorsi_critici_trasformazione.py:437` `test_anonimizzare_un_cliente_non_ripulisce_note_e_prenotazioni` — asserisce `"Mario" in nota.nota` e `"Mario Rossi" in prenotazione.note_cliente`. **Da invertire.**
-- 🛡 `tests/test_retention.py:38,53,83,103` — le quattro condizioni di anonimizzazione.
+**Le note si cancellano, le prenotazioni no.** `client_notes.nota` è `NOT NULL`: svuotarla
+richiederebbe un segnaposto, cioè righe che non dicono più niente su un cliente non più
+identificabile — e `elimina_cliente` fa già la stessa cosa. Le prenotazioni invece restano intere
+(data, importo, servizio, esito): sono lo storico su cui girano le statistiche di incasso, e si
+azzerano solo i due campi di testo, entrambi `nullable`.
+
+**Due statement e non due query per cliente**: dentro il ciclo sarebbero state 2×N interrogazioni,
+e questa funzione è già quella che l'intervento **10** deve alleggerire. Andare nella direzione
+opposta l'avrebbe reso più difficile.
+
+**Qui il `db.flush()` di B1 non serve** — e il commento nel codice lo dice, perché la somiglianza con
+`admin/clients.py` è ingannevole. Con `autoflush=False` i due statement di massa raggiungono il
+database **prima** delle modifiche accodate sugli utenti, ma non dipendono da quelle (filtrano su `id`
+già noti) e nessuna chiave esterna lega `client_notes` o le note di `bookings` ai campi cambiati su
+`users`. `synchronize_session=False` lascia in memoria le prenotazioni caricate dal `joinedload` con il
+testo vecchio: il `commit` che segue le scade tutte, quindi ogni lettura successiva ripassa dal
+database.
+
+**File** — `backend/services/retention_service.py` (docstring del modulo, due import, il corpo della
+funzione), `backend/scheduler.py:317-320` — il corpo della notifica Discord elencava ciò che viene
+rimosso e descriveva la versione vecchia; ora nomina anche le note. L'informativa pubblica
+(`frontend/js/i18n.js:141,271`, «le prenotazioni restano solo in forma anonima») **non è stata
+toccata**: era la promessa che il codice non manteneva, e adesso la mantiene.
+
+**Test** — da 197 a **198 verdi**, copertura di `backend/` ferma al 91%, `retention_service.py` al 100%.
+- 📷 → 🛡 `tests/test_percorsi_critici_trasformazione.py:551`, rinominato
+  `test_anonimizzare_un_cliente_ripulisce_note_e_prenotazioni`: `assert` invertite (`ClientNote` a zero,
+  `note_cliente` e `note_admin` a `None`), `COMPORTAMENTO SOSPETTO` sostituito dal motivo. Aggiunte tre
+  `assert` sull'altra metà dell'invariante — `user_id`, `price_cents`, `status` intatti: senza,
+  passerebbe anche una correzione che ripulisce le note **buttando via lo storico**. Il caso di prova
+  ha ora anche una `note_admin`, che prima non esisteva.
+- 🛡 **nuovo** `test_lanonimizzazione_non_tocca_le_note_di_un_cliente_attivo`: due clienti, uno
+  inattivo e uno recente, entrambi con note. È il test che protegge il filtro `IN` — un `delete()` a cui
+  sfuggisse il `WHERE` cancellerebbe le note di tutto l'archivio senza che nessun'altra `assert` di
+  quel file se ne accorga.
+- 🛡 `tests/test_retention.py:38,53,83,103` e `tests/test_scheduler.py:336,349` — verdi senza
+  modifiche; il secondo asserisce titolo e conteggio della notifica, non il corpo che è cambiato.
+
+**Verifica su MySQL — fatta, e la riga 126 va corretta.** Quell'elenco (`1, 2, 9, 10, 13`) è stato
+scritto quando l'8 sembrava «azzera tre campi». La correzione introduce invece un bulk delete e un bulk
+update, cioè la famiglia di B1: **l'8 appartiene a quell'elenco**. Eseguito contro `vgc_coaching`
+(MySQL 9.7.0 locale, `utf8mb4_unicode_ci`), che non contiene utenti — quindi nessun cliente vero poteva
+finire nel job — con due clienti di prova creati e rimossi dallo script: 1 anonimizzato, note del
+coach cancellate, note di prenotazione svuotate, prenotazione conservata, cliente attivo e sue note
+intatti. Database riportato allo stato di partenza (0 utenti, 3 slot preesistenti).
 
 **Dipende da** — niente. Nessuna metrica legge le note (`admin/dashboard.py` non le usa), quindi
 cancellarle non rompe statistiche.
+
+> **Fuori perimetro, per decisione esplicita: le recensioni.** `reviews.commento` è testo scritto dal
+> cliente e legato a lui via `booking_id`, e `elimina_cliente` le recensioni le cancella
+> (`clients.py:121-122`): su questo punto **le due vie continuano a divergere**, consapevolmente. Una
+> recensione è pubblicata con il consenso di chi l'ha scritta e, anonimizzato l'utente, la vetrina la
+> mostra sotto «Cliente anonimizzato». Resta il rischio residuo del commento che dica «sono Mario
+> Rossi». Stessa sorte per `bookings.vod_link` e `replay_code`: un link a un canale personale può
+> identificare, ma sono dati di gioco e la voce non li nominava.
 
 ---
 
@@ -656,7 +730,7 @@ locale, e potrebbe risultare zero — nel qual caso la migrazione non serve.
 storia del servizio, e il guasto sarebbe silenzioso: `scheduler.py` non notifica le eccezioni di questi
 due job. Correzione: query SQL con filtro / `NOT EXISTS`.
 
-**File** — `backend/services/retention_service.py:23-60`,
+**File** — `backend/services/retention_service.py:28-106` (la funzione è cresciuta con l'8),
 `backend/services/availability_service.py:109-140`.
 
 **Test** — 🛡 copertura buona e interamente protettiva:
@@ -667,7 +741,9 @@ due job. Correzione: query SQL con filtro / `NOT EXISTS`.
   da perdere riscrivendo in SQL.
 
 **Dipende da** — niente. Da fare **dopo il 8**, che tocca la stessa funzione: due modifiche non
-correlate sulla stessa riga vanno separate nel tempo, non raggruppate.
+correlate sulla stessa riga vanno separate nel tempo, non raggruppate. L'8 è chiuso, quindi il vincolo
+è soddisfatto — ma la riscrittura in SQL deve ora preservare anche i due statement di massa che l'8 ha
+aggiunto, e con essi i due test che li proteggono.
 
 **Verifica su MySQL** — necessaria: è l'intervento che sostituisce cicli Python con SQL, cioè l'unico
 che introduce costrutti (`NOT EXISTS`, sottoquery correlate) il cui piano di esecuzione e la cui
