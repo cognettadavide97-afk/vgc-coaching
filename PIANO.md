@@ -6,6 +6,82 @@ Lista ordinata degli interventi, ricavata dalla fusione di `PROBLEMI.md` (gravit
 Per ogni intervento: **cosa si corregge**, **quali file tocca**, **quali test esistenti lo coprono**,
 **da cosa dipende**. Dove serve una decisione prima di aprire l'editor, è scritto in chiaro.
 
+---
+
+# Stato attuale — 2026-09-18
+
+## Ruoli dei documenti
+
+Deciso il 2026-09-16, dopo che il lavoro sui primi sette interventi aveva reso false alcune voci dei
+documenti di partenza.
+
+| Documento | Ruolo | Si aggiorna? |
+|---|---|---|
+| `PIANO.md` | **Stato del lavoro.** Gli interventi si chiudono qui, e qui vivono le smentite ai documenti storici | sì, è questo |
+| `CLAUDE.md` | **Vivo e operativo**, caricato in contesto a ogni sessione: comandi, UTC, deploy, moduli fragili, regole di lavoro | sì, quando un intervento lo rende falso |
+| `PROBLEMI.md`, `AUDIT.md`, `DRIFT.md` | **Storici.** Fotografia datata: il censimento dei difetti, la mappa del codice, le divergenze fra documenti | **no, mai** |
+
+I tre storici si leggono sempre prima di intervenire — sono la ragione per cui questo piano esiste —
+ma non si toccano nemmeno quando il lavoro li rende falsi. Riscriverli cancellerebbe il ragionamento
+che ha portato alla correzione insieme ai riferimenti che cita. Quando ci si trova dentro qualcosa di
+sbagliato o superato, **la smentita si scrive qui**, nella sezione dell'intervento che l'ha scoperta.
+
+Conseguenza pratica: `AUDIT.md` va usato **per nome di funzione, non per numero di riga** — i suoi
+riferimenti erano già sfasati prima dell'intervento 1, su punti che nessuno aveva toccato.
+
+## Dove siamo
+
+**Chiusi: gli interventi 1-7**, cioè l'intera Fascia A (prerequisito e tutti e tre i BLOCCA) più i
+primi due della Fascia B. Suite a **197 verdi**, copertura di `backend/` al **91%**.
+
+**Aperti: 31** (39 voci in tutto, meno le 7 chiuse e la 37 decaduta).
+
+Di questi, **otto non si sbloccano scrivendo codice**, perché dietro c'è una delle sei decisioni
+aperte: cinque **direttamente** — 13 (P2), 14 (P3), 21 (P4), 22 (P5), 36 (P6a **e** P6b) — e tre **di rimbalzo**,
+il 17 dietro il 13 e il 23 e il 33 dietro il 22. **P5 da sola ne blocca tre.** Altri due aspettano un
+altro intervento (12 dietro l'11, 16 dietro il 15) e uno un'azione esterna (35, la riautorizzazione su
+Google Cloud): **pronti da iniziare subito ne restano 20**.
+
+**Prossimo nell'ordine dichiarato: l'intervento 8** (R7, l'anonimizzazione GDPR che non ripulisce le
+note). Il 10 tocca la stessa funzione e va tenuto separato nel tempo, non accorpato.
+
+## Quale commit ha fatto cosa
+
+Verificato il 2026-09-18 aprendo ogni commit e confrontandone il **contenuto** con il messaggio, non
+fidandosi del messaggio. Due messaggi non corrispondono a ciò che il commit fa: sono copia-incolla dal
+commit precedente. La storia non si riscrive, quindi la corrispondenza vera vive qui.
+
+| Intervento | Commit | Il messaggio corrisponde? |
+|---|---|---|
+| 1 — chiavi esterne nella suite | `e3b52f5` | sì |
+| 2 — B1, cancellazione cliente | `ec62a89` (documenti in `d876d5a`) | sì |
+| 3 — B3, macchina a stati | `7af28c8` | sì (*«b3 completato»*, insieme al ripristino di `DRIFT.md` e `PROBLEMI.md`) |
+| 4 — B2a, endpoint di sblocco | `dab88f5` | **no**: dice *«punto 3 completato»*, ma tocca `admin/availability.py` e `test_availability.py` — è il **4** |
+| 5 — B2b, bottone nel pannello | `b348c30` | sì |
+| 6 — R17, chiave della cache OAuth | `aee536b` | **no**: dice *«cancella le prenotazioni prima dei pacchetti in elimina_cliente (B1)»*, ma tocca `google_oauth_service.py` e `test_email_service.py` — è il **6** |
+| 7 — R5, esito della cancellazione | `90062f9` | sì |
+
+Senza questa tabella, chi cercasse l'intervento 6 in `git log` troverebbe un messaggio che parla di B1
+e concluderebbe che il 6 non è mai stato fatto — mentre il codice c'è, e i due test che lo coprono
+pure. È il motivo per cui un intervento eseguito va tracciato qui e non solo nella storia di git.
+
+## Incoerenze note *di questo piano*
+
+Trovate il 2026-09-18 rileggendo il piano contro le sue due fonti. Non sono difetti del codice: sono
+difetti del piano, elencati qui perché non si riscoprano da capo.
+
+| Voce | Cosa non torna | Stato |
+|---|---|---|
+| **37** | Il suo unico prodotto era correggere due frasi di `AUDIT.md`, che ora non si tocca: resta senza lavoro da fare | **decaduta**, vedi la sezione |
+| **36** | Impacchettava `User.telefono` e `AvailabilityRule.attiva`, che `PROBLEMI.md` C1 dichiara *«rimozioni indipendenti l'una dall'altra»* e che richiedono lavori opposti (un form contro un endpoint `PATCH`), sotto una decisione **P6** formulata come domanda sola: non poteva produrre risposte diverse per le due colonne | **chiusa** il 2026-09-18: P6 è diventata **P6a** e **P6b**. La voce resta una sola e si divide *solo se* le due risposte divergono (vedi la sezione 36) — dividerla prima significherebbe costruire struttura su una risposta non ancora data |
+| **33** | Il titolo di `PROBLEMI.md` C5 conta *«quattro volte»*, il suo stesso corpo conta **sei** posti ed elenca sei. Il piano ha preso il numero giusto senza dichiarare di aver corretto la fonte | redazionale, da sistemare dentro il commit del 33 |
+| **29 / 35** | Il 29 annuncia *«quattro stringhe»* e ne elenca tre; il quarto punto di `PROBLEMI.md` C4 è stato promosso al 35 **cambiandogli gravità** (da COSMETICO a «non cosmetico») senza dichiararlo | redazionale, da sistemare dentro i commit del 29 e del 35 |
+
+**Regola che ne esce**: i numeri degli interventi sono identificatori stabili, citati dalle tabelle
+interne, dalle colonne «Dipende da» e **dai messaggi di commit già scritti**. Non si rinumera mai: una
+voce che perde senso si dichiara **decaduta** (come le §1-§9 di `DRIFT.md`), una voce nuova si
+**appende** in coda (come il 39).
+
 ## Come leggere la copertura
 
 I tre file `tests/test_percorsi_critici_*.py` (commit `c8fc0ca`) non proteggono il comportamento
@@ -22,7 +98,7 @@ commento `COMPORTAMENTO SOSPETTO`. Distinguo quindi tre casi, perché comportano
 
 **Baseline verificata** — `pytest` al 2026-09-15: `186 passed`, copertura di `backend/` al 90%.
 Ogni intervento riparte da qui. Il conteggio sale solo quando un intervento **aggiunge** test: dopo il
-**4** è `192 passed`, sempre al 90%.
+**4** è `192 passed` e dopo il **6** `194 passed`, sempre al 90%; dopo il **7** è `197 passed` al 91%.
 
 ## Dove si verifica: tre ambienti, non due
 
@@ -73,7 +149,7 @@ l'intervento resta aperto, anche se il codice è già scritto: la sezione corris
 | 4 | ✅ B2a — sblocco degli slot, lato backend | BLOCCA | 🛡 | decisione P1 |
 | 5 | ✅ B2b — sblocco degli slot, lato pannello | BLOCCA | ⚠️ | 4 |
 | 6 | ✅ R17 — chiave della cache OAuth | RISCHIOSO | 🛡 | — |
-| 7 | R5 — esito della cancellazione dell'evento | RISCHIOSO | 📷 + 🛡 | — |
+| 7 | ✅ R5 — esito della cancellazione dell'evento | RISCHIOSO | 📷 + 🛡 | — |
 | 8 | R7 — anonimizzazione di note e prenotazioni | RISCHIOSO | 📷 + 🛡 | — |
 | 9 | R6 — normalizzazione dell'email | RISCHIOSO | 📷 + 🛡 | — |
 | 10 | R16 — job che caricano l'intera tabella | RISCHIOSO | 🛡 | — |
@@ -102,8 +178,8 @@ l'intervento resta aperto, anche se il codice è già scritto: la sezione corris
 | 33 | C5 — catalogo ed etichette in sei posti | COSMETICO | ⚠️ parziale | 22 |
 | 34 | C6 — `event` implicito negli handler | COSMETICO | ⚠️ impossibile | — |
 | 35 | Scope Calendar ridotto a `calendar.events` | non cosmetico | 🛡 | riautorizzazione Google |
-| 36 | C1d — `telefono` e `attiva`: completare o rimuovere | prodotto | — | decisione P6 |
-| 37 | `AUDIT.md` — due omissioni dichiarate | documentazione | — | 21 |
+| 36 | C1d — `telefono` e `attiva`: completare o rimuovere | prodotto | — | decisioni P6a, P6b |
+| ~~37~~ | ~~`AUDIT.md` — due omissioni dichiarate~~ **decaduta** | — | — | — |
 | 38 | Documentare l'orizzonte "fino a fine mese" | documentazione | 🛡 | — |
 | 39 | Esiti ambigui dei servizi esterni: quattro marcatori senza voce | RISCHIOSO | 📷 | 7 |
 
@@ -189,7 +265,8 @@ rimosse e l'assenza di orfani in `bookings`, `packages`, `client_notes`, `review
 
 ## 3. ✅ B3 — `aggiorna_stato` non è una macchina a stati
 
-**Chiuso** il 2026-09-15, codice e test nello stesso commit. Verifica su MySQL non richiesta:
+**Chiuso** il 2026-09-15, commit `7af28c8`, codice e test nello stesso commit (insieme al ripristino di
+`DRIFT.md` e `PROBLEMI.md`, che quel commit rimette in tracciamento). Verifica su MySQL non richiesta:
 l'intervento non tocca vincoli, collation né bulk delete, e sia il difetto sia la correzione sono
 interamente osservabili sulla suite.
 
@@ -261,7 +338,10 @@ del cliente subentrato non viene più rimesso in vendita, che era il danno vero.
 
 ## 4. ✅ B2a — Sblocco degli slot: endpoint e riapertura automatica
 
-**Chiuso** il 2026-09-15, codice e test nello stesso commit. Verifica su MySQL non richiesta, per la
+**Chiuso** il 2026-09-15, commit `dab88f5`, codice e test nello stesso commit. ⚠️ **Il messaggio di
+quel commit dice *«punto 3 completato»*: è sbagliato, è copia-incolla dal precedente.** Il contenuto —
+`admin/availability.py`, `calendar_service.py`, `test_availability.py` — è questo intervento, il 4.
+Verifica su MySQL non richiesta, per la
 stessa ragione dell'intervento 3: nessun vincolo, nessuna collation, nessun bulk delete — un `UPDATE`
 su due booleani di una riga esistente, con difetto e correzione interamente osservabili sulla suite.
 
@@ -329,7 +409,7 @@ suo bottone e la via d'uscita è tornata a essere un clic. Con il 5 si chiude an
 
 ## 5. ✅ B2b — Sblocco degli slot: il bottone nel pannello
 
-**Chiuso** il 2026-09-16. Nessun test automatico nello stesso commit, perché non è possibile scriverne
+**Chiuso** il 2026-09-16, commit `b348c30`. Nessun test automatico nello stesso commit, perché non è possibile scriverne
 (vedi **Test**): al suo posto una verifica manuale sul pannello, eseguita e documentata qui sotto.
 Verifica su MySQL **eseguita comunque** — non perché l'intervento tocchi il DB, che non lo tocca, ma
 perché il pannello è stato provato contro il MySQL locale invece che contro la suite in memoria.
@@ -406,7 +486,11 @@ che elenca proprio `admin.js:816` fra le letture senza `res.ok`. Riprodotto, non
 
 ## 6. ✅ R17 — La cache delle credenziali Google è indicizzata solo sul refresh token
 
-**Chiuso** il 2026-09-16, codice e test nello stesso commit. Verifica su MySQL non richiesta: la
+**Chiuso** il 2026-09-16, commit `aee536b`, codice e test nello stesso commit. ⚠️ **Il messaggio di
+quel commit dice *«cancella le prenotazioni prima dei pacchetti in elimina_cliente (B1)»*: è
+sbagliato, è copia-incolla dal commit dell'intervento 2.** Il contenuto — `google_oauth_service.py` e
+`test_email_service.py` — è questo intervento, il 6. Chi cercasse R17 nella storia di git per messaggio
+non lo troverebbe. Verifica su MySQL non richiesta: la
 modifica non tocca il database: una cache in memoria di processo, con difetto e correzione
 interamente osservabili sulla suite.
 
@@ -447,24 +531,65 @@ Suite da 192 a 194 verdi.
 
 ---
 
-## 7. R5 — `calendar_event_id` azzerato anche quando l'evento non è stato cancellato
+## 7. ✅ R5 — `calendar_event_id` azzerato anche quando l'evento non è stato cancellato
+
+**Chiuso** il 2026-09-16, commit `90062f9` (2026-09-18), codice e test nello stesso commit.
+Verifica su MySQL non richiesta, per la
+stessa ragione degli interventi 3, 4 e 6: nessun vincolo, nessuna collation, nessun bulk delete — un
+valore di ritorno e un attributo in memoria, con difetto e correzione interamente osservabili sulla suite.
 
 **Cosa si corregge** — `elimina_evento_calendario` non restituisce nulla e cattura ogni eccezione: un
 fallimento è indistinguibile da un successo, ma `libera_slot_prenotazione` azzera comunque l'id.
 L'applicazione perde l'unico riferimento a un evento che resta sul calendario del coach.
 
-Correzione: far restituire un booleano a `elimina_evento_calendario` e azzerare l'id solo in caso di
-successo, lasciandolo altrimenti per un tentativo successivo.
+**Correzione applicata** — la funzione restituisce `bool`. Non viola la convenzione di `CLAUDE.md` per
+cui i servizi verso l'esterno non propagano eccezioni: è la stessa forma di
+`verifica_credenziali_calendario`, già un `bool`. L'eccezione resta catturata e loggata, cambia solo
+che l'esito diventa leggibile.
 
-**File** — `backend/services/calendar_service.py:234-244`, `backend/services/booking_service.py:20-22`,
-e i tre chiamanti: `backend/routers/booking.py:304`, `backend/routers/admin/bookings.py:117`,
-`backend/routers/admin/clients.py:118`.
+**Tre esiti, non due** — `HttpError` con status **404 o 410** restituisce `True`: l'evento non c'è più
+(cancellato a mano dal coach, o id stantio), l'obiettivo è raggiunto e non è un guasto. Trattarlo come
+fallimento avrebbe condannato l'applicazione a conservare per sempre un id che non punta a niente,
+perché — vedi sotto — nessuno ripassa a riprovare. Ogni altro `HttpError` e ogni altra eccezione
+restituiscono `False`. Costo: quattro righe e l'import di `googleapiclient.errors.HttpError`.
 
-**Test**
-- 📷 `tests/test_percorsi_critici_trasformazione.py:351` `test_lidentificativo_dellevento_viene_azzerato_anche_se_google_non_risponde` — **da invertire**: con Google irraggiungibile l'id deve **sopravvivere**, mentre lo slot va comunque liberato.
-- 🛡 `tests/test_booking.py:442` `test_cancellazione_self_service_libera_entrambi_gli_slot`, `:540` `test_doppia_cancellazione_rifiutata`.
+**L'id superstite è una traccia, non una coda di ritentativi.** La voce diceva «lasciandolo altrimenti
+per un tentativo successivo»: quel tentativo **non esiste**. Subito dopo la chiamata lo stato passa a
+`cancelled`, e da lì sia l'intervento 3 (409 dal pannello) sia `booking.py:299` (400 self-service)
+rifiutano ogni ulteriore passaggio: nessun percorso ripassa mai su quella riga. L'id sopravvive perché
+è l'unico modo di ritrovare l'evento fantasma senza cercarlo a mano sul calendario, e il commento nel
+codice dice quello — un commento che promettesse un ritentativo sarebbe un nuovo C4 (intervento 29).
+
+**Gli slot si liberano comunque**, incondizionatamente: sono due fatti separati, e un guasto esterno
+non deve togliere dalla vendita un'ora che il cliente ha appena liberato.
+
+**File** — `backend/services/calendar_service.py:20,244-275` (l'import e la funzione),
+`backend/services/booking_service.py:13-33` (la guardia e i due commenti). **I tre chiamanti non sono
+stati toccati**, contro quello che questa voce elencava: nessuno dei tre ha qualcosa da fare con
+l'esito.
+- `booking.py:304` — risponde la prenotazione al cliente, a cui un guasto Google del coach non interessa.
+- `admin/bookings.py:148` — il coach trarrebbe beneficio da un «l'evento è ancora sul tuo calendario»,
+  ma significa cambiare il messaggio di risposta *e* il pannello che lo mostra: è funzionalità nuova,
+  non la correzione di R5. Appartiene alla famiglia del **39**, non a qui.
+- `clients.py:118` — la riga `bookings` viene cancellata pochi statement dopo, quindi **non c'è dove
+  conservare l'id**: su questo percorso la modifica non cambia nulla di osservabile, né prima né dopo,
+  e l'unica traccia di un evento orfano resta il log. Non è un buco della correzione: è il limite di
+  una via che per costruzione non conserva niente.
+
+**Test** — da 194 a **197 verdi**, copertura di `backend/` dal 90% al 91%; `calendar_service.py` dal
+92% al 98%, `booking_service.py` al 100%.
+- 📷 → 🛡 `tests/test_percorsi_critici_trasformazione.py:352`, rinominato `test_lidentificativo_dellevento_sopravvive_se_google_non_risponde`: `assert` invertita (l'id resta), `slot.is_available is True` invariato, `COMPORTAMENTO SOSPETTO` sostituito dal motivo.
+- 🛡 **nuovo**, il ramo felice (`test_lidentificativo_dellevento_viene_azzerato_quando_google_conferma`). **Non è un extra**: `conftest.py:107` finge `crea_evento_calendario` con un `None`, quindi in tutta la suite le prenotazioni nascono senza id evento e il test invertito era l'**unico** a entrare in quel `if`. Senza questo, il ramo che azzera l'id restava a copertura zero e chiunque avrebbe potuto cancellarlo.
+- 🛡 **due nuovi** sul ramo `HttpError`, per la stessa ragione — la copertura lo ha segnalato a zero subito dopo la prima esecuzione della suite: `test_levento_gia_assente_dal_calendario_non_conta_come_fallimento` (410 → id azzerato) e `test_un_errore_di_google_diverso_da_404_conserva_lidentificativo` (500 → id superstite).
+- 🛡 `tests/test_booking.py:442` `test_cancellazione_self_service_libera_entrambi_gli_slot`, `:540` `test_doppia_cancellazione_rifiutata` — verdi senza modifiche.
 
 **Dipende da** — niente. **Sblocca** — 12.
+
+> **Due imprecisioni di `PROBLEMI.md`, segnalate e non corrette** — quel documento è storico e non si
+> tocca; le smentite vivono qui. La voce R5 prevedeva di lasciare l'id «per un tentativo successivo»,
+> che **non esiste** (vedi sopra), e chiudeva con «e `tests/test_booking.py` dove la funzione è già
+> sostituita da un finto»: `elimina_evento_calendario` non è finta da nessuna parte nella suite —
+> `conftest.py:107` finge `crea_evento_calendario`, che è un'altra funzione.
 
 ---
 
@@ -1041,7 +1166,14 @@ finte: la verifica vera è in produzione, dopo la riautorizzazione.
 ## 36. C1d — `telefono` e `attiva`: completare o rimuovere
 
 Due colonne a metà. **Non sono pulizia**: rimuoverle richiede una migrazione, completarle è lavoro di
-prodotto. Da decidere (**decisione P6**), non da eseguire in automatico.
+prodotto. Da decidere (**decisioni P6a e P6b**, una per colonna), non da eseguire in automatico.
+
+> **Quanti commit, dipende dalla risposta.** Le due colonne sono indipendenti (`PROBLEMI.md` C1:
+> *«rimozioni indipendenti l'una dall'altra»*), quindi P6a e P6b possono divergere. Se **convergono**
+> — per esempio «rimuovere entrambe» — è **un commit solo**: due `DROP COLUMN` stanno nella stessa
+> migrazione. Se **divergono**, questa voce si esegue in **due commit** e `AvailabilityRule.attiva` si
+> stacca come voce **40**, appesa in coda secondo la regola dei numeri stabili. La divisione non si fa
+> prima di conoscere le risposte: sarebbe struttura costruita su una supposizione.
 
 - `User.telefono` — nessun form lo raccoglie: `app.js:499` invia sempre `telefono: null`, e non esiste
   un campo telefono in `index.html`. La colonna è solo letta (`clients.py:77`) e azzerata
@@ -1055,19 +1187,44 @@ prodotto. Da decidere (**decisione P6**), non da eseguire in automatico.
 
 # Fascia F — documentazione
 
-## 37. `AUDIT.md`: due omissioni che il documento stesso dichiara complete
+> Delle due voci di questa fascia ne resta **una**: il 37 è decaduto perché scriveva su `AUDIT.md`,
+> che è storico. Il 38 scrive su `CLAUDE.md`, che è vivo, e resta perfettamente eseguibile — la
+> differenza fra le due è il documento di destinazione, non il tipo di lavoro.
 
-Dalla nota finale di `DRIFT.md`, con il codice che dà ragione ai documenti oggi cancellati:
+## 37. ~~`AUDIT.md`: due omissioni che il documento stesso dichiara complete~~ — **DECADUTA**
 
-- **`/docs`, `/redoc`, `/openapi.json`** non compaiono nell'inventario degli endpoint di §2.9. È
-  l'unica superficie HTTP pubblica che l'audit non copre. Da aggiornare **dopo il 21**, così il
-  documento registra la decisione presa e non lo stato di allora.
-- **`tests/conftest.py`** è descritto in §5 come «sostituisce `get_db` con un SQLite in memoria e
-  disattiva il rate limiter»: la riga si legge come una lista completa, ma la fixture autouse
-  `integrazioni_esterne_finte` (`:72-100`) sostituisce con no-op **dieci** funzioni di Calendar, email
-  e Discord nei tre router che le chiamano. L'omissione è coerente con il perimetro dichiarato
-  (`tests/` era fuori), ma la formulazione va corretta. Da aggiornare anche dopo il **1**, che
-  aggiunge il `PRAGMA`.
+**Decaduta il 2026-09-18, per cancellazione della destinazione.** Il numero resta occupato e non si
+riusa: è citato dalla tabella iniziale, dalla decisione P4 e dalla tabella dei decaduti di `DRIFT.md`.
+
+Veniva dalla nota finale di `DRIFT.md`, che raccoglieva il caso rovesciato rispetto al resto di quel
+documento: non i posti dove i documenti sbagliavano e il codice aveva ragione, ma i **due posti dove i
+documenti avevano ragione e `AUDIT.md` era incompleto**. Per questo la correzione era indirizzata ad
+`AUDIT.md` — ed è esattamente ciò che oggi non si fa più (vedi *Ruoli dei documenti*, in cima). Il suo
+unico prodotto era correggere due frasi di un documento ora storico: non resta lavoro da fare.
+
+I due punti hanno però esiti diversi, ed è la ragione per cui questa voce non era coerente **nemmeno
+prima** della decisione sui documenti: impacchettava una questione di codice e una puramente
+redazionale sotto l'etichetta «aggiornare la documentazione».
+
+- **`/docs`, `/redoc`, `/openapi.json`** — il problema è di **codice**, non di documento:
+  `backend/main.py:129` costruisce `FastAPI(...)` senza `docs_url`/`redoc_url`/`openapi_url`, quindi
+  le tre rotte sono attive e senza autenticazione. Era già stato promosso all'**intervento 21**, che
+  lo possiede per intero. Qui non resta niente.
+- **`tests/conftest.py`** — il problema era **solo di documento**: il codice fa esattamente quello che
+  deve, ed è ciò che impedisce alla suite di mandare email e messaggi Discord veri. L'unico difetto
+  era una frase di `AUDIT.md` §5 che si legge come una lista completa e non lo è. Il fatto sotto la
+  frase è invece operativo e **si è trasferito in `CLAUDE.md`**, voce `tests/conftest.py`: la fixture
+  autouse `integrazioni_esterne_finte` finge **dieci** funzioni di Calendar, email e Discord, quindi
+  una suite verde non dimostra niente su quelle tre integrazioni. Non è archiviazione: è il motivo per
+  cui nell'intervento **7** il ramo che azzera `calendar_event_id` risultava a copertura zero.
+
+**Smentite ad `AUDIT.md` raccolte qui**, dato che quel documento non si corregge: i suoi numeri di riga
+erano già sfasati **prima** degli interventi 1-7, su punti che nessuno aveva toccato
+(`elimina_evento_calendario` indicato a `:234` quando stava a `:244`, il token endpoint a
+`google_oauth_service.py:40` quando sta a `:58`, la sonda a `:79-85` quando sta a `:68-103`). Due sue
+descrizioni sono inoltre superate dal lavoro svolto: la cache OAuth (§2.4, «cache per refresh token» —
+dall'intervento **6** è indicizzata sulla coppia `(refresh_token, client_id)`) e l'azzeramento di
+`calendar_event_id` (§3.2, dato per incondizionato — dall'intervento **7** avviene solo su conferma).
 
 ## 38. Documentare l'orizzonte di generazione degli slot
 
@@ -1088,17 +1245,25 @@ nel codice (finestra scorrevole a N giorni) e sarebbe una decisione nuova, non u
 
 # Decisioni da prendere prima di aprire l'editor
 
-Sei nodi in cui il codice non basta a scegliere. Ogni intervento che vi dipende è fermo finché non
-sono sciolti. **P1 è sciolto**; restano cinque.
+Sette nodi in cui il codice non basta a scegliere — erano sei finché P6 non è stata sdoppiata il
+2026-09-18. Ogni intervento che vi dipende è fermo finché non sono sciolti. **P1 è sciolto**;
+restano sei.
 
 | | Decisione | Blocca |
 |---|---|---|
 | ~~**P1**~~ | ✅ **Sciolto il 2026-09-15: azione esplicita del coach**, sblocco per singolo slot. La riapertura automatica non è scartata ma rimandata: richiede il **39** come prerequisito, perché con `leggi_eventi_calendario` che confonde il guasto con l'agenda vuota rimetterebbe in vendita orari realmente occupati. Motivazione estesa nell'intervento 4. | 4 ✅, 5 |
 | **P2** | Lo scheduler passa a `timezone=ROME_TZ`? Sposta l'orario **reale** di tutti i job (03:00 UTC → 03:00 Roma). L'alternativa è lasciare i job in UTC e correggere solo `date.today()` in `availability_service.py:65`, che è la causa vera del difetto e non sposta niente. | 13, 17 |
 | **P3** | Prenotare resta possibile senza login? Le strade sono tre: login obbligatorio, conferma via email del guest checkout, oppure nessuna delle due e i commenti resi onesti. | 14 |
-| **P4** | `/docs`, `/redoc` e `/openapi.json` restano pubblici? | 21, 37 |
+| **P4** | `/docs`, `/redoc` e `/openapi.json` restano pubblici? | 21 |
 | **P5** | Il listino (prezzi e ore valide) arriva dal server, o resta duplicato con riferimenti incrociati espliciti nei commenti? | 22, 23, 33 |
-| **P6** | `User.telefono` e `AvailabilityRule.attiva`: completare (form + `PATCH`) o rimuovere (migrazione)? | 36 |
+| **P6a** | `User.telefono`: completare (un campo nel form pubblico di `index.html`) o rimuovere (migrazione)? | 36 |
+| **P6b** | `AvailabilityRule.attiva`: completare (un `PATCH` sulla regola nel pannello) o rimuovere (migrazione)? | 36 |
+
+> **Perché P6 è due domande e non una.** Le due colonne sono indipendenti — `PROBLEMI.md` C1 le
+> dichiara *«rimozioni indipendenti l'una dall'altra»* — e completarle significa lavori opposti: un
+> campo nel form pubblico contro un endpoint nel pannello. Poste insieme, la risposta naturale è una
+> sola e l'esito *«rimuovi l'una, completa l'altra»* non viene nemmeno considerato. Separate, resta
+> possibile. Vedi la sezione 36 per cosa comporta sull'esecuzione.
 
 ---
 
@@ -1117,7 +1282,8 @@ richiede un intervento sul codice. Restano vive solo tre cose, già assorbite in
 | §1 `AvailabilityRule.attiva` | Vive come fatto di codice → **intervento 36** |
 | §2 recensioni a intervallo, §3 backup settimanale, §4 "sei girano ogni giorno", §5 nomi dell'healthcheck, §7 `monitor.yml`, §8 albero dei documenti, §9 conteggio delle variabili | Chiuse: descrivevano documenti cancellati. `CLAUDE.md` e la suite (`test_scheduler.py:416-440`) riportano già il comportamento reale. Nessuna azione. |
 | §6 orizzonte "fino a fine mese" | Il fatto non è documentato da nessuna parte → **intervento 38** |
-| Nota finale (`/docs`, `conftest.py`) | → **interventi 21 e 37** |
+| Nota finale, `/docs` | Il problema è di codice, non di documento → **intervento 21** |
+| Nota finale, `conftest.py` | Il codice è giusto: era incompleta la descrizione in `AUDIT.md` §5, che non si corregge. Il fatto — dieci integrazioni finte nella suite — è passato a `CLAUDE.md`. L'**intervento 37** che se ne occupava è **decaduto** |
 
 ---
 
