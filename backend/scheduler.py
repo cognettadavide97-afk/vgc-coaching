@@ -316,6 +316,7 @@ def controlla_e_anonimizza_clienti_inattivi():
                 "Data retention: clienti anonimizzati",
                 f"{anonimizzati} cliente/i inattivo/i da oltre {RETENTION_MONTHS} mesi "
                 "sono stati anonimizzati automaticamente (nome/email/contatti Discord rimossi, "
+                "note del coach cancellate e note di prenotazione svuotate, "
                 "storico prenotazioni mantenuto in forma anonima)."
             )
         return anonimizzati

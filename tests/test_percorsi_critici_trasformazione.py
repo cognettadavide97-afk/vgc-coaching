@@ -548,8 +548,15 @@ def test_cancellare_un_cliente_con_pacchetto_elimina_le_prenotazioni_prima_dei_p
     assert db.query(Booking).count() == 0
 
 
-def test_anonimizzare_un_cliente_non_ripulisce_note_e_prenotazioni(db):
-    """L'anonimizzazione tocca solo la riga `users`."""
+def test_anonimizzare_un_cliente_ripulisce_note_e_prenotazioni(db):
+    """L'anonimizzazione rimuove anche il testo libero, non solo `users`.
+
+    Nome, cognome e tag Discord finiscono nelle note scritte a mano, che
+    restano collegate al cliente per `user_id`/`booking_id`: azzerare la
+    sola riga `users` lascerebbe il cliente identificabile da altre due
+    tabelle. La prenotazione invece sopravvive, perché importo e data
+    servono alle statistiche del coach e da sole non dicono chi fosse.
+    """
     vecchio = ORA - timedelta(days=800)   # oltre i 24 mesi di RETENTION_MONTHS
 
     utente = User(nome="Mario Rossi", email="mario.rossi@example.com",
@@ -567,6 +574,7 @@ def test_anonimizzare_un_cliente_non_ripulisce_note_e_prenotazioni(db):
         user_id=utente.id, slot_id=slot.id, duration_hours=1, price_cents=2000,
         service_type="vod_review", status="confirmed", created_at=vecchio,
         note_cliente="Sono Mario Rossi, il mio Discord è mario#1234",
+        note_admin="Mario gioca sempre Incineroar, insistere sul posizionamento",
     ))
     db.add(ClientNote(user_id=utente.id, nota="Mario preferisce le sessioni serali",
                       created_at=vecchio))
@@ -578,13 +586,64 @@ def test_anonimizzare_un_cliente_non_ripulisce_note_e_prenotazioni(db):
     assert utente.nome == "Cliente anonimizzato"
     assert utente.telefono is None
 
-    nota = db.query(ClientNote).first()
-    prenotazione = db.query(Booking).first()
+    assert db.query(ClientNote).count() == 0
 
-    # COMPORTAMENTO SOSPETTO: il nome e il contatto Discord del cliente
-    # restano leggibili in chiaro nelle note interne e nelle note di
-    # prenotazione, entrambe campi di testo libero scritti da persone.
-    # Il cliente risulta "anonimizzato" pur essendo ancora identificabile
-    # da altre due tabelle.
-    assert "Mario" in nota.nota
-    assert "Mario Rossi" in prenotazione.note_cliente
+    prenotazione = db.query(Booking).first()
+    assert prenotazione.note_cliente is None
+    assert prenotazione.note_admin is None
+
+    # L'altra metà dell'invariante: la riga della prenotazione non va
+    # cancellata. Senza queste tre assert passerebbe anche una correzione
+    # che, per ripulire le note, buttasse via lo storico su cui girano le
+    # statistiche di incasso e sessioni.
+    assert prenotazione.user_id == utente.id
+    assert prenotazione.price_cents == 2000
+    assert prenotazione.status == "confirmed"
+
+
+def test_lanonimizzazione_non_tocca_le_note_di_un_cliente_attivo(db):
+    """Il filtro sui clienti da trattare protegge tutti gli altri.
+
+    Le note si ripuliscono con due statement di massa, non cliente per
+    cliente: se il filtro sugli id sparisse o fosse sbagliato, sparirebbero
+    le note di tutto l'archivio senza che nessuna delle altre assert di
+    questo file se ne accorga.
+    """
+    vecchio = ORA - timedelta(days=800)   # oltre i 24 mesi di RETENTION_MONTHS
+    recente = ORA - timedelta(days=10)
+
+    inattivo = User(nome="Mario Rossi", email="mario.rossi@example.com", created_at=vecchio)
+    attivo = User(nome="Luigi Verdi", email="luigi.verdi@example.com", created_at=recente)
+    db.add_all([inattivo, attivo])
+    db.commit()
+    db.refresh(inattivo)
+    db.refresh(attivo)
+
+    slot_attivo = Slot(start_time=recente, duration_hours=1, is_available=False)
+    db.add(slot_attivo)
+    db.commit()
+    db.refresh(slot_attivo)
+
+    db.add(Booking(
+        user_id=attivo.id, slot_id=slot_attivo.id, duration_hours=1, price_cents=2000,
+        service_type="vod_review", status="confirmed", created_at=recente,
+        note_cliente="Sono Luigi Verdi, gioco da due anni",
+    ))
+    db.add(ClientNote(user_id=inattivo.id, nota="Mario preferisce le sessioni serali",
+                      created_at=vecchio))
+    db.add(ClientNote(user_id=attivo.id, nota="Luigi vuole lavorare sui team building",
+                      created_at=recente))
+    db.commit()
+
+    assert anonimizza_clienti_inattivi(db) == 1
+
+    note_superstiti = db.query(ClientNote).all()
+    assert len(note_superstiti) == 1
+    assert note_superstiti[0].user_id == attivo.id
+    assert "Luigi" in note_superstiti[0].nota
+
+    prenotazione_attiva = db.query(Booking).filter(Booking.user_id == attivo.id).first()
+    assert prenotazione_attiva.note_cliente == "Sono Luigi Verdi, gioco da due anni"
+
+    db.refresh(attivo)
+    assert attivo.nome == "Luigi Verdi"
