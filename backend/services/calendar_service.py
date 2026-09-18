@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from google.oauth2 import service_account
 from backend.services.google_oauth_service import verifica_credenziali_google
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from dotenv import load_dotenv
 from backend.services.timezone_service import ROME_TZ, ora_utc_naive, intervalli_si_sovrappongono
 
@@ -241,8 +242,15 @@ def sincronizza_slot_con_calendario(db: Session) -> int:
     return bloccati
 
 
-def elimina_evento_calendario(event_id: str):
-    """Elimina l'evento associato a una prenotazione cancellata."""
+def elimina_evento_calendario(event_id: str) -> bool:
+    """Elimina l'evento associato a una prenotazione cancellata.
+
+    Restituisce True quando l'evento non è più sul calendario, False quando
+    la cancellazione non è riuscita. L'eccezione resta catturata come in
+    tutto il modulo: cambia solo che l'esito diventa leggibile, perché chi
+    chiama deve sapere se può dimenticare l'id dell'evento (vedi
+    libera_slot_prenotazione in services/booking_service.py).
+    """
     try:
         service = get_calendar_service()
         service.events().delete(
@@ -250,5 +258,18 @@ def elimina_evento_calendario(event_id: str):
             eventId=event_id
         ).execute()
         logger.info(f"Evento {event_id} eliminato dal calendario")
+        return True
+    except HttpError as errore:
+        # 404 e 410 dicono che l'evento non c'è più: già cancellato a mano
+        # dal coach, oppure id stantio. Non è un guasto, l'obiettivo è
+        # raggiunto. Trattarlo come fallimento condannerebbe il chiamante a
+        # conservare per sempre un id che non punta a niente, perché nessuno
+        # ripasserà mai a riprovare.
+        if errore.resp.status in (404, 410):
+            logger.info(f"Evento {event_id} già assente dal calendario")
+            return True
+        logger.exception("Errore eliminazione evento")
+        return False
     except Exception:
         logger.exception("Errore eliminazione evento")
+        return False

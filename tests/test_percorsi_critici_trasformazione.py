@@ -18,6 +18,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from googleapiclient.errors import HttpError
 
 from backend.models.booking import Booking
 from backend.models.client_note import ClientNote
@@ -349,8 +350,8 @@ def test_riportare_a_confermata_una_prenotazione_cancellata_viene_rifiutato(clie
     assert slot.is_available is True
 
 
-def test_lidentificativo_dellevento_viene_azzerato_anche_se_google_non_risponde(db, monkeypatch):
-    """libera_slot_prenotazione dimentica l'evento senza sapere se è stato cancellato."""
+def test_lidentificativo_dellevento_sopravvive_se_google_non_risponde(db, monkeypatch):
+    """Con la cancellazione fallita l'id resta: è l'unica traccia dell'evento."""
     utente = crea_utente_db(db, "cliente@example.com")
     slot = crea_slot(db, ORA + timedelta(days=7))
     prenotazione = prenota(db, utente, slot)
@@ -358,7 +359,7 @@ def test_lidentificativo_dellevento_viene_azzerato_anche_se_google_non_risponde(
     db.commit()
 
     # Google irraggiungibile: elimina_evento_calendario cattura l'errore al
-    # proprio interno e non restituisce nulla (calendar_service.py:243-244).
+    # proprio interno e restituisce False.
     def esplode():
         raise RuntimeError("Google non raggiungibile")
 
@@ -368,11 +369,122 @@ def test_lidentificativo_dellevento_viene_azzerato_anche_se_google_non_risponde(
     db.commit()
     db.refresh(prenotazione)
 
-    # COMPORTAMENTO SOSPETTO: l'esito dell'eliminazione non è osservabile
-    # dal chiamante, che azzera comunque calendar_event_id. L'evento resta
-    # sull'agenda del coach e nessuno conserva più il suo id: l'unico modo
-    # di rimuoverlo diventa cancellarlo a mano da Google Calendar.
+    # L'evento è rimasto sull'agenda del coach: azzerare l'id lo renderebbe
+    # rimovibile solo cercandolo a mano su Google Calendar. Lo slot invece
+    # torna libero comunque, perché un guasto esterno non deve togliere
+    # dalla vendita un'ora che il cliente ha appena liberato.
+    assert prenotazione.calendar_event_id == "evento_google_123"
+    db.refresh(slot)
+    assert slot.is_available is True
+
+
+def test_lidentificativo_dellevento_viene_azzerato_quando_google_conferma(db, monkeypatch):
+    """Il ramo opposto: a cancellazione riuscita l'id non serve più.
+
+    Senza questo test il ramo che azzera calendar_event_id resterebbe a
+    copertura zero: conftest.py finge crea_evento_calendario con un None,
+    quindi in tutta la suite le prenotazioni nascono senza id evento e
+    questa coppia di test è l'unica a entrare in quel ramo.
+    """
+    utente = crea_utente_db(db, "cliente@example.com")
+    slot = crea_slot(db, ORA + timedelta(days=7))
+    prenotazione = prenota(db, utente, slot)
+    prenotazione.calendar_event_id = "evento_google_123"
+    db.commit()
+
+    eliminati = []
+
+    class FintaDelete:
+        def __init__(self, event_id):
+            self.event_id = event_id
+
+        def execute(self):
+            eliminati.append(self.event_id)
+
+    class FintiEventi:
+        def delete(self, calendarId, eventId):
+            return FintaDelete(eventId)
+
+    class FintoServizio:
+        def events(self):
+            return FintiEventi()
+
+    monkeypatch.setattr(calendar_service, "get_calendar_service", FintoServizio)
+
+    libera_slot_prenotazione(prenotazione, db)
+    db.commit()
+    db.refresh(prenotazione)
+
+    assert eliminati == ["evento_google_123"]
     assert prenotazione.calendar_event_id is None
+    db.refresh(slot)
+    assert slot.is_available is True
+
+
+def _finge_errore_google(monkeypatch, stato: int):
+    """Sostituisce il client Calendar con uno che risponde con un HttpError.
+
+    HttpError legge resp.status per decidere il ramo e, quando l'errore
+    finisce nel log, resp.reason e content per comporre il messaggio.
+    """
+    class FintaRisposta:
+        status = stato
+        reason = "errore finto"
+
+    errore = HttpError(FintaRisposta(), b'{"error": {"message": "errore finto"}}')
+
+    class FintaDelete:
+        def execute(self):
+            raise errore
+
+    class FintiEventi:
+        def delete(self, calendarId, eventId):
+            return FintaDelete()
+
+    class FintoServizio:
+        def events(self):
+            return FintiEventi()
+
+    monkeypatch.setattr(calendar_service, "get_calendar_service", FintoServizio)
+
+
+def test_levento_gia_assente_dal_calendario_non_conta_come_fallimento(db, monkeypatch):
+    """410 (o 404) significa che l'evento non c'è più: l'id va dimenticato.
+
+    È il caso del coach che cancella l'appuntamento a mano dal telefono.
+    Trattarlo come guasto lascerebbe in eterno un id che non punta a
+    niente, perché nessun percorso ripassa a riprovare la cancellazione.
+    """
+    utente = crea_utente_db(db, "cliente@example.com")
+    slot = crea_slot(db, ORA + timedelta(days=7))
+    prenotazione = prenota(db, utente, slot)
+    prenotazione.calendar_event_id = "evento_google_123"
+    db.commit()
+
+    _finge_errore_google(monkeypatch, 410)
+
+    libera_slot_prenotazione(prenotazione, db)
+    db.commit()
+    db.refresh(prenotazione)
+
+    assert prenotazione.calendar_event_id is None
+
+
+def test_un_errore_di_google_diverso_da_404_conserva_lidentificativo(db, monkeypatch):
+    """Un 500 è un guasto vero: l'evento è ancora là e l'id serve."""
+    utente = crea_utente_db(db, "cliente@example.com")
+    slot = crea_slot(db, ORA + timedelta(days=7))
+    prenotazione = prenota(db, utente, slot)
+    prenotazione.calendar_event_id = "evento_google_123"
+    db.commit()
+
+    _finge_errore_google(monkeypatch, 500)
+
+    libera_slot_prenotazione(prenotazione, db)
+    db.commit()
+    db.refresh(prenotazione)
+
+    assert prenotazione.calendar_event_id == "evento_google_123"
     db.refresh(slot)
     assert slot.is_available is True
 
