@@ -21,8 +21,10 @@ Nel database i `DateTime` sono **naive in UTC**. Si converte solo ai bordi, via
 
 ## NON TOCCARE SENZA CHIEDERE
 
-Ogni voce ha la sua motivazione estesa nell'intervento di `PIANO.md` indicato fra parentesi: leggerla
-prima di intervenire.
+Gli interventi si chiudono spuntando la voce in `PIANO.md` con il riferimento al commit; il dettaglio
+di cosa è stato fatto e perché sta nel messaggio di commit, non in un documento. Le motivazioni delle
+voci qui sotto sono nell'intervento indicato fra parentesi di `_archivio_audit/PIANO_ANALISI_2026-09.md`:
+leggerle prima di intervenire.
 
 - `routers/admin/clients.py` — il `db.flush()` prima dei due bulk delete; toglierlo rompe la FK
   `package_id` su MySQL con un 1451 sull'endpoint del diritto all'oblio (B1, intervento 2).
