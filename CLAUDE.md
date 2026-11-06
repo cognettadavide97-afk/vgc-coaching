@@ -19,6 +19,15 @@ Nel database i `DateTime` sono **naive in UTC**. Si converte solo ai bordi, via
 `services/timezone_service.py`: uscita pubblica in UTC esplicito, pannello ed email in ora di Roma.
 **Non convertire altrove.**
 
+## Orizzonte degli slot
+
+Gli slot generati dalle regole arrivano solo a **fine mese corrente**
+(`services/availability_service.py:68`); il job notturno e la creazione di una regola riaprono
+la finestra il primo del mese. L'orizzonte prenotabile quindi oscilla: circa trenta giorni a
+inizio mese, quasi zero a fine mese. È voluto (docstring di `genera_slot_da_regola`); una
+finestra scorrevole sarebbe una decisione di prodotto nuova. Gli slot creati a mano dall'admin
+(`POST /slots/`) non hanno questo limite.
+
 ## NON TOCCARE SENZA CHIEDERE
 
 Gli interventi si chiudono spuntando la voce in `PIANO.md` con il riferimento al commit; il dettaglio
