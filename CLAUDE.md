@@ -19,15 +19,6 @@ Nel database i `DateTime` sono **naive in UTC**. Si converte solo ai bordi, via
 `services/timezone_service.py`: uscita pubblica in UTC esplicito, pannello ed email in ora di Roma.
 **Non convertire altrove.**
 
-## Orizzonte degli slot
-
-Gli slot generati dalle regole arrivano solo a **fine mese corrente**
-(`services/availability_service.py:68`); il job notturno e la creazione di una regola riaprono
-la finestra il primo del mese. L'orizzonte prenotabile quindi oscilla: circa trenta giorni a
-inizio mese, quasi zero a fine mese. È voluto (docstring di `genera_slot_da_regola`); una
-finestra scorrevole sarebbe una decisione di prodotto nuova. Gli slot creati a mano dall'admin
-(`POST /slots/`) non hanno questo limite.
-
 ## NON TOCCARE SENZA CHIEDERE
 
 Gli interventi si chiudono spuntando la voce in `PIANO.md` con il riferimento al commit; il dettaglio
@@ -49,6 +40,8 @@ leggerle prima di intervenire.
   senza timeout (R4, interventi 11-12).
 - `scheduler.py:35-47` — env var lette a livello di modulo e `BackgroundScheduler()` senza timezone:
   toccarlo sposta l'orario reale di tutti i job (R11/D3, interventi 13/17).
+- `services/availability_service.py:68` — gli slot delle regole si generano solo fino a fine mese
+  corrente: a fine mese il calendario è quasi vuoto. È voluto (intervento 38).
 - `routers/admin/__init__.py` — `get_admin` e l'import dei sotto-router in fondo (D1/D2, 15/16).
 - `tests/conftest.py` — due cose che rendono la suite diversa da come sembra: il listener
   `PRAGMA foreign_keys=ON` allinea SQLite a MySQL sui vincoli, e la fixture autouse
