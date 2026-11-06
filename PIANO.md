@@ -49,8 +49,8 @@ Decisioni (dettaglio nell'archivio, riga 1328):
 - [ ] 34 · C6 — event implicito negli handler
 - [ ] 35 — Scope Google Calendar ridotto a calendar.events (serve riautorizzare)
 - [ ] 36 · C1d — telefono e attiva: completare o rimuovere (decisioni P6a, P6b)
-- [ ] ~~37 — AUDIT.md: due omissioni~~ decaduta, AUDIT.md non si aggiorna
-- [ ] 38 — Documentare in CLAUDE.md l'orizzonte "fino a fine mese" degli slot
+- [x] ~~37 — AUDIT.md: due omissioni~~ decaduta, AUDIT.md non si aggiorna
+- [x] 38 — Documentare in CLAUDE.md l'orizzonte "fino a fine mese" degli slot (commit 21a2f3c)
 - [ ] 40 — Misurare versione e collation del MySQL di Railway, prima del 9 (riga 152)
 - [ ] 41 — Contare su Railway le email che differiscono solo per maiuscole; migrazione solo se ce ne sono (riga 723)
 - [ ] 42 — booking.py:299 rifiuta con 400 il caso che l'admin rifiuta con 409: allineare (riga 347)
