@@ -73,6 +73,14 @@ def genera_slot_da_regola(regola: AvailabilityRule, db: Session) -> int:
     giorni_da_aggiungere = (regola.giorno_settimana - oggi.weekday()) % 7
     prima_data = oggi + timedelta(days=giorni_da_aggiungere)
 
+    # I blocchi valgono anche per gli slot che nascono dopo di loro: ferie
+    # fissate per il mese prossimo, quando i suoi slot non esistono ancora,
+    # andrebbero in vendita il 1°, al passaggio del job notturno. Lo slot
+    # nasce quindi nello stato in cui lo avrebbe messo applica_blocco_eccezionale
+    # se fosse esistito alla creazione del blocco, e come quelli si riapre
+    # solo con lo sblocco esplicito.
+    blocchi = db.query(AvailabilityException).filter(AvailabilityException.data_fine >= oggi).all()
+
     creati = 0
 
     settimana = 0
@@ -81,6 +89,10 @@ def genera_slot_da_regola(regola: AvailabilityRule, db: Session) -> int:
         if giorno > ultimo_giorno_mese:
             break
         settimana += 1
+
+        # Confronto diretto fra date: giorno è la data italiana dello slot,
+        # come gli estremi del blocco, entrambi inclusi.
+        bloccato = any(b.data_inizio <= giorno <= b.data_fine for b in blocchi)
 
         cursore = datetime.combine(giorno, regola.ora_inizio)
         fine_finestra = datetime.combine(giorno, regola.ora_fine)
@@ -96,7 +108,12 @@ def genera_slot_da_regola(regola: AvailabilityRule, db: Session) -> int:
             if inizio_utc > ora_utc_adesso:
                 esiste_gia = db.query(Slot).filter(Slot.start_time == inizio_utc).first()
                 if not esiste_gia and not slot_si_sovrappone(db, inizio_utc, regola.durata_slot_ore):
-                    db.add(Slot(start_time=inizio_utc, duration_hours=regola.durata_slot_ore))
+                    db.add(Slot(
+                        start_time=inizio_utc,
+                        duration_hours=regola.durata_slot_ore,
+                        is_available=not bloccato,
+                        blocked_admin=bloccato
+                    ))
                     creati += 1
 
             cursore += timedelta(hours=regola.durata_slot_ore)

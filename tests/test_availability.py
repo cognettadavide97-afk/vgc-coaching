@@ -10,6 +10,7 @@ from backend.models.users import User
 from backend.models.booking import Booking
 from backend.models.availability_rule import AvailabilityRule
 from backend.models.availability_exception import AvailabilityException
+from backend.services import availability_service
 from backend.services.availability_service import (
     applica_blocco_eccezionale,
     elimina_slot_obsoleti,
@@ -267,6 +268,44 @@ def test_blocco_di_un_solo_giorno_non_sconfina(db):
     db.refresh(prima); db.refresh(dentro); db.refresh(dopo)
     assert dentro.is_available is False
     assert prima.is_available is True and dopo.is_available is True
+
+
+class OggiFisso(date):
+    """1° luglio 2030, un lunedì: tutto luglio è ancora da generare."""
+    @classmethod
+    def today(cls):
+        return cls(2030, 7, 1)
+
+
+def oggi_fisso(monkeypatch):
+    """genera_slot_da_regola legge la data di oggi e genera fino a fine mese:
+    senza fissarla, il risultato dipenderebbe dal giorno in cui gira la suite."""
+    monkeypatch.setattr(availability_service, "date", OggiFisso)
+    monkeypatch.setattr(availability_service, "ora_utc_naive", lambda: datetime(2030, 7, 1))
+
+
+def test_slot_generati_dopo_un_blocco_nascono_bloccati(db, monkeypatch):
+    """Ferie fissate quando gli slot del periodo non esistono ancora.
+
+    Succede ogni volta che il coach blocca il mese prossimo: quegli slot
+    li genera il job notturno il 1°, quando il blocco c'è già. Devono
+    nascere chiusi come se il blocco li avesse trovati, non in vendita.
+    """
+    oggi_fisso(monkeypatch)
+    _, bloccati = blocco(db, date(2030, 7, 14), date(2030, 7, 20))
+    assert bloccati == 0    # alla creazione del blocco non c'era niente da chiudere
+    martedi_18_20 = AvailabilityRule(giorno_settimana=1, ora_inizio=time(18, 0), ora_fine=time(20, 0), durata_slot_ore=1)
+    db.add(martedi_18_20)
+    db.commit()
+
+    creati = genera_slot_da_regola(martedi_18_20, db)
+
+    # Martedì 2, 9, 16, 23 e 30 luglio, due slot ciascuno; solo il 16 è nelle ferie.
+    assert creati == 10
+    for slot in db.query(Slot).all():
+        nelle_ferie = slot.start_time.date() == date(2030, 7, 16)
+        assert slot.is_available is not nelle_ferie
+        assert slot.blocked_admin is nelle_ferie
 
 
 # ─── CRUD di regole e blocchi, dal lato HTTP ──────────────────

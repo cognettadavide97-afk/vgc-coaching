@@ -1,7 +1,8 @@
 """Model della tabella `availability_exceptions`: i blocchi eccezionali.
 
 A differenza di `AvailabilityRule`, che genera slot nuovi, questo model
-serve a rendere non disponibili gli slot già esistenti in un periodo.
+serve a rendere non disponibili gli slot di un periodo: quelli che esistono
+già alla sua creazione e quelli generati dopo, che nascono bloccati.
 """
 
 from sqlalchemy import Column, Integer, Date, String, DateTime

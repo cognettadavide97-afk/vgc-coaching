@@ -13,17 +13,16 @@ Decisioni (P1-P6: dettaglio nell'archivio 2026-09, riga 1328):
 - P6b — `AvailabilityRule.attiva`: `PATCH` nel pannello o migrazione che la rimuove (36)
 - P7 — Sessione a pacchetto cancellata, dal cliente o dal pannello: il credito torna? (56)
 - P8 — Cosa conta come incassato: sessioni future comprese? pacchetti alla data di vendita? (57)
-- P9 — Disponibilità calcolata da regole, blocchi, prenotazioni e impegni Google, non salvata come slot; rivede P1 (55, 59, 60)
+- P9 — Disponibilità calcolata da regole, blocchi, prenotazioni e impegni Google, non salvata come slot; rivede P1 (59, 60)
 
 Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischio):
-- [ ] 55 — I blocchi non fermano gli slot generati dopo: ferie fissate per il mese prossimo in vendita dal 1° (`availability_service.py:96-100`)
 - [ ] 40 — Misure su Railway prima del 9: versione, collation, sql_mode, time_zone, IP dietro il proxy, repliche, attesa della CI
 - [ ] 9 · R6 — Email con maiuscole: 403 su MySQL, e su ogni motore se il dominio ha maiuscole (EmailStr)
 - [ ] 56 — Il credito del pacchetto non torna mai, né alla disdetta né dal pannello, che non può correggerlo (`booking.py:243`; decisione P7)
 - [ ] 47 — Job schedulati che falliscono o saltano senza avviso: slot, pulizia, anonimizzazione, backup
-- [ ] 61 — Backup su Drive anteriori al deploy della correzione (`backup_service.py`, SET NAMES): finché Drive ne tiene uno, cioè 30
-  giorni, il ripristino va fatto con `--default-character-set=utf8mb4` o accenti ed emoji tornano corrotti senza errori. Ricontrollo: il
-  primo backup dopo il deploy (domenica, 04:00 UTC) ha `SET NAMES utf8mb4;` alla riga 4; la voce si chiude quando ce l'hanno tutti
+- [ ] 61 — Backup su Drive anteriori al deploy del 2026-11-11 (`bbe099b`, SET NAMES): fino al 13/12, quando l'ultimo esce dai 30 giorni,
+  il ripristino va fatto con `--default-character-set=utf8mb4` o accenti ed emoji tornano corrotti senza errori. Ricontrollo il 15/11:
+  il backup delle 04:00 UTC ha `SET NAMES utf8mb4;` alla riga 4; la voce si chiude il 13/12 se ce l'hanno tutti
 - [ ] 46 — Asset statici senza versione né cache-control: dopo un rilascio il browser usa il JS vecchio
 - [ ] 24 · R3 — 16 fetch su 26 del pannello admin non controllano res.ok; "✗ Cancella" parte senza conferma (`admin.js:70`)
 - [ ] 59 — Lista slot del pannello dal più vecchio e con lo storico: col tempo la prima pagina è solo passato (`admin/availability.py:42`)
