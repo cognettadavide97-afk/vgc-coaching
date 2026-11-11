@@ -510,12 +510,15 @@ def test_elimina_regola_inesistente_risponde_404(client, db):
     assert res.status_code == 404
 
 
-def test_elimina_regola_non_cancella_gli_slot_gia_generati(client, db):
+def test_elimina_regola_non_cancella_gli_slot_gia_generati(client, db, monkeypatch):
     """Gli slot generati diventano indipendenti dalla regola che li ha creati.
 
     Altrimenti togliere una regola cancellerebbe orari già pubblicati, e
     potenzialmente già prenotabili, senza che nessuno lo abbia chiesto.
     """
+    # Data fissa: con quella vera, dopo le 18 dell'ultimo martedì del mese la
+    # regola non genera nulla e il controllo qui sotto fallirebbe.
+    oggi_fisso(monkeypatch)
     creata = client.post(
         "/admin/disponibilita/regole",
         headers=admin_headers(),
