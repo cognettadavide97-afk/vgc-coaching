@@ -18,10 +18,11 @@ from backend.schemas.availability import (
 )
 from backend.routers.admin import get_admin
 from backend.services.calendar_service import sincronizza_slot_con_calendario
-from backend.services.timezone_service import formatta_data_ora_rome
+from backend.services.timezone_service import ROME_TZ, formatta_data_ora_rome, ora_utc_naive, utc_to_rome
 from backend.services.availability_service import genera_slot_da_regola, applica_blocco_eccezionale
 from backend.services.pagination_service import pagina_e_offset, busta_paginazione
 from typing import List
+from datetime import datetime, time, timezone
 
 router = APIRouter()
 
@@ -34,12 +35,21 @@ def get_slots_admin(
     pagina: int = 1,
     per_pagina: int = 20
 ):
-    """Restituisce gli slot, liberi e occupati, paginati (più vicini nel tempo prima)."""
+    """Restituisce gli slot da oggi in poi, liberi e occupati, paginati (più vicini nel tempo prima)."""
     pagina, per_pagina, offset = pagina_e_offset(pagina, per_pagina)
 
-    totale = db.query(Slot).count()
+    # Gli slot passati e prenotati non vengono mai cancellati (sono lo storico
+    # delle sessioni): senza questo filtro, ordinati dal più vecchio, col tempo
+    # riempirebbero la prima pagina. Si parte dalla mezzanotte italiana di oggi
+    # e non da adesso, così le sessioni di oggi già iniziate restano visibili;
+    # "oggi" è il giorno di Roma, poi riportato in UTC come il database.
+    oggi_rome = utc_to_rome(ora_utc_naive()).date()
+    da_utc = datetime.combine(oggi_rome, time.min, tzinfo=ROME_TZ)         .astimezone(timezone.utc).replace(tzinfo=None)
+    da_oggi = db.query(Slot).filter(Slot.start_time >= da_utc)
 
-    slots = db.query(Slot).order_by(Slot.start_time) \
+    totale = da_oggi.count()
+
+    slots = da_oggi.order_by(Slot.start_time) \
         .offset(offset) \
         .limit(per_pagina) \
         .all()

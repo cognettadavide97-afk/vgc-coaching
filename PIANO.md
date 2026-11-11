@@ -13,7 +13,7 @@ Decisioni (P1-P6: dettaglio nell'archivio 2026-09, riga 1328):
 - P6b — `AvailabilityRule.attiva`: `PATCH` nel pannello o migrazione che la rimuove (36)
 - P7 — Sessione a pacchetto cancellata, dal cliente o dal pannello: il credito torna? (56)
 - P8 — Cosa conta come incassato: sessioni future comprese? pacchetti alla data di vendita? (57)
-- P9 — Disponibilità calcolata da regole, blocchi, prenotazioni e impegni Google, non salvata come slot; rivede P1 (59, 60)
+- P9 — Disponibilità calcolata da regole, blocchi, prenotazioni e impegni Google, non salvata come slot; rivede P1 (60)
 
 Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischio):
 - [ ] 40 — Misure su Railway prima del 9: versione, collation, sql_mode, time_zone, IP dietro il proxy, repliche, attesa della CI
@@ -25,7 +25,6 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
   il backup delle 04:00 UTC ha `SET NAMES utf8mb4;` alla riga 4; la voce si chiude il 13/12 se ce l'hanno tutti
 - [ ] 46 — Asset statici senza versione né cache-control: dopo un rilascio il browser usa il JS vecchio
 - [ ] 24 · R3 — 16 fetch su 26 del pannello admin non controllano res.ok; "✗ Cancella" parte senza conferma (`admin.js:70`)
-- [ ] 59 — Lista slot del pannello dal più vecchio e con lo storico: col tempo la prima pagina è solo passato (`admin/availability.py:42`)
 - [ ] 48 — Rate limit forse unico per tutti dietro il proxy: verificare con la 40, poi FORWARDED_ALLOW_IPS
 - [ ] 26 · R15 — Messaggi d'errore pubblici in una lingua sola; recensione.html senza i18n
 - [ ] 25 · R8 — Errori silenziosi nel frontend pubblico; ogni errore di prenotazione è lo stesso avviso generico (`app.js:533`)
@@ -44,7 +43,7 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
 - [ ] 33 · C5 — Etichette, pacchetti e prezzi barrati scritti in più posti (decisione P5)
 - [ ] 51 — Test che possono chiamare il Google vero: .env caricato all'import, fixture solo sui router pubblici
 - [ ] 29 · C4 — Commenti che dicono altro dal codice, rimandi a documenti cancellati, motivazioni perse (§6); anche `env.py:106-107`
-  (su MySQL il DDL non è transazionale), `admin/availability.py:37`, `scheduler.py:330`, `backup_service.py:1`, `admin.html:12`, `tests.yml:1-4`
+  (su MySQL il DDL non è transazionale), `scheduler.py:330`, `backup_service.py:1`, `admin.html:12`, `tests.yml:1-4`
 - [ ] 18 · R12 — Percorsi relativi: il sito non parte se avviato fuori dalla radice
 - [ ] 35 — Scope Google Calendar ridotto a calendar.events (serve riautorizzare)
 - [ ] 21 — /docs, /redoc e /openapi.json pubblici (decisione P4)

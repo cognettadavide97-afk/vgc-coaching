@@ -168,6 +168,32 @@ def test_elimina_slot_rifiuta_slot_secondario_di_una_sessione_da_2h(client, db):
     assert db.query(Slot).filter(Slot.id == slot_secondario.id).first() is not None
 
 
+def test_lista_slot_del_pannello_parte_da_oggi_in_ora_italiana(client, db, monkeypatch):
+    """Il pannello mostra gli slot dalla mezzanotte italiana di oggi, i più vicini prima.
+
+    Gli slot passati e prenotati non vengono mai cancellati: ordinati dal più
+    vecchio, col tempo riempirebbero la prima pagina di sole sessioni finite.
+    Quelli di oggi già iniziati restano visibili. Ora fissata al 10/07/2030
+    alle 14 italiane (12 UTC, ora legale).
+    """
+    from backend.routers.admin import availability as router_disponibilita
+    monkeypatch.setattr(router_disponibilita, "ora_utc_naive", lambda: datetime(2030, 7, 10, 12, 0))
+
+    crea_slot(db, datetime(2030, 7, 11, 16, 0))   # domani
+    crea_slot(db, datetime(2030, 7, 9, 21, 0))    # ieri alle 23 italiane: fuori
+    crea_slot(db, datetime(2030, 7, 10, 6, 0))    # stamattina alle 8, già passato: dentro
+    crea_slot(db, datetime(2030, 7, 9, 22, 30))   # oggi alle 00:30 italiane, ieri in UTC: dentro
+
+    res = client.get("/admin/slots", headers=admin_headers())
+
+    assert res.status_code == 200
+    dati = res.json()
+    assert [(s["data"], s["ora"]) for s in dati["items"]] == [
+        ("10/07/2030", "00:30"), ("10/07/2030", "08:00"), ("11/07/2030", "18:00")
+    ]
+    assert dati["totale"] == 3
+
+
 # ─── BLOCCHI ECCEZIONALI (FERIE) ──────────────────────────────
 # applica_blocco_eccezionale è il punto in cui "sono via dal 10 al 15"
 # diventa un insieme di slot davvero bloccati. Il rischio non è ovvio:

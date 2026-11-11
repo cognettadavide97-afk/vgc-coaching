@@ -820,7 +820,7 @@ async function caricaSlots(pagina = 1) {
         const container = document.getElementById('lista-slots');
 
         if (slots.length === 0) {
-            container.innerHTML = '<p style="color:#aaa; padding:1rem">Nessuno slot creato.</p>';
+            container.innerHTML = '<p style="color:#aaa; padding:1rem">Nessuno slot da oggi in poi.</p>';
             return;
         }
 
