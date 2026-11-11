@@ -24,7 +24,7 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
   il ripristino va fatto con `--default-character-set=utf8mb4` o accenti ed emoji tornano corrotti senza errori. Ricontrollo il 15/11:
   il backup delle 04:00 UTC ha `SET NAMES utf8mb4;` alla riga 4; la voce si chiude il 13/12 se ce l'hanno tutti
 - [ ] 46 — Asset statici senza versione né cache-control: dopo un rilascio il browser usa il JS vecchio
-- [ ] 24 · R3 — 16 fetch su 26 del pannello admin non controllano res.ok; "✗ Cancella" parte senza conferma (`admin.js:70`)
+- [ ] 24 · R3 — 16 fetch su 26 del pannello admin non controllano res.ok
 - [ ] 48 — Rate limit forse unico per tutti dietro il proxy: verificare con la 40, poi FORWARDED_ALLOW_IPS
 - [ ] 26 · R15 — Messaggi d'errore pubblici in una lingua sola; recensione.html senza i18n
 - [ ] 25 · R8 — Errori silenziosi nel frontend pubblico; ogni errore di prenotazione è lo stesso avviso generico (`app.js:533`)
