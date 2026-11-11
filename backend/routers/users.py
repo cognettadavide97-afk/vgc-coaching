@@ -119,7 +119,7 @@ def get_or_create_user(db: Session, user: UserCreate) -> User:
         categoria=user.categoria,
         discord_tag=user.discord_tag
     )
-    # refresh rilegge i campi generati dal database (id, created_at).
+    # refresh rilegge i campi valorizzati all'inserimento (id, created_at).
     db.add(db_user)
     db.commit()
     db.refresh(db_user)

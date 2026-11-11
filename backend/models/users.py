@@ -1,8 +1,8 @@
 """Model della tabella `users`: i clienti del servizio di coaching."""
 
 from sqlalchemy import Column, Integer, String, DateTime
-from sqlalchemy.sql import func
 from backend.database import Base
+from backend.services.timezone_service import ora_utc_naive
 
 
 class User(Base):
@@ -29,7 +29,7 @@ class User(Base):
     # Vuoto per chi prenota come ospite.
     discord_id = Column(String(30), nullable=True, unique=True)
 
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=ora_utc_naive)
 
     # Valorizzata dal job di data retention quando anonimizza un cliente
     # inattivo. È il marcatore su cui il job riconosce i record già

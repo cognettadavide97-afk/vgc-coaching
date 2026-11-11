@@ -6,8 +6,8 @@ tempo e vanno conservate tutte come storico.
 
 from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
 from backend.database import Base
+from backend.services.timezone_service import ora_utc_naive
 
 
 class ClientNote(Base):
@@ -16,6 +16,6 @@ class ClientNote(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     nota = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=func.now())  # usato anche per l'ordinamento cronologico
+    created_at = Column(DateTime, default=ora_utc_naive)  # usato anche per l'ordinamento cronologico
 
     user = relationship("User", backref="note_tecniche")

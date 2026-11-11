@@ -4,8 +4,8 @@ Uno slot è la possibilità di prenotare, non una prenotazione.
 """
 
 from sqlalchemy import Column, Integer, DateTime, Boolean
-from sqlalchemy.sql import func
 from backend.database import Base
+from backend.services.timezone_service import ora_utc_naive
 
 
 class Slot(Base):
@@ -33,4 +33,4 @@ class Slot(Base):
     blocked_external = Column(Boolean, default=False, nullable=False)
     blocked_admin = Column(Boolean, default=False, nullable=False)
 
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=ora_utc_naive)

@@ -7,8 +7,8 @@ spendere le sessioni residue prenotando a prezzo zero.
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
 from backend.database import Base
+from backend.services.timezone_service import ora_utc_naive
 
 
 class Package(Base):
@@ -31,6 +31,6 @@ class Package(Base):
     durata_sessione_ore = Column(Integer, nullable=False, default=2)
     prezzo_cents = Column(Integer, nullable=False)
 
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=ora_utc_naive)
 
     user = relationship("User", backref="packages")

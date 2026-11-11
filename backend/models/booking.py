@@ -6,8 +6,8 @@ funzionalità dell'applicazione.
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
 from backend.database import Base
+from backend.services.timezone_service import ora_utc_naive
 
 
 class Booking(Base):
@@ -52,7 +52,7 @@ class Booking(Base):
     review_token = Column(String(64), nullable=True, unique=True)
     review_email_sent = Column(Boolean, default=False, nullable=False)
 
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=ora_utc_naive)
 
     user = relationship("User", backref="bookings")
 

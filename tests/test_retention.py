@@ -2,7 +2,7 @@
 # il job di data retention che gira ogni notte da backend/scheduler.py
 # (controlla_e_anonimizza_clienti_inattivi). I model vengono creati
 # direttamente sul database di test (non via API) per poter controllare a
-# mano le date "created_at", altrimenti sempre valorizzate da func.now()
+# mano le date "created_at", altrimenti sempre valorizzate con l'ora corrente
 # al momento vero dell'inserimento — vedi tests/conftest.py per come sono
 # preparati client/db.
 

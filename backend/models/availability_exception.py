@@ -6,8 +6,8 @@ già alla sua creazione e quelli generati dopo, che nascono bloccati.
 """
 
 from sqlalchemy import Column, Integer, Date, String, DateTime
-from sqlalchemy.sql import func
 from backend.database import Base
+from backend.services.timezone_service import ora_utc_naive
 
 
 class AvailabilityException(Base):
@@ -21,4 +21,4 @@ class AvailabilityException(Base):
     data_fine = Column(Date, nullable=False)
 
     motivo = Column(String(200), nullable=True)  # uso interno del coach
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=ora_utc_naive)

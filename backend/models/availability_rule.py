@@ -5,8 +5,8 @@ sono generati a partire da questa da `services/availability_service.py`.
 """
 
 from sqlalchemy import Column, Integer, Time, Boolean, DateTime
-from sqlalchemy.sql import func
 from backend.database import Base
+from backend.services.timezone_service import ora_utc_naive
 
 
 class AvailabilityRule(Base):
@@ -31,4 +31,4 @@ class AvailabilityRule(Base):
     # nasce attiva e per sospenderla serve intervenire sul database.
     attiva = Column(Boolean, default=True, nullable=False)
 
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=ora_utc_naive)

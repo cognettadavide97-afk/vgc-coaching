@@ -2,8 +2,8 @@
 
 from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship, backref
-from sqlalchemy.sql import func
 from backend.database import Base
+from backend.services.timezone_service import ora_utc_naive
 
 
 class Review(Base):
@@ -21,7 +21,7 @@ class Review(Base):
     # approva. Solo le approvate compaiono nella vetrina pubblica.
     approvata = Column(Boolean, default=False, nullable=False)
 
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=ora_utc_naive)
 
     # uselist=False perché `booking_id` è unique: la relazione inversa è
     # uno-a-uno, quindi `booking.review` è un oggetto o None, non una lista.

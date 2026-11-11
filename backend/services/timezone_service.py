@@ -48,6 +48,10 @@ def ora_utc_naive() -> datetime:
     Da usare al posto di `datetime.now()` per qualsiasi confronto con una
     colonna datetime del database: confrontare un datetime aware con uno
     naive solleva `TypeError`.
+
+    È anche il default dei `created_at` di tutti i model, al posto di
+    `func.now()`: quella faceva scrivere la data a MySQL con NOW(), che usa
+    il fuso del server (UTC su Railway, ora italiana in sviluppo).
     """
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
