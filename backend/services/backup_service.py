@@ -1,4 +1,4 @@
-"""Backup giornaliero del database su Google Drive.
+"""Backup settimanale del database su Google Drive.
 
 Il piano di hosting in uso non include backup né point-in-time recovery
 per il database: senza questo modulo un guasto al volume significherebbe

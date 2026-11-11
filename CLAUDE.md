@@ -12,7 +12,7 @@ dipendenze (`pytest` nudo fallisce con `ModuleNotFoundError: sqlalchemy`). Il ve
 stessa minor che `nixpacks.toml` fissa per il deploy su Railway. Nessun build: il frontend non ha bundler;
 le migrazioni girano da sole all'avvio.
 
-**Ogni push su `master` va in produzione su Railway** (deployment verificati su GitHub il 2026-11-09): prima
+**Ogni push su `master` va in produzione su Railway, se i test della CI passano** ("Wait for CI" attivo dal 2026-11-11; deployment verificati su GitHub il 2026-11-09): prima
 di pushare, `git log origin/master..master` dice cosa parte. Dopo 60 giorni senza push GitHub spegne il
 monitor di produzione (`monitor.yml`): si riattiva da Actions → Enable workflow, mai con commit finti.
 

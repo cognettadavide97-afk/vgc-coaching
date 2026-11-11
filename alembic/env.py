@@ -103,8 +103,10 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata
         )
-        # Transazione unica: un errore a metà non lascia lo schema in uno
-        # stato intermedio.
+        # Transazione unica, ma su MySQL non protegge lo schema: ogni CREATE o
+        # ALTER fa un commit implicito, quindi una migrazione che fallisce a
+        # metà lascia le modifiche già fatte, da sistemare a mano prima di
+        # rilanciarla. Su SQLite, dove il DDL è transazionale, torna indietro.
         with context.begin_transaction():
             context.run_migrations()
 

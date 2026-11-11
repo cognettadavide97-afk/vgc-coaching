@@ -327,7 +327,7 @@ def controlla_e_anonimizza_clienti_inattivi():
 def controlla_e_esegui_backup_database():
     """Esegue il backup del database e notifica solo in caso di fallimento.
 
-    Un backup riuscito ogni giorno non merita una notifica quotidiana; uno
+    Un backup riuscito ogni settimana non merita una notifica quotidiana; uno
     che smette di funzionare è invece un guasto silenzioso, che senza
     avviso si scoprirebbe solo quando il backup serve davvero.
     """

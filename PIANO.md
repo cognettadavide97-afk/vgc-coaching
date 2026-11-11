@@ -42,8 +42,7 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
 - [ ] 22 · R9 — Prezzi e ore valide duplicati fra backend e frontend (decisione P5)
 - [ ] 33 · C5 — Etichette, pacchetti e prezzi barrati scritti in più posti (decisione P5)
 - [ ] 51 — Test che possono chiamare il Google vero: .env caricato all'import, fixture solo sui router pubblici
-- [ ] 29 · C4 — Commenti che dicono altro dal codice, rimandi a documenti cancellati, motivazioni perse (§6); anche `env.py:106-107`
-  (su MySQL il DDL non è transazionale), `scheduler.py:330`, `backup_service.py:1`, `admin.html:12`, `tests.yml:1-4`
+- [ ] 29 · C4 — Commenti che dicono altro dal codice, rimandi a documenti cancellati, motivazioni perse (§6)
 - [ ] 18 · R12 — Percorsi relativi: il sito non parte se avviato fuori dalla radice
 - [ ] 35 — Scope Google Calendar ridotto a calendar.events (serve riautorizzare)
 - [ ] 21 — /docs, /redoc e /openapi.json pubblici (decisione P4)

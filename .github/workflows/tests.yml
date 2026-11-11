@@ -1,7 +1,8 @@
 # Esegue automaticamente la suite di test (pytest) ad ogni push e ad ogni
-# pull request — la rete di sicurezza che prima mancava: senza questo,
-# nulla impediva a un commit con un test rotto (o senza aver girato i test
-# affatto) di arrivare dritto in produzione via l'auto-deploy di Railway.
+# pull request. Da solo questo file avvisa soltanto: è l'impostazione
+# "Wait for CI" di Railway (attivata il 2026-11-11) che aspetta il suo esito
+# e non pubblica un commit con un test rotto. Senza quell'impostazione
+# l'auto-deploy parte comunque, in parallelo ai test.
 #
 # Non serve un vero database MySQL qui: i test usano SQLite in-memory e
 # integrazioni esterne finte (vedi tests/conftest.py), pensati apposta per
