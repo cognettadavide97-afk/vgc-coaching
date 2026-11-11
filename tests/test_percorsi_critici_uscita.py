@@ -405,6 +405,17 @@ def test_il_dump_disattiva_i_vincoli_e_ricrea_ogni_tabella():
     assert engine.connessione.chiusa is True
 
 
+def test_il_dump_dichiara_la_codifica_prima_delle_tabelle():
+    """Senza SET NAMES il client mysql sceglie da sé la codifica e, su
+    Windows, ripristina accenti ed emoji corrotti senza dare errori."""
+    engine = EngineFinto({"users": [(1, "è")]})
+
+    righe = crea_dump_sql(engine).splitlines()
+
+    assert "SET NAMES utf8mb4;" in righe
+    assert righe.index("SET NAMES utf8mb4;") < righe.index("CREATE TABLE `users` (`id` int);")
+
+
 def test_le_tabelle_grandi_vengono_spezzate_in_piu_insert():
     """Un INSERT per riga renderebbe il ripristino lentissimo: si va a blocchi."""
     righe_finte = [(i, f"riga{i}") for i in range(RIGHE_PER_INSERT + 1)]

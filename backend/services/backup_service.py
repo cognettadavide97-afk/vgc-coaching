@@ -74,7 +74,8 @@ def crea_dump_sql(engine) -> str:
     """Genera un dump SQL completo (schema e dati) del database.
 
     Il risultato è un file .sql standard, ripristinabile con
-    `mysql nome_db < backup.sql`. `engine` è un parametro esplicito e non
+    `mysql nome_db < backup.sql` da qualunque client, perché dichiara da sé
+    la propria codifica. `engine` è un parametro esplicito e non
     un import diretto per poter passare un motore diverso nei test.
     """
     connessione = engine.raw_connection()
@@ -87,6 +88,12 @@ def crea_dump_sql(engine) -> str:
             "-- Backup automatico VGC Coaching",
             f"-- Generato il {datetime.now(timezone.utc).isoformat()} UTC",
             "SET FOREIGN_KEY_CHECKS=0;",
+            # Il file è UTF-8 (vedi _carica_su_drive), ma senza questa riga
+            # il server lo legge nella codifica scelta dal client `mysql`:
+            # su Windows quella della console (cp850), e accenti, apostrofi
+            # ed emoji tornano corrotti ("è" diventa "├¿") senza alcun
+            # errore. utf8mb4 e non utf8: le emoji occupano 4 byte.
+            "SET NAMES utf8mb4;",
             ""
         ]
 
