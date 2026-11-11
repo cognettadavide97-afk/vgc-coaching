@@ -16,7 +16,7 @@ Decisioni (P1-P6: dettaglio nell'archivio 2026-09, riga 1328):
 - P9 — Disponibilità calcolata da regole, blocchi, prenotazioni e impegni Google, non salvata come slot; rivede P1 (60)
 
 Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischio):
-- [ ] 40 — Misure su Railway prima del 9: versione, collation, sql_mode, time_zone, IP dietro il proxy, repliche, attesa della CI
+- [ ] 40 — Misure su Railway prima del 9: versione, collation, sql_mode, time_zone, IP dietro il proxy, repliche
 - [ ] 9 · R6 — Email con maiuscole: 403 su MySQL, e su ogni motore se il dominio ha maiuscole (EmailStr)
 - [ ] 56 — Il credito del pacchetto non torna mai, né alla disdetta né dal pannello, che non può correggerlo (`booking.py:243`; decisione P7)
 - [ ] 47 — Job schedulati che falliscono o saltano senza avviso: slot, pulizia, anonimizzazione, backup
