@@ -23,7 +23,7 @@ from backend.services.email_service import invia_conferma_cliente, invia_notific
 from backend.services.timezone_service import utc_to_rome, ora_utc_naive
 from backend.services.calendar_service import crea_evento_calendario
 from backend.services.discord_service import invia_notifica_discord
-from backend.services.booking_service import libera_slot_prenotazione
+from backend.services.booking_service import libera_slot_prenotazione, restituisci_credito_pacchetto
 from backend.routers.users import get_studente, get_studente_opzionale
 from backend.rate_limit import limiter
 from typing import List, Optional
@@ -314,6 +314,9 @@ def cancella_prenotazione_cliente(
 
     prenotazione.status = "cancelled"
     libera_slot_prenotazione(prenotazione, db)
+    # Qui la prenotazione era per forza confirmed (controllo sopra): se era
+    # pagata con un pacchetto, la sessione torna disponibile (decisione P7).
+    restituisci_credito_pacchetto(prenotazione, db)
     db.commit()
     db.refresh(prenotazione)
     return prenotazione

@@ -10,7 +10,7 @@ from sqlalchemy import event
 
 from backend.models.booking import Booking
 from backend.models.package import Package
-from conftest import TEST_ENGINE, crea_slot, studente_cookies
+from conftest import TEST_ENGINE, admin_headers, crea_slot, studente_cookies
 
 ROME_TZ = ZoneInfo("Europe/Rome")
 
@@ -617,3 +617,72 @@ def test_doppia_cancellazione_rifiutata(client, db):
 
     assert primo_tentativo.status_code == 200
     assert secondo_tentativo.status_code == 400
+
+
+# ─── RESTITUZIONE DEL CREDITO (decisione P7) ─────────────────
+# Il credito torna a ogni cancellazione di una prenotazione confermata,
+# dal cliente o dal pannello; il no-show lo consuma per sempre, anche se il
+# coach in seguito lo cambia in cancelled. Regola che lo tiene in piedi:
+# sessioni_usate = prenotazioni del pacchetto confermate o no-show.
+
+def prenota_con_pacchetto(client, db):
+    """Utente con pacchetto da 2 sessioni da 1 ora, già usato una volta per una prenotazione futura."""
+    utente = crea_utente(client)
+    slot = crea_slot(db, INIZIO)
+    pacchetto = Package(
+        user_id=utente["id"], tipo="intro",
+        sessioni_totali=2, sessioni_usate=0,
+        durata_sessione_ore=1, prezzo_cents=7000
+    )
+    db.add(pacchetto)
+    db.commit()
+    cookies = studente_cookies(utente["id"], utente["email"])
+    res = client.post("/bookings/", cookies=cookies, json={
+        "user_id": utente["id"],
+        "slot_id": slot.id,
+        "duration_hours": 1,
+        "service_type": "vod_review",
+        "package_id": pacchetto.id
+    })
+    assert res.status_code == 200, res.text
+    db.refresh(pacchetto)
+    assert pacchetto.sessioni_usate == 1
+    return res.json(), pacchetto, cookies
+
+
+def test_cancellazione_del_cliente_restituisce_il_credito(client, db):
+    prenotazione, pacchetto, cookies = prenota_con_pacchetto(client, db)
+
+    res = client.patch(f"/bookings/{prenotazione['id']}/cancella", cookies=cookies)
+
+    assert res.status_code == 200, res.text
+    db.refresh(pacchetto)
+    assert pacchetto.sessioni_usate == 0
+    attivi = client.get("/users/pacchetti-attivi", cookies=cookies).json()
+    assert attivi[0]["sessioni_residue"] == 2
+
+
+def test_cancellazione_dal_pannello_restituisce_il_credito(client, db):
+    prenotazione, pacchetto, _ = prenota_con_pacchetto(client, db)
+
+    res = client.patch(
+        f"/admin/prenotazioni/{prenotazione['id']}/stato",
+        headers=admin_headers(), json={"nuovo_stato": "cancelled"}
+    )
+
+    assert res.status_code == 200, res.text
+    db.refresh(pacchetto)
+    assert pacchetto.sessioni_usate == 0
+
+
+def test_no_show_consuma_il_credito_anche_se_poi_cancellato(client, db):
+    prenotazione, pacchetto, _ = prenota_con_pacchetto(client, db)
+    url = f"/admin/prenotazioni/{prenotazione['id']}/stato"
+
+    assert client.patch(url, headers=admin_headers(), json={"nuovo_stato": "no_show"}).status_code == 200
+    db.refresh(pacchetto)
+    assert pacchetto.sessioni_usate == 1
+
+    assert client.patch(url, headers=admin_headers(), json={"nuovo_stato": "cancelled"}).status_code == 200
+    db.refresh(pacchetto)
+    assert pacchetto.sessioni_usate == 1

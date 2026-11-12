@@ -10,7 +10,7 @@ from backend.models.booking import Booking
 from backend.models.users import User
 from backend.schemas.booking import BookingStatoUpdate, BookingNoteUpdate
 from backend.routers.admin import get_admin
-from backend.services.booking_service import libera_slot_prenotazione
+from backend.services.booking_service import libera_slot_prenotazione, restituisci_credito_pacchetto
 from backend.services.timezone_service import formatta_data_ora_rome
 from backend.services.pagination_service import pagina_e_offset, busta_paginazione
 from typing import Optional
@@ -98,7 +98,8 @@ def aggiorna_stato(
 ):
     """Cambia lo stato di una prenotazione, se la transizione è ammessa.
 
-    La cancellazione libera lo slot ed elimina l'evento sul calendario.
+    La cancellazione libera lo slot ed elimina l'evento sul calendario; se
+    la prenotazione era confermata, restituisce anche il credito del pacchetto.
     Lo stato no_show non tocca né slot né calendario: la sessione è già
     passata. Uno stato non ammesso viene respinto dallo schema con un 422.
 
@@ -136,6 +137,10 @@ def aggiorna_stato(
             detail=f"La prenotazione è già nello stato {dati.nuovo_stato}"
         )
 
+    # Lo stato di partenza decide se il credito del pacchetto torna: va letto
+    # prima di sovrascriverlo, dopo si troverebbe sempre cancelled.
+    stato_precedente = prenotazione.status
+
     # Assegnazione diretta: è un'azione manuale del coach, senza richieste
     # concorrenti sullo stesso oggetto da cui difendersi.
     prenotazione.status = dati.nuovo_stato
@@ -146,6 +151,10 @@ def aggiorna_stato(
         # di questa prenotazione. Gestisce anche lo slot secondario delle
         # sessioni da 2 ore.
         libera_slot_prenotazione(prenotazione, db)
+        # Il credito torna solo da confirmed (decisione P7): il no-show
+        # consuma la sessione anche se il coach poi lo cambia in cancelled.
+        if stato_precedente == "confirmed":
+            restituisci_credito_pacchetto(prenotazione, db)
 
     db.commit()
     return {"message": f"Stato aggiornato a {dati.nuovo_stato}"}

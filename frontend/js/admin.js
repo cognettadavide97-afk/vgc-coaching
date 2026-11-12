@@ -71,11 +71,9 @@ function gestisciAzionePrenotazione(e) {
         // Conferma solo qui e non sul no-show: la cancellazione non si annulla
         // (il server rifiuta ogni cambio di stato successivo) e rimette subito
         // in vendita l'orario; il no-show si corregge e non libera nulla.
-        // La frase sul pacchetto descrive la voce 56 di PIANO.md: va tolta
-        // quando il credito tornerà.
         const p = prenotazioniPerId[id];
         const chi = p ? ` di ${p.cliente.nome} del ${p.slot.data} alle ${p.slot.ora}` : '';
-        if (!confirm(`Cancellare la prenotazione #${id}${chi}? L'orario torna prenotabile dal pubblico e l'evento viene tolto dal calendario. Se era pagata con un pacchetto, il credito non viene restituito. Non si può annullare.`)) return;
+        if (!confirm(`Cancellare la prenotazione #${id}${chi}? L'orario torna prenotabile dal pubblico e l'evento viene tolto dal calendario. Non si può annullare.`)) return;
         aggiornaStato(id, 'cancelled');
     }
     else if (btn.dataset.azione === 'noshow') aggiornaStato(id, 'no_show');
