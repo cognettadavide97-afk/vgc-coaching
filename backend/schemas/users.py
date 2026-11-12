@@ -5,17 +5,29 @@ dai model SQLAlchemy: quello che il client invia non coincide con quello
 che il server restituisce, né con quello che è salvato nel database.
 """
 
-from pydantic import ConfigDict, BaseModel, EmailStr
+from pydantic import AfterValidator, ConfigDict, BaseModel, EmailStr
 from datetime import datetime
-from typing import Optional, Literal
+from typing import Annotated, Optional, Literal
 
 Categoria = Literal["junior", "senior", "master"]
+
+# Email valida (altrimenti 422) e tutta in minuscolo: è la forma con cui
+# ogni email entra nel sistema, dal form, dalla prenotazione e dal login
+# Discord (discord_auth.py). EmailStr da solo abbassa solo il dominio, e i
+# due confronti sull'email non seguono la stessa regola: MySQL (collation
+# utf8mb4_0900_ai_ci) ignora le maiuscole, Python (booking.py:125) no. Un
+# cliente che scriveva "Mario@example.com" ritrovava su MySQL l'account
+# "mario@example.com" e poi riceveva 403 dal confronto in Python (voce 9).
+# Con un'unica forma i due giudici vedono lo stesso testo. Abbassare anche
+# la parte prima della @ è un compromesso: lo standard la permetterebbe
+# sensibile alle maiuscole, nessun provider in uso la tratta così.
+EmailNormalizzata = Annotated[EmailStr, AfterValidator(str.lower)]
 
 
 class UserCreate(BaseModel):
     """Dati accettati per creare (o ritrovare) un utente."""
     nome: str
-    email: EmailStr  # EmailStr valida il formato e respinge con 422
+    email: EmailNormalizzata
     telefono: Optional[str] = None
     categoria: Optional[Categoria] = None
     discord_tag: Optional[str] = None

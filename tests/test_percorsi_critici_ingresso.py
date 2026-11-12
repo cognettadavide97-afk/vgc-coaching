@@ -107,26 +107,22 @@ def test_si_puo_prenotare_a_nome_di_un_altro_conoscendone_solo_lemail(client, db
     assert res.json()["user_id"] == id_vittima
 
 
-def test_email_con_maiuscole_diverse_crea_un_secondo_utente(client, db):
-    """Il confronto sull'email è quello del database, non normalizzato.
+def test_email_con_maiuscole_diverse_ritrova_lo_stesso_utente(client, db):
+    """L'email entra in minuscolo, quindi il confronto non dipende dal motore.
 
-    `get_or_create_user` (backend/routers/users.py:111) confronta con
-    `User.email == ...` e non applica alcun lower(): l'esito dipende dalla
-    collation del motore.
+    Prima `get_or_create_user` (backend/routers/users.py:111) confrontava
+    l'email così come scritta, e l'esito dipendeva dalla collation: su
+    SQLite (case-sensitive) nascevano due clienti per la stessa persona, su
+    MySQL (case-insensitive) tornava l'utente esistente, la cui email non
+    coincideva con quella digitata, e la prenotazione finiva nel 403 "user_id
+    and email do not match" (booking.py:125). Ora EmailNormalizzata
+    (backend/schemas/users.py) la mette in minuscolo all'ingresso (voce 9).
     """
     primo = registra(client, "mario@example.com")
     secondo = registra(client, "Mario@Example.com")
 
-    # COMPORTAMENTO SOSPETTO: su SQLite (il database dei test) il confronto
-    # è case-sensitive, quindi nascono DUE clienti distinti per la stessa
-    # persona — statistiche e limite prenotazioni sdoppiati. In produzione
-    # su MySQL, con collation case-insensitive, l'esito è opposto: viene
-    # restituito l'utente esistente, la cui email non coincide con quella
-    # digitata, e la prenotazione successiva finisce nel 403 "user_id and
-    # email do not match" (booking.py:125). Lo stesso input produce due
-    # comportamenti diversi a seconda del motore.
-    assert primo != secondo
-    assert db.query(User).count() == 2
+    assert primo == secondo
+    assert db.query(User).count() == 1
 
 
 # ─── PRENOTAZIONE: cosa il server accetta e cosa decide da sé ───

@@ -14,8 +14,7 @@ Decisioni (P1-P6: dettaglio nell'archivio 2026-09, riga 1328):
 - P9 — Disponibilità calcolata da regole, blocchi, prenotazioni e impegni Google, non salvata come slot; rivede P1 (60)
 
 Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischio):
-- [ ] 40 — Misure su Railway prima del 9: IP dietro il proxy, repliche (le altre misure, del 2026-11-11, nel commit della voce 58)
-- [ ] 9 · R6 — Email con maiuscole: 403 su MySQL, e su ogni motore se il dominio ha maiuscole (EmailStr)
+- [ ] 40 — Misure su Railway per la 48: IP dietro il proxy, repliche (le altre misure nei commit delle voci 58 e 9)
 - [ ] 47 — Job schedulati che falliscono o saltano senza avviso: slot, pulizia, anonimizzazione, backup
 - [ ] 61 — Backup su Drive anteriori al deploy del 2026-11-11 (`bbe099b`, SET NAMES): fino al 13/12, quando l'ultimo esce dai 30 giorni,
   il ripristino va fatto con `--default-character-set=utf8mb4` o accenti ed emoji tornano corrotti senza errori. Ricontrollo il 15/11:
@@ -35,6 +34,7 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
 - [ ] 12 · R4b — Creare l'evento Calendar dopo il commit, non nella transazione
 - [ ] 11 · R4a — Timeout Google di 60 s, oltre i 50 s di attesa dei lock MySQL: accorciarlo
 - [ ] 53 — Railway: variabili sul solo servizio app, GMAIL_HEALTHCHECK_INTERVAL_HOURS, https, MYSQL_PUBLIC_URL
+  (proxy TCP spento, verificato il 2026-11-12: si accende solo per una misura e si rispegne)
 - [ ] 22 · R9 — Prezzi e ore valide duplicati fra backend e frontend (decisione P5)
 - [ ] 33 · C5 — Etichette, pacchetti e prezzi barrati scritti in più posti (decisione P5)
 - [ ] 51 — Test che possono chiamare il Google vero: .env caricato all'import, fixture solo sui router pubblici

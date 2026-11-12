@@ -3,6 +3,7 @@
 from pydantic import ConfigDict, BaseModel
 from datetime import datetime
 from typing import Optional, Literal
+from backend.schemas.users import EmailNormalizzata
 
 # Literal al posto di str: un servizio non previsto viene respinto da
 # Pydantic con un 422, senza controlli manuali nel router.
@@ -21,8 +22,10 @@ class BookingCreate(BaseModel):
     # Obbligatoria solo nel flusso senza login, dove è l'unica prova che
     # `user_id` appartenga davvero a chi sta prenotando (gli id sono
     # sequenziali e facili da indovinare). Ignorata quando lo studente è
-    # autenticato: in quel caso l'identità viene dal token.
-    email: Optional[str] = None
+    # autenticato: in quel caso l'identità viene dal token. Stessa forma
+    # minuscola della registrazione, così il confronto di booking.py:125
+    # non dipende dalle maiuscole digitate (voce 9).
+    email: Optional[EmailNormalizzata] = None
 
     slot_id: int
 

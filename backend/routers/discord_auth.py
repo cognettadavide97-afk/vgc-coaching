@@ -140,6 +140,10 @@ def discord_callback(request: Request, code: str = None, error: str = None, stat
     if not email or not discord_id:
         return RedirectResponse("/?discord_error=1")
 
+    # Stessa forma minuscola delle email dei form (EmailNormalizzata in
+    # schemas/users.py): Discord la restituisce come scritta nell'account.
+    email = email.lower()
+
     # Ricerca per discord_id, con fallback sull'email per chi aveva già
     # prenotato come ospite. Il fallback collega un account Discord a
     # un'identità esistente, quindi è ammesso solo se Discord dichiara

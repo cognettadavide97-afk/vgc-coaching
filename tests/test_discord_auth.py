@@ -131,3 +131,24 @@ def test_callback_con_email_non_verificata_non_si_collega_a_utente_esistente(cli
     db.refresh(vittima)
     assert vittima.discord_id is None
     assert db.query(User).count() == 1
+
+
+def test_callback_con_email_maiuscola_si_collega_allospite_esistente(client, db, monkeypatch):
+    # Voce 9: l'email arriva da Discord così com'è scritta nell'account,
+    # maiuscole comprese. Va messa in minuscolo prima di cercarla, come ogni
+    # email in ingresso, altrimenti sul database dei test (che distingue le
+    # maiuscole) nascerebbe un secondo utente per la stessa persona.
+    ospite = User(nome="Mario", email="mario@example.com")
+    db.add(ospite)
+    db.commit()
+
+    finge_scambio_discord(monkeypatch, discord_id="77", email="Mario@Example.com", username="mario")
+    login_res = client.get("/auth/discord/login", follow_redirects=False)
+    state = stato_da_redirect(login_res.headers["location"])
+
+    res = client.get(f"/auth/discord/callback?code=abc&state={state}", follow_redirects=False)
+
+    assert res.headers["location"] == "/"
+    assert db.query(User).count() == 1
+    db.refresh(ospite)
+    assert ospite.discord_id == "77"

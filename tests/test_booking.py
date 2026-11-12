@@ -686,3 +686,44 @@ def test_no_show_consuma_il_credito_anche_se_poi_cancellato(client, db):
     assert client.patch(url, headers=admin_headers(), json={"nuovo_stato": "cancelled"}).status_code == 200
     db.refresh(pacchetto)
     assert pacchetto.sessioni_usate == 1
+
+
+# ─── EMAIL CON MAIUSCOLE (voce 9) ────────────────────────────
+# Ogni email entra in minuscolo (EmailNormalizzata in backend/schemas/users.py):
+# registrazione e prenotazione confrontano così lo stesso testo.
+
+def test_prenota_chi_scrive_il_dominio_con_la_maiuscola(client, db):
+    # EmailStr metteva in minuscolo solo il dominio dell'utente salvato,
+    # mentre la prenotazione riceveva il testo originale: 403 alla prima
+    # prenotazione, su qualunque database.
+    utente = crea_utente(client, email="mario@Example.com")
+    slot = crea_slot(db, INIZIO)
+
+    res = client.post("/bookings/", json={
+        "user_id": utente["id"],
+        "email": "mario@Example.com",
+        "slot_id": slot.id,
+        "duration_hours": 1,
+        "service_type": "vod_review"
+    })
+
+    assert res.status_code == 200, res.text
+
+
+def test_cliente_che_torna_con_la_maiuscola_prenota_sullo_stesso_account(client, db):
+    # Il telefono mette la maiuscola alla prima lettera: stesso account,
+    # prenotazione riuscita.
+    primo = crea_utente(client, email="mario@example.com")
+    di_nuovo = crea_utente(client, email="Mario@example.com")
+    slot = crea_slot(db, INIZIO)
+
+    res = client.post("/bookings/", json={
+        "user_id": di_nuovo["id"],
+        "email": "Mario@example.com",
+        "slot_id": slot.id,
+        "duration_hours": 1,
+        "service_type": "vod_review"
+    })
+
+    assert di_nuovo["id"] == primo["id"]
+    assert res.status_code == 200, res.text
