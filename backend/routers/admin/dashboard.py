@@ -10,6 +10,7 @@ from backend.models.slots import Slot
 from backend.models.review import Review
 from backend.routers.admin import get_admin
 from backend.services.timezone_service import utc_to_rome, ROME_TZ, ora_utc_naive, formatta_data_ora_rome
+from backend.services.incasso_service import movimenti_incasso
 
 router = APIRouter()
 
@@ -43,13 +44,10 @@ def dashboard(
         Slot.start_time < oggi_utc_fine
     ).count()
 
-    # Somma calcolata dal database invece che in Python. "or 0" copre il
-    # caso senza prenotazioni: la somma di zero righe è None.
-    totale_incassato = db.query(
-        func.sum(Booking.price_cents)
-    ).filter(
-        Booking.status == "confirmed"
-    ).scalar() or 0
+    # Definizione unica di incasso (services/incasso_service.py): sessioni
+    # svolte più pacchetti venduti, la stessa di analytics e lista clienti.
+    # Senza movimenti sum() dà 0, non None come la SUM di SQL su zero righe.
+    totale_incassato = sum(m.cents for m in movimenti_incasso(db))
 
     prossimi_slot = db.query(Slot).filter(
         Slot.is_available == True,
@@ -108,11 +106,11 @@ def analytics(
     inizio_finestra_rome = datetime(anno_inizio, mese_inizio, 1, tzinfo=ROME_TZ)
     inizio_finestra_utc = inizio_finestra_rome.astimezone(timezone.utc).replace(tzinfo=None)
 
-    # Qui, a differenza della dashboard, i calcoli avvengono in Python su
-    # un solo caricamento: le aggregazioni richieste (per mese, servizio e
-    # stato insieme) sarebbero SQL elaborato, e su questi volumi il ciclo
-    # è più leggibile. contains_eager evita che il ciclo rilegga lo slot
-    # riga per riga.
+    # Qui le metriche sulle prenotazioni si calcolano in Python su un solo
+    # caricamento: le aggregazioni richieste (per mese, servizio e stato
+    # insieme) sarebbero SQL elaborato, e su questi volumi il ciclo è più
+    # leggibile. contains_eager evita che il ciclo rilegga lo slot riga per
+    # riga. L'incasso viene dopo, da una fonte sua.
     prenotazioni = db.query(Booking).join(Booking.slot).options(contains_eager(Booking.slot)).filter(
         Slot.start_time >= inizio_finestra_utc
     ).all()
@@ -127,14 +125,13 @@ def analytics(
     confirmed_passate_count = 0
     prenotazioni_per_utente = {}
 
-    # Un solo passaggio aggiorna tutte le metriche insieme.
+    # Un solo passaggio aggiorna tutte le metriche sulle prenotazioni.
     for p in prenotazioni:
         rome_dt = utc_to_rome(p.slot.start_time)
         chiave_mese = (rome_dt.year, rome_dt.month)
 
         if p.status == "confirmed" and chiave_mese in sessioni_per_mese:
             sessioni_per_mese[chiave_mese] += 1
-            incasso_per_mese[chiave_mese] += p.price_cents
 
         servizi_conteggio[p.service_type] = servizi_conteggio.get(p.service_type, 0) + 1
 
@@ -144,6 +141,17 @@ def analytics(
             confirmed_passate_count += 1
 
         prenotazioni_per_utente[p.user_id] = prenotazioni_per_utente.get(p.user_id, 0) + 1
+
+    # L'incasso non esce dal ciclo: comprende i pacchetti, che non sono
+    # prenotazioni, e solo le sessioni già svolte (definizione unica in
+    # services/incasso_service.py, la stessa della dashboard). Il mese è
+    # quello italiano: le 00:30 del primo novembre a Roma sono ancora il 31
+    # ottobre in UTC, e raggruppando in UTC l'incasso cambierebbe mese.
+    for m in movimenti_incasso(db, dal_utc=inizio_finestra_utc):
+        rome_dt = utc_to_rome(m.data_utc)
+        chiave_mese = (rome_dt.year, rome_dt.month)
+        if chiave_mese in incasso_per_mese:
+            incasso_per_mese[chiave_mese] += m.cents
 
     # Il tasso considera solo le sessioni già concluse: una prenotazione
     # futura non è né un successo né un no-show.

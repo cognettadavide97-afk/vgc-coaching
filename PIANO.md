@@ -11,7 +11,6 @@ Decisioni (P1-P6: dettaglio nell'archivio 2026-09, riga 1328):
 - P5 — Listino (prezzi, ore valide, etichette) servito dal server, o duplicato con rimandi nei commenti (22, 33)
 - P6a — `User.telefono`: campo nel form pubblico o migrazione che lo rimuove (36)
 - P6b — `AvailabilityRule.attiva`: `PATCH` nel pannello o migrazione che la rimuove (36)
-- P8 ✅ — Incassato = sessioni singole svolte (confermate, orario passato) + pacchetti per intero alla data di assegnazione (57)
 - P9 — Disponibilità calcolata da regole, blocchi, prenotazioni e impegni Google, non salvata come slot; rivede P1 (60)
 
 Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischio):
@@ -28,7 +27,7 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
 - [ ] 25 · R8 — Errori silenziosi nel frontend pubblico; ogni errore di prenotazione è lo stesso avviso generico (`app.js:533`)
 - [ ] 60 — Sessioni da 2 h solo alle 15 e alle 17 (`booking.py:44`): con la regola 18-22 proposta dal pannello spariscono
 - [ ] 20 · R14 — Due formati di data e due fusi orari nel pannello
-- [ ] 57 — Tre definizioni di incasso, nessuna conta i pacchetti venduti (`dashboard.py:48-52,135-137`, `clients.py:55-61`; decisione P8)
+- [ ] 62 — Colonna "Sessioni" della lista clienti: conta tutte le prenotazioni, cancellate comprese (`clients.py:48-54`)
 - [ ] 39 — Servizi esterni: email e note nel calendario a ogni prenotazione, e lì restano oltre i 24 mesi; promemoria segnati inviati se falliti
 - [ ] 49 — Input pubblici senza limiti: max_length, a-capo nel nome, token di recensione non ASCII
 - [ ] 50 — Email dei clienti nei log: booking_id al posto dell'email

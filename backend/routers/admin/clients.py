@@ -13,6 +13,7 @@ from backend.routers.admin import get_admin
 from backend.services.timezone_service import formatta_data_ora_rome
 from backend.services.booking_service import libera_slot_prenotazione
 from backend.services.pagination_service import pagina_e_offset, busta_paginazione
+from backend.services.incasso_service import movimenti_incasso
 from typing import List
 
 router = APIRouter()
@@ -26,11 +27,11 @@ def get_clienti(
     pagina: int = 1,
     per_pagina: int = 20
 ):
-    """Elenca i clienti paginati, con sessioni effettuate e totale speso.
+    """Elenca i clienti paginati, con sessioni prenotate e totale speso.
 
-    Le statistiche sono calcolate con tre query aggregate sull'intera
-    pagina, non con una query per cliente: quest'ultima soluzione
-    costerebbe una query in più per ogni riga mostrata.
+    Le statistiche sono calcolate con poche query sull'intera pagina (due
+    aggregate più i movimenti di incasso), non con una query per cliente:
+    quest'ultima soluzione costerebbe una query in più per ogni riga mostrata.
     """
     pagina, per_pagina, offset = pagina_e_offset(pagina, per_pagina)
 
@@ -52,13 +53,13 @@ def get_clienti(
         ).filter(Booking.user_id.in_(id_clienti_pagina))
         .group_by(Booking.user_id).all()
     )
-    spesa_prenotazioni = dict(
-        db.query(
-            Booking.user_id,
-            func.sum(Booking.price_cents)
-        ).filter(Booking.user_id.in_(id_clienti_pagina))
-        .group_by(Booking.user_id).all()
-    )
+    # Stessa definizione di incasso di dashboard e analytics
+    # (services/incasso_service.py), limitata ai clienti della pagina: prima
+    # qui si sommavano tutte le prenotazioni, cancellate e no-show compresi,
+    # e nessun pacchetto.
+    totale_speso = {}
+    for m in movimenti_incasso(db, user_ids=id_clienti_pagina):
+        totale_speso[m.user_id] = totale_speso.get(m.user_id, 0) + m.cents
     conteggio_note = dict(
         db.query(
             ClientNote.user_id,
@@ -78,7 +79,7 @@ def get_clienti(
             # Un cliente senza prenotazioni non compare nei raggruppamenti:
             # il default copre quel caso.
             "sessioni_totali": stats_prenotazioni.get(c.id, 0),
-            "totale_speso_euro": (spesa_prenotazioni.get(c.id, 0) or 0) / 100,
+            "totale_speso_euro": totale_speso.get(c.id, 0) / 100,
             "note_totali": conteggio_note.get(c.id, 0),
             # Ora italiana come tutto il resto del pannello. Il valore nel
             # database è UTC naive: mostrarlo grezzo lo sfalsava di un'ora

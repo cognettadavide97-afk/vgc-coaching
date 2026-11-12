@@ -20,11 +20,13 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from backend.models.booking import Booking
+from backend.models.package import Package
 from backend.models.review import Review
 from backend.models.slots import Slot
 from backend.models.users import User
 from backend.services import calendar_service, discord_service, email_service
 from backend.services.backup_service import RIGHE_PER_INSERT, crea_dump_sql
+from backend.services.timezone_service import ROME_TZ
 from conftest import admin_headers, crea_slot
 
 ORA = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -130,6 +132,75 @@ def test_una_prenotazione_cancellata_sparisce_dagli_incassi_ma_non_dal_totale(cl
 
     assert dati["totale_prenotazioni"] == 1
     assert dati["totale_incassato_euro"] == 0.0
+
+
+# Incasso (decisione P8, backend/services/incasso_service.py): sessioni
+# singole svolte + pacchetti per intero alla data di assegnazione. Dashboard,
+# analytics e lista clienti devono raccontare la stessa storia.
+
+def prepara_incassi(db):
+    """Un pacchetto venduto e quattro prenotazioni, di cui una sola è incasso."""
+    marco = crea_utente_db(db, email="marco@example.com", nome="Marco")
+    luca = crea_utente_db(db, email="luca@example.com", nome="Luca")
+    sara = crea_utente_db(db, email="sara@example.com", nome="Sara")
+    db.add(Package(user_id=marco.id, tipo="team", sessioni_totali=4, sessioni_usate=0,
+                   durata_sessione_ore=2, prezzo_cents=13000, created_at=ORA - timedelta(hours=2)))
+
+    def prenotazione(utente, ore_da_adesso, prezzo_cents, stato):
+        slot = crea_slot(db, ORA + timedelta(hours=ore_da_adesso), is_available=False)
+        db.add(Booking(user_id=utente.id, slot_id=slot.id, duration_hours=1,
+                       price_cents=prezzo_cents, service_type="vod_review", status=stato))
+
+    prenotazione(luca, -3, 4000, "cancelled")   # cancellata: mai incassata
+    prenotazione(luca, +5, 2000, "confirmed")   # futura: non ancora svolta
+    prenotazione(sara, -4, 2000, "no_show")     # no-show: non incassata
+    prenotazione(luca, -1, 2000, "confirmed")   # svolta: incassata
+    db.commit()
+
+
+def test_la_dashboard_incassa_sessioni_svolte_e_pacchetti_venduti(client, db):
+    prepara_incassi(db)
+
+    dati = client.get("/admin/dashboard", headers=admin_headers()).json()
+
+    assert dati["totale_incassato_euro"] == 150.0   # 130 del pacchetto + 20 della sessione svolta
+
+
+def test_lincasso_per_mese_somma_lo_stesso_totale_della_dashboard(client, db):
+    prepara_incassi(db)
+
+    mesi = client.get("/admin/analytics", headers=admin_headers()).json()["incasso_per_mese"]
+
+    assert sum(m["euro"] for m in mesi) == 150.0
+
+
+def test_il_totale_speso_dei_clienti_segue_la_stessa_definizione(client, db):
+    prepara_incassi(db)
+
+    clienti = client.get("/admin/clienti", headers=admin_headers()).json()["items"]
+
+    speso = {c["nome"]: c["totale_speso_euro"] for c in clienti}
+    assert speso == {"Marco": 130.0, "Luca": 20.0, "Sara": 0.0}
+
+
+def test_un_pacchetto_venduto_dopo_mezzanotte_del_primo_conta_nel_mese_italiano(client, db):
+    """Il mese dell'incasso è quello italiano, non quello UTC del database.
+
+    Le 00:30 del primo del mese in Italia sono in UTC ancora il giorno prima,
+    cioè il mese precedente: raggruppando in UTC la vendita finirebbe lì.
+    """
+    oggi_roma = datetime.now(ROME_TZ)
+    vendita = datetime(oggi_roma.year, oggi_roma.month, 1, 0, 30, tzinfo=ROME_TZ) \
+        .astimezone(timezone.utc).replace(tzinfo=None)
+    marco = crea_utente_db(db)
+    db.add(Package(user_id=marco.id, tipo="intro", sessioni_totali=2, sessioni_usate=0,
+                   durata_sessione_ore=2, prezzo_cents=7000, created_at=vendita))
+    db.commit()
+
+    mesi = client.get("/admin/analytics", headers=admin_headers()).json()["incasso_per_mese"]
+
+    assert mesi[-1]["euro"] == 70.0   # mese corrente
+    assert mesi[-2]["euro"] == 0.0    # non il precedente
 
 
 # ─── 3. VERSO I SERVIZI ESTERNI ──────────────────────────────
