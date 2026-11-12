@@ -37,7 +37,7 @@ I documenti cancellati il 2026-09-11, citati da alcuni commenti: `git show 2f912
   gli slot si liberano comunque (R5, intervento 7).
 - `services/google_oauth_service.py` — chiave di cache `(refresh_token, client_id)` e `raise` sul
   token vuoto: separano Gmail da Drive (R17, intervento 6).
-- `routers/booking.py:178-245` — Google Calendar chiamato dentro la transazione che blocca lo slot, fino
+- `routers/booking.py:178-257` — Google Calendar chiamato dentro la transazione che blocca slot e credito, fino
   a 60 s (timeout di default) contro i 50 s di attesa di un lock MySQL (R4, interventi 11-12).
 - `scheduler.py:35-47` e `:351` — env var lette a livello di modulo e `BackgroundScheduler()` senza
   timezone: toccarlo sposta l'orario reale di tutti i job (R11/D3, interventi 13/17).

@@ -198,6 +198,22 @@ def create_booking(
         if esito_secondario.rowcount == 0:
             db.rollback()
             raise HTTPException(status_code=400, detail="Slot not available")
+
+    # Stessa riserva per il credito del pacchetto, e per lo stesso motivo: il
+    # controllo "ha ancora sessioni?" più sopra è separato dalla scrittura, e
+    # due richieste simultanee dello stesso cliente lo passerebbero entrambe,
+    # spendendo un credito due volte. Va fatta prima di Google Calendar: un
+    # rifiuto a evento già creato lascerebbe un appuntamento fantasma, che il
+    # rollback non cancella perché sta fuori dal database.
+    if package:
+        esito_pacchetto = db.execute(
+            update(Package)
+            .where(Package.id == package.id, Package.sessioni_usate < Package.sessioni_totali)
+            .values(sessioni_usate=Package.sessioni_usate + 1)
+        )
+        if esito_pacchetto.rowcount == 0:
+            db.rollback()
+            raise HTTPException(status_code=400, detail="This package has no sessions left")
     # ─────────────────────────────────────────────────────────────
 
     # Prezzo zero se la sessione scala un pacchetto: l'importo è già stato
@@ -238,10 +254,6 @@ def create_booking(
         review_token=secrets.token_urlsafe(32)
     )
     db.add(db_booking)
-
-    if package:
-        package.sessioni_usate += 1
-
     db.commit()
     db.refresh(db_booking)
 

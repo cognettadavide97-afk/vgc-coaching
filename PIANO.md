@@ -11,14 +11,14 @@ Decisioni (P1-P6: dettaglio nell'archivio 2026-09, riga 1328):
 - P5 — Listino (prezzi, ore valide, etichette) servito dal server, o duplicato con rimandi nei commenti (22, 33)
 - P6a — `User.telefono`: campo nel form pubblico o migrazione che lo rimuove (36)
 - P6b — `AvailabilityRule.attiva`: `PATCH` nel pannello o migrazione che la rimuove (36)
-- P7 — Sessione a pacchetto cancellata, dal cliente o dal pannello: il credito torna? (56)
-- P8 — Cosa conta come incassato: sessioni future comprese? pacchetti alla data di vendita? (57)
+- P7 ✅ — Il credito torna a ogni cancellazione, del cliente o del pannello; il no-show lo consuma (56)
+- P8 ✅ — Incassato = sessioni singole svolte (confermate, orario passato) + pacchetti per intero alla data di assegnazione (57)
 - P9 — Disponibilità calcolata da regole, blocchi, prenotazioni e impegni Google, non salvata come slot; rivede P1 (60)
 
 Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischio):
 - [ ] 40 — Misure su Railway prima del 9: IP dietro il proxy, repliche (le altre misure, del 2026-11-11, nel commit della voce 58)
 - [ ] 9 · R6 — Email con maiuscole: 403 su MySQL, e su ogni motore se il dominio ha maiuscole (EmailStr)
-- [ ] 56 — Il credito del pacchetto non torna mai, né alla disdetta né dal pannello, che non può correggerlo (`booking.py:243`; decisione P7)
+- [ ] 56 — Il credito del pacchetto non torna mai, né alla disdetta né dal pannello, che non può correggerlo (`booking.py:315`, `admin/bookings.py:143`; decisione P7)
 - [ ] 47 — Job schedulati che falliscono o saltano senza avviso: slot, pulizia, anonimizzazione, backup
 - [ ] 61 — Backup su Drive anteriori al deploy del 2026-11-11 (`bbe099b`, SET NAMES): fino al 13/12, quando l'ultimo esce dai 30 giorni,
   il ripristino va fatto con `--default-character-set=utf8mb4` o accenti ed emoji tornano corrotti senza errori. Ricontrollo il 15/11:

@@ -6,9 +6,11 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import event
+
 from backend.models.booking import Booking
 from backend.models.package import Package
-from conftest import crea_slot, studente_cookies
+from conftest import TEST_ENGINE, crea_slot, studente_cookies
 
 ROME_TZ = ZoneInfo("Europe/Rome")
 
@@ -364,6 +366,66 @@ def test_redenzione_pacchetto_esaurito_viene_rifiutata(client, db):
     )
 
     assert res.status_code == 400
+
+
+def test_credito_pacchetto_non_si_spende_due_volte(client, db):
+    # Race condition sul credito: due richieste simultanee dello stesso
+    # cliente (doppio clic, due schede) passano entrambe il controllo "ha
+    # ancora sessioni?" prima che una delle due scriva di averne usata una.
+    # Nella suite le richieste arrivano una alla volta, quindi l'incrocio
+    # va provocato: l'"intruso" qui sotto è un listener che scatta mentre
+    # create_booking riserva lo slot, cioè DOPO il controllo sul credito, e
+    # consuma l'ultima sessione come farebbe la richiesta concorrente.
+    # La prenotazione deve essere rifiutata: col vecchio `+= 1` sull'oggetto
+    # letto prima passava, e il pacchetto da 1 sessione ne pagava 2.
+    utente = crea_utente(client)
+    slot_a = crea_slot(db, INIZIO)
+    crea_slot(db, INIZIO + timedelta(hours=1))
+
+    pacchetto = Package(
+        user_id=utente["id"], tipo="intro",
+        sessioni_totali=1, sessioni_usate=0,
+        durata_sessione_ore=2, prezzo_cents=7000
+    )
+    db.add(pacchetto)
+    db.commit()
+    id_pacchetto = pacchetto.id
+
+    scattato = []
+
+    def intruso(conn, cursor, statement, parameters, context, executemany):
+        if not scattato and statement.lstrip().upper().startswith("UPDATE SLOTS"):
+            scattato.append(True)
+            # Cursore separato sulla stessa connessione (StaticPool): la
+            # scrittura entra nella stessa transazione della richiesta,
+            # come una richiesta concorrente già confermata.
+            altro = conn.connection.cursor()
+            altro.execute(
+                "UPDATE packages SET sessioni_usate = sessioni_totali WHERE id = ?",
+                (id_pacchetto,)
+            )
+            altro.close()
+
+    event.listen(TEST_ENGINE, "before_cursor_execute", intruso)
+    try:
+        res = client.post(
+            "/bookings/",
+            cookies=studente_cookies(utente["id"], utente["email"]),
+            json={
+                "user_id": utente["id"],
+                "slot_id": slot_a.id,
+                "duration_hours": 2,
+                "service_type": "team_building",
+                "package_id": id_pacchetto
+            }
+        )
+    finally:
+        event.remove(TEST_ENGINE, "before_cursor_execute", intruso)
+
+    assert scattato, "l'intruso non è scattato: il test non prova nulla"
+    assert res.status_code == 400, res.text
+    assert "no sessions left" in res.json()["detail"]
+    assert db.query(Booking).count() == 0
 
 
 def test_redenzione_pacchetto_di_un_altro_utente_viene_rifiutata(client, db):
