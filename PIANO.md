@@ -37,7 +37,6 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
   (proxy TCP spento, verificato il 2026-11-12: si accende solo per una misura e si rispegne)
 - [ ] 22 · R9 — Prezzi e ore valide duplicati fra backend e frontend (decisione P5)
 - [ ] 33 · C5 — Etichette, pacchetti e prezzi barrati scritti in più posti (decisione P5)
-- [ ] 51 — Test che possono chiamare il Google vero: .env caricato all'import, fixture solo sui router pubblici
 - [ ] 29 · C4 — Commenti che dicono altro dal codice, rimandi a documenti cancellati, motivazioni perse (§6)
 - [ ] 18 · R12 — Percorsi relativi: il sito non parte se avviato fuori dalla radice
 - [ ] 35 — Scope Google Calendar ridotto a calendar.events (serve riautorizzare)

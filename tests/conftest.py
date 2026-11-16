@@ -10,11 +10,36 @@
 #    StaticPool costringe SQLAlchemy a riusare sempre la STESSA connessione,
 #    così tutte le richieste della sessione di test vedono lo stesso database.
 #
-# 2. Integrazioni esterne disattivate: i test non devono MAI mandare email
+# 2. Integrazioni esterne irraggiungibili: i test non devono MAI mandare email
 #    vere, messaggi Discord veri o creare eventi sul calendario Google vero,
-#    anche se per errore le credenziali in .env fossero quelle reali (vedi
-#    backend/routers/booking.py, che le chiama dentro create_booking) — le
-#    sostituiamo con funzioni "finte" che non fanno nulla.
+#    e sul PC di sviluppo il .env contiene le credenziali reali. Due reti,
+#    indipendenti (voce 51):
+#    - le credenziali si svuotano qui sotto, PRIMA di importare il backend;
+#    - la fixture `rete_esterna_bloccata` fa fallire ogni connessione che
+#      esce dalla macchina, e ferma anche ciò che la prima rete non conosce
+#      (una variabile dimenticata, un servizio aggiunto domani).
+#    Le funzioni sostituite in `integrazioni_esterne_finte` non sono più la
+#    protezione: tengono i test veloci e i log puliti.
+
+import os
+import socket
+
+# Prima rete. I servizi leggono le credenziali una volta sola, all'import
+# del proprio modulo: svuotarle dopo gli import qui sotto non le
+# raggiungerebbe più. load_dotenv() non sovrascrive una variabile già
+# presente nell'ambiente, anche se vuota, quindi il .env vero viene
+# ignorato per queste chiavi. DATABASE_URL come nella CI: SessionLocal ed
+# engine, usati direttamente da scheduler e backup, non devono poter
+# scrivere sul MySQL di sviluppo se un test dimentica di sostituirli.
+CREDENZIALI_INTEGRAZIONI = (
+    "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN",
+    "DRIVE_REFRESH_TOKEN", "GOOGLE_DRIVE_BACKUP_FOLDER_ID",
+    "GOOGLE_SERVICE_ACCOUNT_EMAIL", "GOOGLE_PRIVATE_KEY", "GOOGLE_CALENDAR_ID",
+    "DISCORD_WEBHOOK_URL", "DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET",
+)
+for _nome in CREDENZIALI_INTEGRAZIONI:
+    os.environ[_nome] = ""
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -91,14 +116,50 @@ def db_pulito():
     Base.metadata.drop_all(bind=TEST_ENGINE)
 
 
+_connect_originale = socket.socket.connect
+_connect_ex_originale = socket.socket.connect_ex
+
+
+def _solo_locale(indirizzo):
+    """Solleva se la connessione esce dalla macchina; il loopback passa."""
+    host = indirizzo[0] if isinstance(indirizzo, tuple) else indirizzo
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        raise RuntimeError(
+            f"i test non possono connettersi verso l'esterno ({host}): "
+            "sostituisci la funzione che chiama il servizio"
+        )
+
+
+@pytest.fixture(autouse=True)
+def rete_esterna_bloccata(monkeypatch):
+    """
+    Seconda rete: ogni connessione TCP passa da socket.socket.connect (o
+    connect_ex), anche quelle di requests, httplib2 e ssl, che ne ereditano
+    il metodo. Il loopback resta aperto perché su Windows il motore
+    asincrono di TestClient comunica con sé stesso via 127.0.0.1:
+    chiuderlo romperebbe tutta la suite.
+    """
+    def connect(sock, indirizzo):
+        _solo_locale(indirizzo)
+        return _connect_originale(sock, indirizzo)
+
+    def connect_ex(sock, indirizzo):
+        _solo_locale(indirizzo)
+        return _connect_ex_originale(sock, indirizzo)
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect_ex)
+
+
 @pytest.fixture(autouse=True)
 def integrazioni_esterne_finte(monkeypatch):
     """
     Sostituisce le funzioni che parlano con servizi esterni (Google
-    Calendar, Gmail, Discord) con delle finte che non fanno nulla — vedi il
-    commento in cima al file per il perché. monkeypatch (fixture di pytest)
-    annulla automaticamente ogni sostituzione a fine test, quindi non serve
-    "ripristinare" nulla a mano.
+    Calendar, Gmail, Discord) con delle finte che non fanno nulla. Non sono
+    la protezione (vedi il commento in cima al file), ma senza di loro ogni
+    prenotazione dei test tenterebbe l'invio e riempirebbe il log di errori
+    attesi. monkeypatch (fixture di pytest) annulla automaticamente ogni
+    sostituzione a fine test, quindi non serve "ripristinare" nulla a mano.
     """
     import backend.routers.booking as booking_router
     import backend.routers.consulenza as consulenza_router

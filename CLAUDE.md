@@ -45,10 +45,12 @@ I documenti cancellati il 2026-09-11, citati da alcuni commenti: `git show 2f912
   corrente: a fine mese il calendario è quasi vuoto. È voluto (intervento 38).
 - `routers/admin/__init__.py` — `get_admin` e l'import dei sotto-router in fondo (D1/D2, 15/16).
 - `tests/conftest.py` — il listener `PRAGMA foreign_keys=ON` allinea SQLite a MySQL sui vincoli, ma
-  collation, bulk delete e locking di riga restano diversi: si prova sul MySQL locale. La fixture autouse
-  `integrazioni_esterne_finte` sostituisce con no-op **dieci** funzioni di Calendar, email e Discord, solo
-  nei tre router pubblici, mentre il `.env` vero si carica all'import: una suite verde non dice nulla su
-  quelle integrazioni. Lo schema dei test nasce da `create_all`, non dalle migrazioni.
+  collation, bulk delete e locking di riga restano diversi: si prova sul MySQL locale. Le righe in cima,
+  **prima di ogni import del backend**, svuotano le 11 credenziali delle integrazioni e puntano
+  `DATABASE_URL` a SQLite: spostate dopo gli import non hanno più effetto. La fixture `rete_esterna_bloccata`
+  fa fallire ogni connessione fuori dal loopback (voce 51). Le dieci funzioni no-op di
+  `integrazioni_esterne_finte` restano solo per log puliti: una suite verde non dice nulla su quelle
+  integrazioni. Lo schema dei test nasce da `create_all`, non dalle migrazioni.
 - **I commenti didattici spiegano il *perché*: non rimuoverli.** Non sono rumore da ripulire in un
   refactor — sono il solo posto in cui vivono le ragioni di metà delle voci qui sopra.
 - Costanti duplicate backend/frontend: `TABELLA_PREZZI`/`data-price`, `ORE_INIZIO_VALIDE_2H` (R9/R10, 22-23).
