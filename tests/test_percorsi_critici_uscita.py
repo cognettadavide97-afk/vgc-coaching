@@ -333,14 +333,14 @@ def test_unemail_non_partita_non_interrompe_chi_lha_richiesta(monkeypatch):
 
     monkeypatch.setattr(email_service, "_invia_via_gmail", esplode)
 
-    # COMPORTAMENTO SOSPETTO: la funzione non restituisce nulla, quindi il
-    # chiamante non può distinguere un'email partita da una persa. Un
-    # promemoria mai arrivato lascia traccia solo nei log, e la
-    # prenotazione risulta comunque "reminder_sent" (backend/scheduler.py).
+    # Fino al caso 2 della voce 39 la funzione non restituiva nulla, e un
+    # promemoria mai arrivato risultava comunque "reminder_sent"
+    # (backend/scheduler.py). Ora restituisce l'esito: lo scheduler segna
+    # come inviato solo ciò che è partito e riprova il resto.
     assert email_service.invia_promemoria_cliente(
         email_cliente="mario@example.com", nome_cliente="Mario",
         data_slot="15/07/2030", ora_slot="15:00", durata=1,
-    ) is None
+    ) is False
 
 
 class PostFinto:

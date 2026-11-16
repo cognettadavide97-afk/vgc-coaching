@@ -39,7 +39,7 @@ I documenti cancellati il 2026-09-11, citati da alcuni commenti: `git show 2f912
   token vuoto: separano Gmail da Drive (R17, intervento 6).
 - `routers/booking.py:178-257` — Google Calendar chiamato dentro la transazione che blocca slot e credito, fino
   a 60 s (timeout di default) contro i 50 s di attesa di un lock MySQL (R4, interventi 11-12).
-- `scheduler.py:35-47` e `:351` — env var lette a livello di modulo e `BackgroundScheduler()` senza
+- `scheduler.py:35-47` e `:366` — env var lette a livello di modulo e `BackgroundScheduler()` senza
   timezone: toccarlo sposta l'orario reale di tutti i job (R11/D3, interventi 13/17).
 - `services/availability_service.py:68` — gli slot delle regole si generano solo fino a fine mese
   corrente: a fine mese il calendario è quasi vuoto. È voluto (intervento 38).

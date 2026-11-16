@@ -183,11 +183,16 @@ def invia_promemoria_cliente(
     """
     corpo_email = _template_cliente(corpo)
 
+    # Restituisce l'esito, a differenza delle altre funzioni di invio: lo
+    # scheduler segna il promemoria come inviato solo se è partito davvero,
+    # e altrimenti lo riprova al giro successivo.
     try:
         _invia_via_gmail(email_cliente, "Reminder: your VGC coaching session is coming up", corpo_email)
         logger.info(f"Promemoria inviato a {email_cliente}")
+        return True
     except Exception:
         logger.exception("Errore invio promemoria")
+        return False
 
 
 def invia_notifica_admin(
@@ -318,6 +323,9 @@ def invia_richiesta_recensione(email_cliente: str, nome_cliente: str, link_recen
     Mandata una volta sola dopo che la sessione è passata (vedi il job
     controlla_e_invia_richieste_recensione in backend/scheduler.py), con un
     link univoco che porta alla pagina pubblica frontend/recensione.html.
+
+    Restituisce True se l'email è partita: il job la segna come inviata
+    solo in quel caso, e altrimenti la riprova.
     """
     corpo = f"""
             <h2 style="color: #1a1a2e;">How did it go?</h2>
@@ -335,5 +343,7 @@ def invia_richiesta_recensione(email_cliente: str, nome_cliente: str, link_recen
     try:
         _invia_via_gmail(email_cliente, "How did your session go?", corpo_email)
         logger.info(f"Richiesta recensione inviata a {email_cliente}")
+        return True
     except Exception:
         logger.exception("Errore invio richiesta recensione")
+        return False

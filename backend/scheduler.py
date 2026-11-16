@@ -136,13 +136,19 @@ def controlla_e_invia_promemoria():
             data_slot = slot_rome.strftime("%d/%m/%Y")
             ora_slot = slot_rome.strftime("%H:%M")
 
-            invia_promemoria_cliente(
+            inviato = invia_promemoria_cliente(
                 email_cliente=user.email,
                 nome_cliente=user.nome,
                 data_slot=data_slot,
                 ora_slot=ora_slot,
                 durata=prenotazione.duration_hours
             )
+            # Email fallita: la prenotazione resta da notificare e il
+            # prossimo giro ci riprova, fino all'inizio della sessione
+            # (filtro qui sopra). Anche Discord aspetta l'email: partendo a
+            # ogni tentativo, avviserebbe il coach ogni pochi minuti.
+            if not inviato:
+                continue
 
             invia_promemoria_discord(
                 nome_cliente=user.nome,
@@ -161,6 +167,13 @@ def controlla_e_invia_promemoria():
         db.close()
 
 
+# Un invio fallito si riprova a ogni giro, ma solo per le sessioni recenti:
+# un errore permanente (un indirizzo che non esiste) verrebbe altrimenti
+# ritentato ogni ora per sempre. Oltre una settimana chiedere un parere
+# sulla sessione non ha più senso.
+GIORNI_TENTATIVI_RECENSIONE = 7
+
+
 def controlla_e_invia_richieste_recensione():
     """Invia la richiesta di recensione per le sessioni già concluse.
 
@@ -177,7 +190,8 @@ def controlla_e_invia_richieste_recensione():
         candidate = _query_prenotazioni_con_slot_e_utente(db).filter(
             Booking.status == "confirmed",
             Booking.review_email_sent == False,
-            Slot.start_time <= ora - timedelta(hours=2)
+            Slot.start_time <= ora - timedelta(hours=2),
+            Slot.start_time >= ora - timedelta(days=GIORNI_TENTATIVI_RECENSIONE)
         ).all()
 
         inviate = 0
@@ -192,7 +206,8 @@ def controlla_e_invia_richieste_recensione():
                 continue  # sessione non ancora conclusa nonostante il pre-filtro largo
 
             link = f"{PUBLIC_BASE_URL}/static/recensione.html?booking_id={prenotazione.id}&token={prenotazione.review_token}"
-            invia_richiesta_recensione(email_cliente=user.email, nome_cliente=user.nome, link_recensione=link)
+            if not invia_richiesta_recensione(email_cliente=user.email, nome_cliente=user.nome, link_recensione=link):
+                continue  # resta da inviare: il prossimo giro ci riprova
 
             prenotazione.review_email_sent = True
             db.commit()

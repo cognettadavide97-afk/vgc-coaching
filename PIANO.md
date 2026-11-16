@@ -27,7 +27,7 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
 - [ ] 60 — Sessioni da 2 h solo alle 15 e alle 17 (`booking.py:44`): con la regola 18-22 proposta dal pannello spariscono
 - [ ] 20 · R14 — Due formati di data e due fusi orari nel pannello
 - [ ] 62 — Colonna "Sessioni" della lista clienti: conta tutte le prenotazioni, cancellate comprese (`clients.py:48-54`)
-- [ ] 39 — Servizi esterni: email e note nel calendario a ogni prenotazione, e lì restano oltre i 24 mesi; promemoria segnati inviati se falliti
+- [ ] 39 — Servizi esterni: email e note nel calendario a ogni prenotazione, e lì restano oltre i 24 mesi
 - [ ] 49 — Input pubblici senza limiti: max_length, a-capo nel nome, token di recensione non ASCII
 - [ ] 50 — Email dei clienti nei log: booking_id al posto dell'email
 - [ ] 14 · R1+R2 — Identità dell'ospite = email pubblica, limite di prenotazioni aggirabile (decisione P3)

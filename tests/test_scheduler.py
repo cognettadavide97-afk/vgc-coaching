@@ -1,15 +1,17 @@
 # Copre i job periodici di backend/scheduler.py che girano da soli in
 # produzione, senza che nessuna richiesta HTTP li attivi (vedi il commento
 # in cima a quel file). Non usano Depends(get_db): aprono da soli una
-# connessione con SessionLocal(), che di default punta al DATABASE_URL
-# reale configurato in .env — non al database SQLite isolato che il resto
-# della suite usa tramite l'override di get_db (vedi tests/conftest.py).
+# connessione con SessionLocal(), che non è il database SQLite condiviso dal
+# resto della suite tramite l'override di get_db (vedi tests/conftest.py).
 #
-# Senza il monkeypatch esplicito qui sotto, chiamare queste funzioni
-# scriverebbe (e leggerebbe) sul database di sviluppo VERO — è già successo
-# per errore in questo progetto in passato, mandando anche email/messaggi
-# Discord reali con le credenziali vere di .env (le stesse funzioni di invio
-# vengono comunque mockate qui sotto, in aggiunta, per sicurezza doppia).
+# Fino alla voce 51 SessionLocal puntava al DATABASE_URL reale del .env, e
+# chiamare queste funzioni senza il monkeypatch qui sotto scriveva sul
+# database di sviluppo VERO — è successo per errore in passato, mandando
+# anche email/messaggi Discord reali. Oggi conftest.py punta DATABASE_URL a
+# un SQLite in memoria e blocca la rete, ma quel database è un altro: il
+# monkeypatch serve perché job e test vedano gli stessi dati. Le funzioni di
+# invio si sostituiscono per osservarle; quelle "riuscite" restituiscono
+# True, perché il job segna come inviato solo ciò che è partito.
 
 from datetime import timedelta
 
@@ -59,7 +61,7 @@ def test_promemoria_inviato_per_prenotazione_nella_finestra(db, monkeypatch):
     finge_sessione_scheduler(monkeypatch)
     inviati_email = []
     inviati_discord = []
-    monkeypatch.setattr(scheduler_module, "invia_promemoria_cliente", lambda **kw: inviati_email.append(kw))
+    monkeypatch.setattr(scheduler_module, "invia_promemoria_cliente", lambda **kw: inviati_email.append(kw) or True)
     monkeypatch.setattr(scheduler_module, "invia_promemoria_discord", lambda **kw: inviati_discord.append(kw))
 
     utente = crea_utente_db(db)
@@ -80,7 +82,7 @@ def test_promemoria_inviato_per_prenotazione_nella_finestra(db, monkeypatch):
 def test_promemoria_non_inviato_fuori_finestra(db, monkeypatch):
     finge_sessione_scheduler(monkeypatch)
     inviati = []
-    monkeypatch.setattr(scheduler_module, "invia_promemoria_cliente", lambda **kw: inviati.append(kw))
+    monkeypatch.setattr(scheduler_module, "invia_promemoria_cliente", lambda **kw: inviati.append(kw) or True)
     monkeypatch.setattr(scheduler_module, "invia_promemoria_discord", lambda **kw: None)
 
     utente = crea_utente_db(db)
@@ -99,7 +101,7 @@ def test_promemoria_non_inviato_fuori_finestra(db, monkeypatch):
 def test_promemoria_gia_inviato_non_si_ripete(db, monkeypatch):
     finge_sessione_scheduler(monkeypatch)
     inviati = []
-    monkeypatch.setattr(scheduler_module, "invia_promemoria_cliente", lambda **kw: inviati.append(kw))
+    monkeypatch.setattr(scheduler_module, "invia_promemoria_cliente", lambda **kw: inviati.append(kw) or True)
     monkeypatch.setattr(scheduler_module, "invia_promemoria_discord", lambda **kw: None)
 
     utente = crea_utente_db(db)
@@ -112,12 +114,35 @@ def test_promemoria_gia_inviato_non_si_ripete(db, monkeypatch):
     assert inviati == []
 
 
+def test_promemoria_fallito_non_segnato_e_ritentato(db, monkeypatch):
+    """Se Gmail fallisce il promemoria resta da inviare, e il coach non riceve Discord a ogni tentativo."""
+    finge_sessione_scheduler(monkeypatch)
+    esiti = [False, True]
+    inviati_discord = []
+    monkeypatch.setattr(scheduler_module, "invia_promemoria_cliente", lambda **kw: esiti.pop(0))
+    monkeypatch.setattr(scheduler_module, "invia_promemoria_discord", lambda **kw: inviati_discord.append(kw))
+
+    utente = crea_utente_db(db)
+    slot = crea_slot(db, scheduler_module.ora_utc_naive() + timedelta(hours=2))
+    prenotazione = crea_prenotazione_db(db, utente, slot)
+
+    scheduler_module.controlla_e_invia_promemoria()
+    db.refresh(prenotazione)
+    assert prenotazione.reminder_sent is False
+    assert inviati_discord == []
+
+    scheduler_module.controlla_e_invia_promemoria()
+    db.refresh(prenotazione)
+    assert prenotazione.reminder_sent is True
+    assert len(inviati_discord) == 1
+
+
 # ─── controlla_e_invia_richieste_recensione ───────────────────
 
 def test_richiesta_recensione_inviata_per_sessione_conclusa(db, monkeypatch):
     finge_sessione_scheduler(monkeypatch)
     inviate = []
-    monkeypatch.setattr(scheduler_module, "invia_richiesta_recensione", lambda **kw: inviate.append(kw))
+    monkeypatch.setattr(scheduler_module, "invia_richiesta_recensione", lambda **kw: inviate.append(kw) or True)
 
     utente = crea_utente_db(db)
     # Slot iniziato 3 ore fa, durata 1h di default: la sessione è conclusa
@@ -136,7 +161,7 @@ def test_richiesta_recensione_inviata_per_sessione_conclusa(db, monkeypatch):
 def test_richiesta_recensione_non_inviata_se_sessione_non_ancora_conclusa(db, monkeypatch):
     finge_sessione_scheduler(monkeypatch)
     inviate = []
-    monkeypatch.setattr(scheduler_module, "invia_richiesta_recensione", lambda **kw: inviate.append(kw))
+    monkeypatch.setattr(scheduler_module, "invia_richiesta_recensione", lambda **kw: inviate.append(kw) or True)
 
     utente = crea_utente_db(db)
     # Pre-filtro largo (backend/scheduler.py): "nessuna sessione dura più di
@@ -451,3 +476,34 @@ def test_gli_altri_job_notturni_restano_giornalieri(monkeypatch):
     _, _, pulizia = job["pulisci_slot_obsoleti"]
     _, _, backup = job["backup_database"]
     assert pulizia["hour"] * 60 + pulizia["minute"] < backup["hour"] * 60 + backup["minute"]
+
+
+def test_richiesta_recensione_fallita_non_segnata(db, monkeypatch):
+    finge_sessione_scheduler(monkeypatch)
+    monkeypatch.setattr(scheduler_module, "invia_richiesta_recensione", lambda **kw: False)
+
+    utente = crea_utente_db(db)
+    slot = crea_slot(db, scheduler_module.ora_utc_naive() - timedelta(hours=3), is_available=False)
+    prenotazione = crea_prenotazione_db(db, utente, slot, review_token="token-test-789")
+
+    risultato = scheduler_module.controlla_e_invia_richieste_recensione()
+
+    assert risultato == 0
+    db.refresh(prenotazione)
+    assert prenotazione.review_email_sent is False
+
+
+def test_richiesta_recensione_non_ritentata_oltre_sette_giorni(db, monkeypatch):
+    """Un invio che fallisce sempre non si riprova all'infinito: dopo 7 giorni si lascia perdere."""
+    finge_sessione_scheduler(monkeypatch)
+    inviate = []
+    monkeypatch.setattr(scheduler_module, "invia_richiesta_recensione", lambda **kw: inviate.append(kw) or True)
+
+    utente = crea_utente_db(db)
+    slot = crea_slot(db, scheduler_module.ora_utc_naive() - timedelta(days=8), is_available=False)
+    crea_prenotazione_db(db, utente, slot, review_token="token-test-vecchio")
+
+    risultato = scheduler_module.controlla_e_invia_richieste_recensione()
+
+    assert risultato == 0
+    assert inviate == []
