@@ -304,6 +304,7 @@ def test_il_promemoria_al_cliente_contiene_data_ora_e_durata(email_spedite):
     email_service.invia_promemoria_cliente(
         email_cliente="mario@example.com", nome_cliente="Mario",
         data_slot="15/07/2030", ora_slot="15:00", durata=2,
+        riferimento="prenotazione 1",
     )
 
     assert len(email_spedite.inviate) == 1
@@ -320,6 +321,7 @@ def test_la_richiesta_di_recensione_contiene_il_link_con_il_token(email_spedite)
 
     email_service.invia_richiesta_recensione(
         email_cliente="mario@example.com", nome_cliente="Mario", link_recensione=link,
+        riferimento="prenotazione 7",
     )
 
     corpo = email_spedite.inviate[0]["corpo"]
@@ -340,6 +342,7 @@ def test_unemail_non_partita_non_interrompe_chi_lha_richiesta(monkeypatch):
     assert email_service.invia_promemoria_cliente(
         email_cliente="mario@example.com", nome_cliente="Mario",
         data_slot="15/07/2030", ora_slot="15:00", durata=1,
+        riferimento="prenotazione 1",
     ) is False
 
 

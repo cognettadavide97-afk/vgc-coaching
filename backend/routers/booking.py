@@ -265,7 +265,8 @@ def create_booking(
         data_slot=data_slot,
         ora_slot=ora_slot,
         durata=booking.duration_hours,
-        prezzo=price
+        prezzo=price,
+        riferimento=f"prenotazione {db_booking.id}"
     )
 
     invia_notifica_admin(

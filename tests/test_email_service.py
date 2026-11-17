@@ -86,7 +86,8 @@ def test_nome_cliente_con_html_viene_escapato_in_email_al_cliente(monkeypatch):
         data_slot="01/01/2030",
         ora_slot="15:00",
         durata=1,
-        prezzo=2000
+        prezzo=2000,
+        riferimento="prenotazione 1"
     )
 
     assert "<i>Rossi</i>" not in catturato["corpo"]
@@ -246,3 +247,39 @@ def test_healthcheck_calendario_falso_se_la_chiave_e_revocata(monkeypatch):
     )
 
     assert calendar_service.verifica_credenziali_calendario() is False
+
+
+# ─── Log senza email del cliente (voce 50) ────────────────────
+# Il log deve dire a quale prenotazione o cliente si riferisce un invio,
+# riuscito o fallito, senza contenere l'indirizzo: un cliente cancellato su
+# richiesta non deve restare identificabile nei log di Railway.
+
+import logging
+
+import pytest
+
+EMAIL = "mario.rossi@example.com"
+
+INVII_AL_CLIENTE = [
+    ("invia_conferma_cliente", dict(nome_cliente="Mario", data_slot="15/07/2030", ora_slot="15:00", durata=1, prezzo=2000)),
+    ("invia_promemoria_cliente", dict(nome_cliente="Mario", data_slot="15/07/2030", ora_slot="15:00", durata=1)),
+    ("invia_conferma_richiesta_consulenza", dict(nome_cliente="Mario")),
+    ("invia_conferma_richiesta_pacchetto", dict(nome_cliente="Mario", nome_pacchetto="Pacchetto 5")),
+    ("invia_richiesta_recensione", dict(nome_cliente="Mario", link_recensione="https://example.com/r")),
+]
+
+
+@pytest.mark.parametrize("nome_funzione,argomenti", INVII_AL_CLIENTE)
+@pytest.mark.parametrize("riesce", [True, False], ids=["riuscito", "fallito"])
+def test_il_log_di_un_invio_ha_il_riferimento_e_non_l_email(monkeypatch, caplog, nome_funzione, argomenti, riesce):
+    def invio(destinatario, oggetto, corpo_html):
+        if not riesce:
+            raise RuntimeError("Gmail non raggiungibile")
+
+    monkeypatch.setattr(email_service, "_invia_via_gmail", invio)
+    caplog.set_level(logging.INFO, logger="backend.services.email_service")
+
+    getattr(email_service, nome_funzione)(email_cliente=EMAIL, riferimento="prenotazione 42", **argomenti)
+
+    assert "prenotazione 42" in caplog.text
+    assert EMAIL not in caplog.text

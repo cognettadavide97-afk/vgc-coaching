@@ -27,9 +27,11 @@ router = APIRouter(prefix="/consulenze", tags=["Consulenze"])
 def richiedi_consulenza(request: Request, richiesta: ConsulenzaCreate, db: Session = Depends(get_db)):
     # Registra comunque il contatto: se in seguito prenoterà con la stessa
     # email verrà ritrovato invece di essere duplicato.
-    get_or_create_user(db, UserCreate(nome=richiesta.nome, email=richiesta.email, discord_tag=richiesta.discord_tag))
+    cliente = get_or_create_user(db, UserCreate(nome=richiesta.nome, email=richiesta.email, discord_tag=richiesta.discord_tag))
 
-    invia_conferma_richiesta_consulenza(email_cliente=richiesta.email, nome_cliente=richiesta.nome)
+    invia_conferma_richiesta_consulenza(
+        email_cliente=richiesta.email, nome_cliente=richiesta.nome, riferimento=f"cliente {cliente.id}"
+    )
 
     invia_notifica_richiesta_consulenza_admin(
         nome_cliente=richiesta.nome,

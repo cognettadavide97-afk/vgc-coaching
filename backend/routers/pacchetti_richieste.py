@@ -27,14 +27,15 @@ router = APIRouter(prefix="/pacchetti-richieste", tags=["Pacchetti"])
 @limiter.limit("5/minute")
 def richiedi_pacchetto(request: Request, richiesta: PacchettoRichiestaCreate, db: Session = Depends(get_db)):
     # Registra il contatto, come per la richiesta di consulenza.
-    get_or_create_user(db, UserCreate(nome=richiesta.nome, email=richiesta.email, discord_tag=richiesta.discord_tag))
+    cliente = get_or_create_user(db, UserCreate(nome=richiesta.nome, email=richiesta.email, discord_tag=richiesta.discord_tag))
 
     nome_pacchetto = CATALOGO_PACCHETTI[richiesta.tipo]["nome"]
 
     invia_conferma_richiesta_pacchetto(
         email_cliente=richiesta.email,
         nome_cliente=richiesta.nome,
-        nome_pacchetto=nome_pacchetto
+        nome_pacchetto=nome_pacchetto,
+        riferimento=f"cliente {cliente.id}"
     )
 
     invia_notifica_richiesta_pacchetto_admin(

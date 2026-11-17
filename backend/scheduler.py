@@ -141,7 +141,8 @@ def controlla_e_invia_promemoria():
                 nome_cliente=user.nome,
                 data_slot=data_slot,
                 ora_slot=ora_slot,
-                durata=prenotazione.duration_hours
+                durata=prenotazione.duration_hours,
+                riferimento=f"prenotazione {prenotazione.id}"
             )
             # Email fallita: la prenotazione resta da notificare e il
             # prossimo giro ci riprova, fino all'inizio della sessione
@@ -206,7 +207,10 @@ def controlla_e_invia_richieste_recensione():
                 continue  # sessione non ancora conclusa nonostante il pre-filtro largo
 
             link = f"{PUBLIC_BASE_URL}/static/recensione.html?booking_id={prenotazione.id}&token={prenotazione.review_token}"
-            if not invia_richiesta_recensione(email_cliente=user.email, nome_cliente=user.nome, link_recensione=link):
+            if not invia_richiesta_recensione(
+                email_cliente=user.email, nome_cliente=user.nome, link_recensione=link,
+                riferimento=f"prenotazione {prenotazione.id}"
+            ):
                 continue  # resta da inviare: il prossimo giro ci riprova
 
             prenotazione.review_email_sent = True

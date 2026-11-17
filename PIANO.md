@@ -29,7 +29,6 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
 - [ ] 62 — Colonna "Sessioni" della lista clienti: conta tutte le prenotazioni, cancellate comprese (`clients.py:48-54`)
 - [ ] 39 — Servizi esterni: email e note nel calendario a ogni prenotazione, e lì restano oltre i 24 mesi
 - [ ] 49 — Input pubblici senza limiti: max_length, a-capo nel nome, token di recensione non ASCII
-- [ ] 50 — Email dei clienti nei log: booking_id al posto dell'email
 - [ ] 14 · R1+R2 — Identità dell'ospite = email pubblica, limite di prenotazioni aggirabile (decisione P3)
 - [ ] 12 · R4b — Creare l'evento Calendar dopo il commit, non nella transazione
 - [ ] 11 · R4a — Timeout Google di 60 s, oltre i 50 s di attesa dei lock MySQL: accorciarlo

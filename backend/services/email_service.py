@@ -111,13 +111,20 @@ def verifica_credenziali_gmail() -> bool:
     )
 
 
+# Le funzioni che scrivono al cliente ricevono un `riferimento` obbligatorio
+# ("prenotazione 42", "cliente 7") e lo usano nei log al posto
+# dell'indirizzo (voce 50): un cliente cancellato su richiesta non resta
+# identificabile nei log di Railway, e davanti a "non mi è arrivata l'email"
+# il log dice comunque quale invio cercare. Obbligatorio perché un invio
+# nuovo che lo dimentica fallisca subito, invece di loggare in anonimo.
 def invia_conferma_cliente(
     email_cliente: str,
     nome_cliente: str,
     data_slot: str,
     ora_slot: str,
     durata: int,
-    prezzo: int
+    prezzo: int,
+    riferimento: str
 ):
     prezzo_euro = prezzo / 100
 
@@ -147,9 +154,9 @@ def invia_conferma_cliente(
 
     try:
         _invia_via_gmail(email_cliente, "Booking confirmed", corpo_email)
-        logger.info(f"Email inviata a {email_cliente}")
+        logger.info("Email di conferma inviata (%s)", riferimento)
     except Exception:
-        logger.exception("Errore invio email")
+        logger.exception("Errore invio email di conferma (%s)", riferimento)
 
 
 def invia_promemoria_cliente(
@@ -157,7 +164,8 @@ def invia_promemoria_cliente(
     nome_cliente: str,
     data_slot: str,
     ora_slot: str,
-    durata: int
+    durata: int,
+    riferimento: str
 ):
     # Inviata dallo scheduler quando la sessione si avvicina.
     corpo = f"""
@@ -188,10 +196,10 @@ def invia_promemoria_cliente(
     # e altrimenti lo riprova al giro successivo.
     try:
         _invia_via_gmail(email_cliente, "Reminder: your VGC coaching session is coming up", corpo_email)
-        logger.info(f"Promemoria inviato a {email_cliente}")
+        logger.info("Promemoria inviato (%s)", riferimento)
         return True
     except Exception:
-        logger.exception("Errore invio promemoria")
+        logger.exception("Errore invio promemoria (%s)", riferimento)
         return False
 
 
@@ -229,7 +237,7 @@ def invia_notifica_admin(
         logger.exception("Errore notifica admin")
 
 
-def invia_conferma_richiesta_consulenza(email_cliente: str, nome_cliente: str):
+def invia_conferma_richiesta_consulenza(email_cliente: str, nome_cliente: str, riferimento: str):
     """
     Conferma al cliente che la sua richiesta di call gratuita (20 minuti) è
     arrivata — vedi backend/routers/consulenza.py. A differenza di
@@ -246,9 +254,9 @@ def invia_conferma_richiesta_consulenza(email_cliente: str, nome_cliente: str):
 
     try:
         _invia_via_gmail(email_cliente, "Free call request received", corpo_email)
-        logger.info(f"Conferma richiesta consulenza inviata a {email_cliente}")
+        logger.info("Conferma richiesta consulenza inviata (%s)", riferimento)
     except Exception:
-        logger.exception("Errore invio conferma richiesta consulenza")
+        logger.exception("Errore invio conferma richiesta consulenza (%s)", riferimento)
 
 
 def invia_notifica_richiesta_consulenza_admin(
@@ -273,7 +281,7 @@ def invia_notifica_richiesta_consulenza_admin(
         logger.exception("Errore notifica admin richiesta consulenza")
 
 
-def invia_conferma_richiesta_pacchetto(email_cliente: str, nome_cliente: str, nome_pacchetto: str):
+def invia_conferma_richiesta_pacchetto(email_cliente: str, nome_cliente: str, nome_pacchetto: str, riferimento: str):
     """
     Conferma al cliente che la sua richiesta di attivazione pacchetto è
     arrivata — vedi backend/routers/pacchetti_richieste.py. Come per la
@@ -290,9 +298,9 @@ def invia_conferma_richiesta_pacchetto(email_cliente: str, nome_cliente: str, no
 
     try:
         _invia_via_gmail(email_cliente, "Package request received", corpo_email)
-        logger.info(f"Conferma richiesta pacchetto inviata a {email_cliente}")
+        logger.info("Conferma richiesta pacchetto inviata (%s)", riferimento)
     except Exception:
-        logger.exception("Errore invio conferma richiesta pacchetto")
+        logger.exception("Errore invio conferma richiesta pacchetto (%s)", riferimento)
 
 
 def invia_notifica_richiesta_pacchetto_admin(
@@ -318,7 +326,7 @@ def invia_notifica_richiesta_pacchetto_admin(
         logger.exception("Errore notifica admin richiesta pacchetto")
 
 
-def invia_richiesta_recensione(email_cliente: str, nome_cliente: str, link_recensione: str):
+def invia_richiesta_recensione(email_cliente: str, nome_cliente: str, link_recensione: str, riferimento: str):
     """
     Mandata una volta sola dopo che la sessione è passata (vedi il job
     controlla_e_invia_richieste_recensione in backend/scheduler.py), con un
@@ -342,8 +350,8 @@ def invia_richiesta_recensione(email_cliente: str, nome_cliente: str, link_recen
 
     try:
         _invia_via_gmail(email_cliente, "How did your session go?", corpo_email)
-        logger.info(f"Richiesta recensione inviata a {email_cliente}")
+        logger.info("Richiesta recensione inviata (%s)", riferimento)
         return True
     except Exception:
-        logger.exception("Errore invio richiesta recensione")
+        logger.exception("Errore invio richiesta recensione (%s)", riferimento)
         return False
