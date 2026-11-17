@@ -166,6 +166,10 @@ def integrazioni_esterne_finte(monkeypatch):
     import backend.routers.pacchetti_richieste as pacchetti_richieste_router
 
     monkeypatch.setattr(booking_router, "crea_evento_calendario", lambda **kwargs: None)
+    # None significa "evento non creato", e create_booking avvisa il coach
+    # (voce 12): senza questa riga ogni prenotazione dei test tenterebbe
+    # l'avviso.
+    monkeypatch.setattr(booking_router, "invia_alert_sistema", lambda *args, **kwargs: None)
     monkeypatch.setattr(booking_router, "invia_conferma_cliente", lambda **kwargs: None)
     monkeypatch.setattr(booking_router, "invia_notifica_admin", lambda **kwargs: None)
     monkeypatch.setattr(booking_router, "invia_notifica_discord", lambda **kwargs: None)

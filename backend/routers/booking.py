@@ -21,8 +21,8 @@ from backend.schemas.booking import BookingCreate, BookingResponse, BookingRespo
 from backend.schemas.review import ReviewCreate, ReviewResponse, ReviewPubblica
 from backend.services.email_service import invia_conferma_cliente, invia_notifica_admin
 from backend.services.timezone_service import utc_to_rome, ora_utc_naive
-from backend.services.calendar_service import crea_evento_calendario
-from backend.services.discord_service import invia_notifica_discord
+from backend.services.calendar_service import crea_evento_calendario, elimina_evento_calendario
+from backend.services.discord_service import invia_alert_sistema, invia_notifica_discord
 from backend.services.booking_service import libera_slot_prenotazione, restituisci_credito_pacchetto
 from backend.routers.users import get_studente, get_studente_opzionale
 from backend.rate_limit import limiter
@@ -202,9 +202,11 @@ def create_booking(
     # Stessa riserva per il credito del pacchetto, e per lo stesso motivo: il
     # controllo "ha ancora sessioni?" più sopra è separato dalla scrittura, e
     # due richieste simultanee dello stesso cliente lo passerebbero entrambe,
-    # spendendo un credito due volte. Va fatta prima di Google Calendar: un
-    # rifiuto a evento già creato lascerebbe un appuntamento fantasma, che il
-    # rollback non cancella perché sta fuori dal database.
+    # spendendo un credito due volte. Come le due riserve sopra, sta prima
+    # del commit e quindi prima di Google Calendar, che si chiama solo a
+    # prenotazione salvata: un rifiuto a evento già creato lascerebbe un
+    # appuntamento fantasma, che il rollback non cancella perché sta fuori
+    # dal database.
     if package:
         esito_pacchetto = db.execute(
             update(Package)
@@ -224,18 +226,6 @@ def create_booking(
     data_slot = slot_rome.strftime("%d/%m/%Y")
     ora_slot = slot_rome.strftime("%H:%M")
 
-    # La conferma è immediata, quindi l'evento si crea subito. Un errore
-    # qui lascia la prenotazione senza evento, senza farla fallire.
-    event_id = crea_evento_calendario(
-        nome_cliente=user.nome,
-        email_cliente=user.email,
-        categoria=user.categoria,
-        data_slot=data_slot,
-        ora_slot=ora_slot,
-        durata_ore=booking.duration_hours,
-        note_cliente=booking.note_cliente
-    )
-
     db_booking = Booking(
         user_id=user.id,
         slot_id=booking.slot_id,
@@ -247,7 +237,7 @@ def create_booking(
         vod_link=booking.vod_link,
         replay_code=booking.replay_code,
         status="confirmed",
-        calendar_event_id=event_id,
+        # calendar_event_id resta vuoto: l'evento si crea dopo il commit, più sotto.
         package_id=package.id if package else None,
         # Stringa casuale che autentica il link di recensione inviato dopo
         # la sessione, senza richiedere un login.
@@ -287,6 +277,50 @@ def create_booking(
         durata_ore=booking.duration_hours,
         note_cliente=booking.note_cliente
     )
+
+    # L'evento Google Calendar si crea a prenotazione salvata, non dentro la
+    # transazione (voci 11-12). Le riserve qui sopra tengono un lock sulle
+    # righe di slot e pacchetto fino al commit: con Google in mezzo, una
+    # risposta lenta (fino a 60 s di timeout) faceva aspettare ogni altra
+    # prenotazione dello stesso slot o pacchetto, e oltre i 50 s di attesa
+    # MySQL rispondeva con un errore 1205, cioè un 500. Dopo le notifiche e
+    # non prima: se da qui in poi qualcosa va storto, cliente e coach sono
+    # già stati avvisati.
+    event_id = crea_evento_calendario(
+        nome_cliente=user.nome,
+        email_cliente=user.email,
+        categoria=user.categoria,
+        data_slot=data_slot,
+        ora_slot=ora_slot,
+        durata_ore=booking.duration_hours,
+        note_cliente=booking.note_cliente,
+        riferimento=f"prenotazione {db_booking.id}"
+    )
+    if event_id:
+        # Il prezzo dell'ordine nuovo: finché Google non risponde la
+        # prenotazione esiste senza id evento, e una cancellazione arrivata
+        # in quel momento non trova niente da eliminare. L'id si salva quindi
+        # solo se la prenotazione è ancora confermata, con la stessa
+        # scrittura condizionale delle riserve; altrimenti l'evento appena
+        # creato si elimina, o resterebbe in agenda per una sessione che non
+        # esiste più.
+        esito_evento = db.execute(
+            update(Booking)
+            .where(Booking.id == db_booking.id, Booking.status == "confirmed")
+            .values(calendar_event_id=event_id)
+        )
+        db.commit()
+        if esito_evento.rowcount == 0:
+            elimina_evento_calendario(event_id)
+    else:
+        # La prenotazione resta valida anche senza evento, ma il coach usa
+        # l'agenda per ricordarsi le sessioni: senza avviso la scoprirebbe
+        # mancante solo guardandola.
+        invia_alert_sistema(
+            "Evento Calendar non creato",
+            f"La prenotazione {db_booking.id} è confermata ma non ha un evento su "
+            "Google Calendar: aggiungilo a mano. Il dettaglio è nei log di Railway."
+        )
 
     return db_booking
 

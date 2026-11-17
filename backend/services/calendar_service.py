@@ -80,6 +80,7 @@ def crea_evento_calendario(
     data_slot: str,
     ora_slot: str,
     durata_ore: int,
+    riferimento: str,
     note_cliente: str = None
 ):
     """Crea l'evento associato a una prenotazione.
@@ -87,6 +88,9 @@ def crea_evento_calendario(
     Restituisce l'id dell'evento, da salvare su `Booking.calendar_event_id`
     per poterlo eliminare in caso di cancellazione, oppure None se la
     creazione fallisce: la prenotazione resta valida anche senza evento.
+
+    `riferimento` ("prenotazione 42") va nei log al posto dell'email, come
+    negli invii di email_service.py (voce 50).
     """
     try:
         service = get_calendar_service()
@@ -132,11 +136,11 @@ def crea_evento_calendario(
             body=evento
         ).execute()
 
-        logger.info(f"Evento creato: {risultato.get('htmlLink')}")
+        logger.info("Evento creato (%s): %s", riferimento, risultato.get("htmlLink"))
         return risultato.get("id")
 
     except Exception:
-        logger.exception("Errore Google Calendar")
+        logger.exception("Errore Google Calendar (%s)", riferimento)
         return None
 
 

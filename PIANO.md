@@ -31,8 +31,6 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
 - [ ] 39 — Servizi esterni: email e note nel calendario a ogni prenotazione, e lì restano oltre i 24 mesi
 - [ ] 49 — Input pubblici senza limiti: max_length, a-capo nel nome, token di recensione non ASCII
 - [ ] 14 · R1+R2 — Identità dell'ospite = email pubblica, limite di prenotazioni aggirabile (decisione P3)
-- [ ] 12 · R4b — Creare l'evento Calendar dopo il commit, non nella transazione
-- [ ] 11 · R4a — Timeout Google di 60 s, oltre i 50 s di attesa dei lock MySQL: accorciarlo
 - [ ] 53 — Railway: variabili sul solo servizio app, GMAIL_HEALTHCHECK_INTERVAL_HOURS, https, MYSQL_PUBLIC_URL
   (proxy TCP spento, verificato il 2026-11-12: si accende solo per una misura e si rispegne)
 - [ ] 22 · R9 — Prezzi e ore valide duplicati fra backend e frontend (decisione P5)

@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import event
 
+import backend.routers.booking as booking_router
 from backend.models.booking import Booking
 from backend.models.package import Package
 from conftest import TEST_ENGINE, admin_headers, crea_slot, studente_cookies
@@ -727,3 +728,114 @@ def test_cliente_che_torna_con_la_maiuscola_prenota_sullo_stesso_account(client,
 
     assert di_nuovo["id"] == primo["id"]
     assert res.status_code == 200, res.text
+
+
+# ─── Evento Calendar dopo il commit (voci 11-12) ──────────────
+#
+# Le riserve di create_booking tengono un lock sulle righe di slot e
+# pacchetto fino al commit. Con Google Calendar chiamato prima del commit,
+# una risposta lenta (fino a 60 s) faceva aspettare ogni altra prenotazione
+# dello stesso slot o pacchetto, e oltre i 50 s MySQL rispondeva con un
+# errore 1205, cioè un 500. SQLite non ha lock di riga: la contesa vera si
+# prova sul MySQL locale. Qui si fissano l'ordine e cosa succede dopo.
+
+def prenota_un_ora(client, db):
+    utente = crea_utente(client)
+    slot = crea_slot(db, INIZIO)
+    return client.post("/bookings/", json={
+        "user_id": utente["id"],
+        "email": utente["email"],
+        "slot_id": slot.id,
+        "duration_hours": 1,
+        "service_type": "vod_review"
+    })
+
+
+def test_l_evento_calendar_si_crea_solo_a_prenotazione_salvata(client, db, monkeypatch):
+    utente = crea_utente(client)
+    slot = crea_slot(db, INIZIO)
+    sequenza = []
+
+    def registra_commit(conn):
+        sequenza.append("commit")
+
+    def evento_finto(**kwargs):
+        # Cosa trova Google quando viene chiamato: la prenotazione deve
+        # esistere già, e il commit deve essere già avvenuto.
+        sequenza.append("calendar")
+        sequenza.append("prenotazione presente" if db.query(Booking).count() == 1 else "prenotazione assente")
+        return "evento_google_123"
+
+    monkeypatch.setattr(booking_router, "crea_evento_calendario", evento_finto)
+
+    event.listen(TEST_ENGINE, "commit", registra_commit)
+    try:
+        res = client.post("/bookings/", json={
+            "user_id": utente["id"],
+            "email": utente["email"],
+            "slot_id": slot.id,
+            "duration_hours": 1,
+            "service_type": "vod_review"
+        })
+    finally:
+        event.remove(TEST_ENGINE, "commit", registra_commit)
+
+    assert res.status_code == 200, res.text
+    assert sequenza[:3] == ["commit", "calendar", "prenotazione presente"], sequenza
+
+
+def test_l_id_dell_evento_si_salva_sulla_prenotazione(client, db, monkeypatch):
+    monkeypatch.setattr(booking_router, "crea_evento_calendario", lambda **kwargs: "evento_google_123")
+
+    res = prenota_un_ora(client, db)
+
+    assert res.status_code == 200, res.text
+    assert db.query(Booking).one().calendar_event_id == "evento_google_123"
+
+
+def test_se_l_evento_non_si_crea_il_coach_viene_avvisato(client, db, monkeypatch):
+    """La prenotazione resta valida, ma senza avviso il coach la scoprirebbe mancante solo guardando l'agenda."""
+    avvisi = []
+    monkeypatch.setattr(booking_router, "crea_evento_calendario", lambda **kwargs: None)
+    monkeypatch.setattr(booking_router, "invia_alert_sistema", lambda titolo, descrizione: avvisi.append((titolo, descrizione)))
+
+    res = prenota_un_ora(client, db)
+
+    assert res.status_code == 200, res.text
+    prenotazione = db.query(Booking).one()
+    assert prenotazione.status == "confirmed"
+    assert prenotazione.calendar_event_id is None
+    assert len(avvisi) == 1
+    titolo, descrizione = avvisi[0]
+    assert f"prenotazione {prenotazione.id}" in descrizione
+    assert "cliente@example.com" not in titolo + descrizione
+
+
+def test_una_prenotazione_cancellata_mentre_si_crea_l_evento_non_lo_lascia_in_agenda(client, db, monkeypatch):
+    """
+    Finché Google non risponde la prenotazione esiste senza id evento: una
+    cancellazione arrivata in quel momento (il cliente che ricarica la
+    pagina, il coach dal pannello) non trova niente da eliminare. L'evento
+    creato subito dopo va eliminato, o resterebbe in agenda per una
+    sessione che non esiste più.
+    """
+    eliminati = []
+
+    def evento_e_cancellazione(**kwargs):
+        prenotazione = db.query(Booking).first()
+        if prenotazione:
+            prenotazione.status = "cancelled"
+            db.commit()
+        return "evento_google_123"
+
+    monkeypatch.setattr(booking_router, "crea_evento_calendario", evento_e_cancellazione)
+    monkeypatch.setattr(booking_router, "elimina_evento_calendario", lambda event_id: eliminati.append(event_id) or True)
+
+    res = prenota_un_ora(client, db)
+
+    assert res.status_code == 200, res.text
+    assert eliminati == ["evento_google_123"]
+    prenotazione = db.query(Booking).one()
+    db.refresh(prenotazione)
+    assert prenotazione.status == "cancelled"
+    assert prenotazione.calendar_event_id is None

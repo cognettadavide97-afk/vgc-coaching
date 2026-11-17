@@ -17,6 +17,8 @@
 
 from datetime import datetime, timedelta, timezone
 
+import logging
+
 import pytest
 
 from backend.models.booking import Booking
@@ -242,6 +244,7 @@ def test_levento_sul_calendario_viene_creato_in_ora_italiana_dichiarata(monkeypa
         ora_slot="15:00",
         durata_ore=2,
         note_cliente="Vorrei rivedere la finale",
+        riferimento="prenotazione 1",
     )
 
     assert event_id == "evento_google_123"
@@ -268,14 +271,38 @@ def test_se_google_calendar_fallisce_la_prenotazione_resta_senza_evento(client, 
     event_id = calendar_service.crea_evento_calendario(
         nome_cliente="Mario", email_cliente="mario@example.com", categoria="senior",
         data_slot="15/07/2030", ora_slot="15:00", durata_ore=1,
+        riferimento="prenotazione 1",
     )
 
-    # COMPORTAMENTO SOSPETTO: None è indistinguibile fra "Google ha
-    # rifiutato" e "l'evento non è stato richiesto". La prenotazione viene
-    # salvata comunque con calendar_event_id nullo e nessuno viene
-    # avvisato: il coach scopre la sessione mancante solo guardando
-    # l'agenda.
+    # None non distingue "Google ha rifiutato" da "l'evento non è stato
+    # richiesto", ma create_booking lo chiede sempre: lì None vuol dire
+    # guasto. Fino alla voce 12 la prenotazione restava con
+    # calendar_event_id nullo e nessuno veniva avvisato, e il coach
+    # scopriva la sessione mancante solo guardando l'agenda. Ora
+    # create_booking manda un avviso con il numero della prenotazione
+    # (test_se_l_evento_non_si_crea_il_coach_viene_avvisato, test_booking.py).
     assert event_id is None
+
+
+@pytest.mark.parametrize("riesce", [True, False], ids=["riuscito", "fallito"])
+def test_il_log_dell_evento_ha_il_riferimento_e_non_l_email(monkeypatch, caplog, riesce):
+    """Stessa regola delle email al cliente (voce 50): il log dice quale prenotazione, non di chi."""
+    def servizio():
+        if not riesce:
+            raise RuntimeError("Google non raggiungibile")
+        return ServizioInsertFinto()
+
+    monkeypatch.setattr(calendar_service, "get_calendar_service", servizio)
+    caplog.set_level(logging.INFO, logger="backend.services.calendar_service")
+
+    calendar_service.crea_evento_calendario(
+        nome_cliente="Mario", email_cliente="mario.rossi@example.com", categoria="senior",
+        data_slot="15/07/2030", ora_slot="15:00", durata_ore=1,
+        riferimento="prenotazione 42",
+    )
+
+    assert "prenotazione 42" in caplog.text
+    assert "mario.rossi@example.com" not in caplog.text
 
 
 class InvioEmailFinto:

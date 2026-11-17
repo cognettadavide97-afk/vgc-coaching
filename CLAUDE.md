@@ -37,8 +37,10 @@ I documenti cancellati il 2026-09-11, citati da alcuni commenti: `git show 2f912
   gli slot si liberano comunque (R5, intervento 7).
 - `services/google_oauth_service.py` — chiave di cache `(refresh_token, client_id)` e `raise` sul
   token vuoto: separano Gmail da Drive (R17, intervento 6).
-- `routers/booking.py:178-257` — Google Calendar chiamato dentro la transazione che blocca slot e credito, fino
-  a 60 s (timeout di default) contro i 50 s di attesa di un lock MySQL (R4, interventi 11-12).
+- `routers/booking.py:281-323` — l'evento Google Calendar si crea **dopo** il commit e le notifiche: dentro la
+  transazione teneva il lock su slot e credito fino a 60 s contro i 50 s di attesa di MySQL, e chi prenotava lo
+  stesso slot riceveva un 500 (R4, voci 11-12, provato sul MySQL locale). L'id si salva solo se la prenotazione
+  è ancora `confirmed`, altrimenti l'evento si elimina: una cancellazione arrivata durante la chiamata non lo trova.
 - `scheduler.py:39-51` e `:448` — env var lette a livello di modulo e `BackgroundScheduler(job_defaults=...)`
   senza timezone: toccarlo sposta l'orario reale di tutti i job (R11/D3, interventi 13/17).
   `TOLLERANZA_RITARDI` (`misfire_grace_time=None`) fa partire in ritardo invece di saltare: con il default di
@@ -50,7 +52,7 @@ I documenti cancellati il 2026-09-11, citati da alcuni commenti: `git show 2f912
   collation, bulk delete e locking di riga restano diversi: si prova sul MySQL locale. Le righe in cima,
   **prima di ogni import del backend**, svuotano le 11 credenziali delle integrazioni e puntano
   `DATABASE_URL` a SQLite: spostate dopo gli import non hanno più effetto. La fixture `rete_esterna_bloccata`
-  fa fallire ogni connessione fuori dal loopback (voce 51). Le dieci funzioni no-op di
+  fa fallire ogni connessione fuori dal loopback (voce 51). Le undici funzioni no-op di
   `integrazioni_esterne_finte` restano solo per log puliti: una suite verde non dice nulla su quelle
   integrazioni. Lo schema dei test nasce da `create_all`, non dalle migrazioni.
 - **I commenti didattici spiegano il *perché*: non rimuoverli.** Non sono rumore da ripulire in un
