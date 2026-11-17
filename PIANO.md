@@ -15,7 +15,8 @@ Decisioni (P1-P6: dettaglio nell'archivio 2026-09, riga 1328):
 
 Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischio):
 - [ ] 40 — Misure su Railway per la 48: IP dietro il proxy, repliche (le altre misure nei commit delle voci 58 e 9)
-- [ ] 47 — Job schedulati che falliscono o saltano senza avviso: slot, pulizia, anonimizzazione, backup
+- [ ] 47 — Riavvio del server a cavallo dell'orario di un job: l'esecuzione si perde senza avviso (jobstore in memoria);
+  il backup della domenica 04:00 UTC slitta di una settimana. Errori e ritardi sono coperti da `sorveglia_job`
 - [ ] 61 — Backup su Drive anteriori al deploy del 2026-11-11 (`bbe099b`, SET NAMES): fino al 13/12, quando l'ultimo esce dai 30 giorni,
   il ripristino va fatto con `--default-character-set=utf8mb4` o accenti ed emoji tornano corrotti senza errori. Ricontrollo il 15/11:
   il backup delle 04:00 UTC ha `SET NAMES utf8mb4;` alla riga 4; la voce si chiude il 13/12 se ce l'hanno tutti

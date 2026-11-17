@@ -13,7 +13,11 @@
 # invio si sostituiscono per osservarle; quelle "riuscite" restituiscono
 # True, perché il job segna come inviato solo ciò che è partito.
 
-from datetime import timedelta
+import threading
+from datetime import datetime, timedelta, timezone
+
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
+from apscheduler.schedulers.background import BackgroundScheduler
 
 import backend.scheduler as scheduler_module
 from backend.models.users import User
@@ -418,24 +422,35 @@ def test_anonimizzazione_scrive_davvero_sul_database(db, monkeypatch):
 # fatto in buona fede, o uno dei due job spostato senza l'altro, non
 # romperebbe nessun altro test: per questo l'ordine è fissato qui.
 
-def leggi_job_registrati(monkeypatch):
-    """Registra i job su uno scheduler finto invece di avviarne uno vero.
+class SchedulerFinto:
+    """Registra job, impostazioni e ascoltatori invece di avviare uno scheduler vero.
 
     Un BackgroundScheduler vero farebbe partire un thread che, a orario,
     eseguirebbe i job contro il database e i servizi esterni reali.
     """
-    registrati = {}
 
-    class SchedulerFinto:
-        def add_job(self, funzione, trigger, **opzioni):
-            registrati[opzioni["id"]] = (funzione, trigger, opzioni)
+    def __init__(self, **opzioni):
+        self.opzioni = opzioni
+        self.job = {}
+        self.ascoltatori = []
 
-        def start(self):
-            pass
+    def add_job(self, funzione, trigger, **opzioni):
+        self.job[opzioni["id"]] = (funzione, trigger, opzioni)
 
+    def add_listener(self, funzione, maschera):
+        self.ascoltatori.append((funzione, maschera))
+
+    def start(self):
+        pass
+
+
+def avvia_scheduler_finto(monkeypatch):
     monkeypatch.setattr(scheduler_module, "BackgroundScheduler", SchedulerFinto)
-    scheduler_module.avvia_scheduler()
-    return registrati
+    return scheduler_module.avvia_scheduler()
+
+
+def leggi_job_registrati(monkeypatch):
+    return avvia_scheduler_finto(monkeypatch).job
 
 
 def test_credenziali_e_backup_girano_una_volta_a_settimana(monkeypatch):
@@ -507,3 +522,119 @@ def test_richiesta_recensione_non_ritentata_oltre_sette_giorni(db, monkeypatch):
 
     assert risultato == 0
     assert inviate == []
+
+
+# ─── Sorveglianza dei job (voce 47) ───────────────────────────
+#
+# Un job che falliva lasciava solo una riga nei log: sei degli otto job non
+# avevano nessun avviso. E uno partito con più di un secondo di ritardo
+# veniva saltato in silenzio, senza nemmeno fallire.
+
+def evento(codice, id_job="genera_slot_giornaliero", eccezione=None):
+    """L'annuncio che APScheduler manda agli ascoltatori dopo un'esecuzione."""
+    return JobExecutionEvent(codice, id_job, "default", datetime.now(timezone.utc), exception=eccezione)
+
+
+def raccogli_avvisi(monkeypatch):
+    avvisi = []
+    monkeypatch.setattr(scheduler_module, "_ultimo_esito_job", {})
+    monkeypatch.setattr(scheduler_module, "invia_alert_sistema", lambda t, d: avvisi.append((t, d)))
+    return avvisi
+
+
+def test_un_job_riuscito_dopo_l_avvio_non_avvisa(monkeypatch):
+    avvisi = raccogli_avvisi(monkeypatch)
+
+    scheduler_module.sorveglia_job(evento(EVENT_JOB_EXECUTED))
+
+    assert avvisi == []
+
+
+def test_un_job_che_continua_a_fallire_avvisa_una_volta_sola(monkeypatch):
+    avvisi = raccogli_avvisi(monkeypatch)
+
+    for _ in range(3):
+        scheduler_module.sorveglia_job(evento(EVENT_JOB_ERROR, eccezione=RuntimeError("guasto")))
+
+    assert len(avvisi) == 1
+    titolo, descrizione = avvisi[0]
+    assert "genera_slot_giornaliero" in titolo
+    assert "RuntimeError" in descrizione
+
+
+def test_l_avviso_non_contiene_il_testo_dell_errore(monkeypatch):
+    """Il testo di un errore del database riporta i valori della query: un'email finirebbe su Discord."""
+    avvisi = raccogli_avvisi(monkeypatch)
+
+    scheduler_module.sorveglia_job(evento(
+        EVENT_JOB_ERROR, eccezione=RuntimeError("Duplicate entry 'mario.rossi@example.com' for key 'email'")
+    ))
+
+    titolo, descrizione = avvisi[0]
+    assert "mario.rossi@example.com" not in titolo + descrizione
+
+
+def test_un_job_che_torna_a_funzionare_avvisa_e_poi_tace(monkeypatch):
+    avvisi = raccogli_avvisi(monkeypatch)
+
+    scheduler_module.sorveglia_job(evento(EVENT_JOB_ERROR, eccezione=RuntimeError()))
+    scheduler_module.sorveglia_job(evento(EVENT_JOB_EXECUTED))
+    scheduler_module.sorveglia_job(evento(EVENT_JOB_EXECUTED))
+
+    assert len(avvisi) == 2
+    assert "di nuovo funzionante" in avvisi[1][0]
+
+
+def test_ogni_job_ha_il_proprio_stato(monkeypatch):
+    """Il guasto di un job non deve zittire l'avviso di un altro."""
+    avvisi = raccogli_avvisi(monkeypatch)
+
+    scheduler_module.sorveglia_job(evento(EVENT_JOB_ERROR, id_job="genera_slot_giornaliero", eccezione=RuntimeError()))
+    scheduler_module.sorveglia_job(evento(EVENT_JOB_ERROR, id_job="pulisci_slot_obsoleti", eccezione=RuntimeError()))
+
+    assert len(avvisi) == 2
+
+
+def test_avvia_scheduler_tollera_i_ritardi_e_registra_l_ascoltatore(monkeypatch):
+    scheduler = avvia_scheduler_finto(monkeypatch)
+
+    # Uguaglianza esatta e non "contiene": nessuna timezone deve comparire
+    # fra le opzioni, perché sposterebbe l'orario reale di tutti i job (CLAUDE.md).
+    assert scheduler.opzioni == {"job_defaults": scheduler_module.TOLLERANZA_RITARDI}
+    assert scheduler.ascoltatori == [(scheduler_module.sorveglia_job, scheduler_module.EVENTI_SORVEGLIATI)]
+
+
+def test_un_job_in_ritardo_parte_e_il_suo_errore_arriva_all_ascoltatore(monkeypatch):
+    """
+    Con uno scheduler APScheduler vero, configurato come in avvia_scheduler.
+    Il job è previsto dieci minuti fa: con la tolleranza di default (1 s)
+    veniva saltato senza eseguirlo né avvisare; ora parte, fallisce, e
+    l'avviso arriva.
+    """
+    arrivato = threading.Event()
+    avvisi = []
+    monkeypatch.setattr(scheduler_module, "_ultimo_esito_job", {})
+
+    def registra(titolo, descrizione):
+        avvisi.append(titolo)
+        arrivato.set()
+
+    monkeypatch.setattr(scheduler_module, "invia_alert_sistema", registra)
+
+    def job_che_fallisce():
+        raise RuntimeError("guasto simulato")
+
+    scheduler = BackgroundScheduler(job_defaults=scheduler_module.TOLLERANZA_RITARDI)
+    scheduler.add_listener(scheduler_module.sorveglia_job, scheduler_module.EVENTI_SORVEGLIATI)
+    scheduler.add_job(
+        job_che_fallisce, "date",
+        run_date=datetime.now(timezone.utc) - timedelta(minutes=10),
+        id="job_in_ritardo",
+    )
+    scheduler.start()
+    try:
+        assert arrivato.wait(timeout=10), "il job in ritardo non è partito, o il suo errore non è arrivato all'ascoltatore"
+    finally:
+        scheduler.shutdown(wait=True)
+
+    assert avvisi == ["Job job_in_ritardo non riuscito"]

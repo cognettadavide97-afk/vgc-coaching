@@ -13,11 +13,15 @@ quest'ordine, di proposito: vedi i commenti in `avvia_scheduler`.
 
 Ogni funzione apre e chiude la propria sessione di database: non essendo
 dentro una richiesta, non può usare la dependency di FastAPI.
+
+Un ascoltatore unico, `sorveglia_job`, avvisa su Discord quando un job
+inizia a fallire e quando torna a funzionare.
 """
 
 import os
 from datetime import timedelta
 from typing import Callable, NamedTuple
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import contains_eager, joinedload
 from backend.database import SessionLocal, engine
@@ -361,13 +365,87 @@ def controlla_e_esegui_backup_database():
     return ok
 
 
+# ─── Sorveglianza dei job (voce 47) ───────────────────────────
+
+# Un job in ritardo parte comunque, una volta sola, invece di essere
+# saltato. Il default di APScheduler (misfire_grace_time=1) scarta in
+# silenzio ogni esecuzione partita con più di un secondo di ritardo; None
+# toglie il limite. È sicuro perché tutti gli otto job sono del tipo
+# "controlla cosa manca e fallo": eseguirli tardi non fa danni. coalesce è
+# già il default, scritto per renderlo visibile, ed è la condizione perché
+# None sia sicuro: senza, dopo una sospensione del processo un job
+# recupererebbe una dopo l'altra tutte le esecuzioni perse, invece di una.
+# Gli orari non si spostano: cambia cosa succede a un ritardo, non quando
+# il job è previsto.
+#
+# Serve anche a sorveglia_job: APScheduler può chiamare l'ascoltatore dal
+# proprio thread principale, e un avviso Discord (fino a 5 s di timeout)
+# ritarderebbe gli altri job oltre il secondo di tolleranza, facendoli
+# saltare proprio mentre si segnala un guasto.
+TOLLERANZA_RITARDI = {"misfire_grace_time": None, "coalesce": True}
+
+# Esito dell'ultima esecuzione di ciascun job, per avvisare solo al cambio
+# di stato, come per le credenziali e per lo stesso motivo: un job ogni
+# cinque minuti che continua a fallire manderebbe 288 avvisi al giorno.
+# Una chiave assente significa "nessuna esecuzione in questo processo".
+_ultimo_esito_job: dict[str, bool] = {}
+
+# Solo riuscita e fallimento. EVENT_JOB_MISSED (job saltato per ritardo)
+# non può più accadere con TOLLERANZA_RITARDI. EVENT_JOB_MAX_INSTANCES
+# (esecuzione saltata perché la precedente è ancora in corso) non si
+# avvisa: per i job a intervallo è innocuo, perché il giro in corso fa già
+# il lavoro, e quando un giro dura poco più del suo intervallo l'avviso
+# alternerebbe "saltato" e "di nuovo funzionante" a ogni giro. Un job
+# davvero bloccato finisce comunque in errore, perché ogni chiamata esterna
+# ha un tempo massimo, e quell'errore arriva qui.
+EVENTI_SORVEGLIATI = EVENT_JOB_EXECUTED | EVENT_JOB_ERROR
+
+
+def sorveglia_job(evento):
+    """Avvisa su Discord quando un job inizia a fallire e quando torna a funzionare.
+
+    Un solo ascoltatore per tutti i job: è APScheduler ad annunciare l'esito
+    di ogni esecuzione, quindi nessun job deve ricordarsi di segnalare i
+    propri errori. Copre i sei job che non avevano un avviso; backup e
+    credenziali catturano da sé i propri guasti e li segnalano con un
+    messaggio più preciso, quindi qui arrivano come esecuzioni riuscite.
+
+    L'avviso riporta solo il tipo dell'errore, non il testo: quello di un
+    errore del database contiene i valori della query, e un'email finirebbe
+    su Discord. Il dettaglio resta nei log, dove APScheduler scrive lo
+    stack trace di ogni job fallito.
+    """
+    precedente = _ultimo_esito_job.get(evento.job_id)
+
+    if evento.code == EVENT_JOB_EXECUTED:
+        if precedente is False:
+            invia_alert_sistema(
+                f"Job {evento.job_id} di nuovo funzionante",
+                "L'ultima esecuzione è andata a buon fine."
+            )
+        _ultimo_esito_job[evento.job_id] = True
+        return
+
+    # `is not False`, come in controlla_una_credenziale: dopo un riavvio lo
+    # stato è None, e un guasto già in corso deve comunque produrre l'avviso.
+    if precedente is not False:
+        invia_alert_sistema(
+            f"Job {evento.job_id} non riuscito",
+            f"L'esecuzione è finita con un errore ({type(evento.exception).__name__}). "
+            "Il dettaglio è nei log di Railway. Non arriveranno altri avvisi per "
+            "questo job finché non torna a funzionare."
+        )
+    _ultimo_esito_job[evento.job_id] = False
+
+
 def avvia_scheduler():
-    """Registra gli otto job e avvia lo scheduler.
+    """Registra gli otto job e l'ascoltatore che ne sorveglia l'esito, poi avvia lo scheduler.
 
     Restituisce l'istanza, che il chiamante deve conservare per poterla
     fermare alla chiusura dell'applicazione.
     """
-    scheduler = BackgroundScheduler()
+    # Senza timezone, di proposito: vedi l'ATTENZIONE più sotto.
+    scheduler = BackgroundScheduler(job_defaults=TOLLERANZA_RITARDI)
     scheduler.add_job(
         controlla_e_invia_promemoria,
         "interval",
@@ -453,5 +531,6 @@ def avvia_scheduler():
         minute=0,
         id="backup_database"
     )
+    scheduler.add_listener(sorveglia_job, EVENTI_SORVEGLIATI)
     scheduler.start()
     return scheduler
