@@ -75,13 +75,11 @@ def verifica_credenziali_calendario() -> bool:
 
 def crea_evento_calendario(
     nome_cliente: str,
-    email_cliente: str,
     categoria: str,
     data_slot: str,
     ora_slot: str,
     durata_ore: int,
-    riferimento: str,
-    note_cliente: str = None
+    riferimento: str
 ):
     """Crea l'evento associato a una prenotazione.
 
@@ -90,7 +88,16 @@ def crea_evento_calendario(
     creazione fallisce: la prenotazione resta valida anche senza evento.
 
     `riferimento` ("prenotazione 42") va nei log al posto dell'email, come
-    negli invii di email_service.py (voce 50).
+    negli invii di email_service.py (voce 50), e nella descrizione
+    dell'evento.
+
+    L'evento contiene solo ciò che serve all'agenda (voce 39): il nome di
+    battesimo, il numero della prenotazione, categoria e durata. Niente
+    email, niente note e niente cognome, e la firma non li riceve nemmeno,
+    così non si possono rimettere per sbaglio. Google Calendar non viene
+    ripulito né dall'anonimizzazione dei 24 mesi né dalla cancellazione su
+    richiesta: un dato copiato qui resterebbe per sempre. Contatti e note
+    il coach li trova nel pannello e nel promemoria Discord del giorno prima.
     """
     try:
         service = get_calendar_service()
@@ -103,16 +110,21 @@ def crea_evento_calendario(
 
         formato = "%Y-%m-%dT%H:%M:%S"
 
+        # Solo il nome di battesimo, come nelle recensioni pubbliche
+        # (routers/booking.py): al coach basta per riconoscere la sessione.
+        # split() senza argomenti e il ripiego reggono anche un nome vuoto o
+        # fatto di soli spazi, che lo schema non vieta.
+        nome_di_battesimo = (nome_cliente.split() or [nome_cliente])[0]
+
         # L'API accetta un orario locale accompagnato dal fuso: qui, a
         # differenza del resto del progetto, non serve convertire in UTC.
         evento = {
-            "summary": f"Coaching VGC — {nome_cliente}",
+            "summary": f"Coaching VGC — {nome_di_battesimo}",
             "description": (
-                f"Cliente: {nome_cliente}\n"
-                f"Email: {email_cliente}\n"
+                f"Riferimento: {riferimento}\n"
                 f"Categoria: {categoria or 'non specificata'}\n"
                 f"Durata: {durata_ore} ora{'e' if durata_ore > 1 else ''}\n"
-                f"Note: {note_cliente or 'nessuna'}"
+                "Contatti e note: nel pannello e nel promemoria Discord."
             ),
             "start": {
                 "dateTime": dt_inizio.strftime(formato),

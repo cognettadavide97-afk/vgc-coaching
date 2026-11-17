@@ -163,8 +163,8 @@ def test_evento_in_formato_inatteso_viene_saltato_senza_fermare_la_sync(db, cale
 def test_calendario_irraggiungibile_non_blocca_nulla_e_non_solleva(db, monkeypatch):
     """Se Google non risponde, la sincronizzazione lascia tutto com'è.
 
-    È una scelta dichiarata (calendar_service.py:146-147): meglio non
-    bloccare che fallire.
+    È una scelta dichiarata (l'except di leggi_eventi_calendario in
+    calendar_service.py): meglio non bloccare che fallire.
     """
     slot = crea_slot(db, ORA + timedelta(days=7))
 
@@ -182,7 +182,11 @@ def test_calendario_irraggiungibile_non_blocca_nulla_e_non_solleva(db, monkeypat
     # COMPORTAMENTO SOSPETTO: l'errore finisce solo nei log e la funzione
     # restituisce una lista vuota, indistinguibile da "nessun impegno in
     # agenda". Il pannello mostra "0 slot bloccati" anche quando la
-    # sincronizzazione non è mai avvenuta.
+    # sincronizzazione non è mai avvenuta. Senza voce aperta per scelta
+    # (caso 4 della voce 39, deciso il 2026-09-16): il guasto duraturo lo
+    # segnala già la sonda settimanale delle credenziali Calendar, quello
+    # passeggero si ripara al giro successivo. Va corretto prima di
+    # qualunque riapertura automatica degli slot (decisione P1).
     assert leggi_eventi_calendario(ORA, ORA + timedelta(days=1)) == []
 
 

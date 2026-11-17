@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import event
 
 import backend.routers.booking as booking_router
+import backend.services.calendar_service as calendar_service
 from backend.models.booking import Booking
 from backend.models.package import Package
 from conftest import TEST_ENGINE, admin_headers, crea_slot, studente_cookies
@@ -839,3 +840,47 @@ def test_una_prenotazione_cancellata_mentre_si_crea_l_evento_non_lo_lascia_in_ag
     db.refresh(prenotazione)
     assert prenotazione.status == "cancelled"
     assert prenotazione.calendar_event_id is None
+
+
+def test_la_prenotazione_crea_un_evento_senza_email_note_e_cognome(client, db, monkeypatch):
+    """
+    Con la funzione vera di calendar_service e non la finta di conftest:
+    è anche la prova che create_booking la chiama con la firma giusta. Una
+    finta con **kwargs accetta qualunque argomento, e un errore di firma
+    diventerebbe un 500 solo in produzione, a prenotazione già salvata.
+    """
+    corpi = []
+
+    class ServizioFinto:
+        def events(self):
+            return self
+
+        def insert(self, calendarId=None, body=None):
+            corpi.append(body)
+            return self
+
+        def execute(self):
+            return {"id": "evento_google_123", "htmlLink": "https://calendar.google.com/evento"}
+
+    monkeypatch.setattr(booking_router, "crea_evento_calendario", calendar_service.crea_evento_calendario)
+    monkeypatch.setattr(calendar_service, "get_calendar_service", lambda: ServizioFinto())
+
+    utente = crea_utente(client)
+    slot = crea_slot(db, INIZIO)
+    res = client.post("/bookings/", json={
+        "user_id": utente["id"],
+        "email": utente["email"],
+        "slot_id": slot.id,
+        "duration_hours": 1,
+        "service_type": "vod_review",
+        "note_cliente": "Uso Trick Room con Indeedee-F"
+    })
+
+    assert res.status_code == 200, res.text
+    assert len(corpi) == 1
+    assert corpi[0]["summary"] == "Coaching VGC — Cliente"
+    testo = corpi[0]["summary"] + corpi[0]["description"]
+    for dato in ("cliente@example.com", "Trick Room", "Test"):
+        assert dato not in testo, dato
+    assert f"prenotazione {res.json()['id']}" in testo
+    assert db.query(Booking).one().calendar_event_id == "evento_google_123"

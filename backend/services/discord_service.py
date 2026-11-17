@@ -29,6 +29,23 @@ SERVICE_LABELS = {
     "tournament_prep": "Tournament Prep"
 }
 
+# Discord rifiuta l'intero messaggio, con un errore 400, se il valore di un
+# campo supera 1024 caratteri. Note e messaggi dei clienti sono testo libero
+# senza limite di lunghezza, e un team incollato per intero in formato
+# Showdown lo supera facilmente: meglio un'anteprima tagliata, con il
+# rimando al pannello, che nessun messaggio.
+LIMITE_CAMPO_DISCORD = 1024
+CODA_ANTEPRIMA = "… (continua nel pannello)"
+
+
+def _anteprima(testo: str, se_vuoto: str) -> str:
+    """Il testo così com'è se entra in un campo Discord, altrimenti tagliato con la coda."""
+    if not testo:
+        return se_vuoto
+    if len(testo) <= LIMITE_CAMPO_DISCORD:
+        return testo
+    return testo[:LIMITE_CAMPO_DISCORD - len(CODA_ANTEPRIMA)] + CODA_ANTEPRIMA
+
 
 def _invia_embed(embed: dict, msg_ok: str, msg_errore: str):
     """Invia un embed al webhook. Punto unico di uscita verso Discord.
@@ -84,18 +101,31 @@ def invia_notifica_discord(
 def invia_promemoria_discord(
     nome_cliente: str,
     discord_tag: str,
+    service_type: str,
     data_slot: str,
-    ora_slot: str
+    ora_slot: str,
+    note_cliente: str
 ):
-    """Notifica il coach che una sessione prenotata si avvicina."""
+    """Notifica il coach che una sessione prenotata si avvicina.
+
+    È il messaggio con cui il coach si prepara alla sessione: porta anche
+    servizio e note, che l'evento sul calendario non contiene più (voce
+    39). Le note non hanno un valore di default, a differenza degli altri
+    messaggi: un chiamante che se ne dimenticasse mostrerebbe "nessuna"
+    proprio dove il coach le cerca.
+    """
+    servizio_label = SERVICE_LABELS.get(service_type, service_type)
+
     embed = {
         "title": "⏰ Promemoria sessione in arrivo",
         "color": 0xF39C12,
         "fields": [
             {"name": "Cliente", "value": nome_cliente, "inline": True},
             {"name": "Discord", "value": discord_tag or "non specificato", "inline": True},
+            {"name": "Servizio", "value": servizio_label, "inline": True},
             {"name": "Data", "value": data_slot, "inline": True},
             {"name": "Orario", "value": ora_slot, "inline": True},
+            {"name": "Note", "value": _anteprima(note_cliente, "nessuna"), "inline": False},
         ]
     }
     _invia_embed(embed, "Promemoria Discord inviato", "Errore invio promemoria Discord")

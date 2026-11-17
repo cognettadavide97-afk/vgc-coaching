@@ -158,8 +158,10 @@ def controlla_e_invia_promemoria():
             invia_promemoria_discord(
                 nome_cliente=user.nome,
                 discord_tag=user.discord_tag,
+                service_type=prenotazione.service_type,
                 data_slot=data_slot,
-                ora_slot=ora_slot
+                ora_slot=ora_slot,
+                note_cliente=prenotazione.note_cliente
             )
 
             # Commit dentro il ciclo e non alla fine: se l'esecuzione si

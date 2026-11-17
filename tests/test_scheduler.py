@@ -52,6 +52,7 @@ def crea_prenotazione_db(db, utente, slot, **campi):
         reminder_sent=campi.get("reminder_sent", False),
         review_email_sent=campi.get("review_email_sent", False),
         review_token=campi.get("review_token"),
+        note_cliente=campi.get("note_cliente"),
     )
     db.add(prenotazione)
     db.commit()
@@ -116,6 +117,23 @@ def test_promemoria_gia_inviato_non_si_ripete(db, monkeypatch):
 
     assert risultato == 0
     assert inviati == []
+
+
+def test_il_promemoria_discord_riceve_servizio_e_note(db, monkeypatch):
+    """Le note non sono più sul calendario (voce 39): il coach le legge qui, il giorno prima."""
+    finge_sessione_scheduler(monkeypatch)
+    inviati_discord = []
+    monkeypatch.setattr(scheduler_module, "invia_promemoria_cliente", lambda **kw: True)
+    monkeypatch.setattr(scheduler_module, "invia_promemoria_discord", lambda **kw: inviati_discord.append(kw))
+
+    utente = crea_utente_db(db)
+    slot = crea_slot(db, scheduler_module.ora_utc_naive() + timedelta(hours=2))
+    crea_prenotazione_db(db, utente, slot, note_cliente="Uso Trick Room con Indeedee-F")
+
+    scheduler_module.controlla_e_invia_promemoria()
+
+    assert inviati_discord[0]["note_cliente"] == "Uso Trick Room con Indeedee-F"
+    assert inviati_discord[0]["service_type"] == "vod_review"
 
 
 def test_promemoria_fallito_non_segnato_e_ritentato(db, monkeypatch):

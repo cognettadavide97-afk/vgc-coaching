@@ -288,12 +288,10 @@ def create_booking(
     # già stati avvisati.
     event_id = crea_evento_calendario(
         nome_cliente=user.nome,
-        email_cliente=user.email,
         categoria=user.categoria,
         data_slot=data_slot,
         ora_slot=ora_slot,
         durata_ore=booking.duration_hours,
-        note_cliente=booking.note_cliente,
         riferimento=f"prenotazione {db_booking.id}"
     )
     if event_id:

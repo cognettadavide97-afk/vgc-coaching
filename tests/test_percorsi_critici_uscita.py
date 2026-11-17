@@ -231,34 +231,44 @@ def test_levento_sul_calendario_viene_creato_in_ora_italiana_dichiarata(monkeypa
 
     L'API di Google accetta un orario locale accompagnato dal nome del
     fuso, quindi l'orario italiano viene spedito così com'è insieme a
-    "Europe/Rome" (calendar_service.py:101-119).
+    "Europe/Rome" (vedi crea_evento_calendario in calendar_service.py).
     """
     servizio = ServizioInsertFinto()
     monkeypatch.setattr(calendar_service, "get_calendar_service", lambda: servizio)
 
     event_id = calendar_service.crea_evento_calendario(
         nome_cliente="Mario Rossi",
-        email_cliente="mario@example.com",
         categoria="senior",
         data_slot="15/07/2030",
         ora_slot="15:00",
         durata_ore=2,
-        note_cliente="Vorrei rivedere la finale",
         riferimento="prenotazione 1",
     )
 
     assert event_id == "evento_google_123"
     corpo = servizio.corpo_inviato
-    assert corpo["summary"] == "Coaching VGC — Mario Rossi"
     assert corpo["start"] == {"dateTime": "2030-07-15T15:00:00", "timeZone": "Europe/Rome"}
     # La fine è calcolata dalla durata: 15:00 + 2 ore.
     assert corpo["end"] == {"dateTime": "2030-07-15T17:00:00", "timeZone": "Europe/Rome"}
 
-    # COMPORTAMENTO SOSPETTO: email e note del cliente finiscono in chiaro
-    # nella descrizione di un evento di calendario, che è condiviso con il
-    # service account e con chiunque abbia accesso a quel calendario.
-    assert "mario@example.com" in corpo["description"]
-    assert "Vorrei rivedere la finale" in corpo["description"]
+    # Fino alla voce 39 il titolo aveva nome e cognome, e la descrizione
+    # email e note in chiaro (era marcato COMPORTAMENTO SOSPETTO). Google
+    # Calendar non viene ripulito né dall'anonimizzazione dei 24 mesi né
+    # dalla cancellazione su richiesta, quindi lì restavano per sempre.
+    # Ora solo il nome di battesimo e il numero della prenotazione.
+    assert corpo["summary"] == "Coaching VGC — Mario"
+    assert "Rossi" not in corpo["summary"] + corpo["description"]
+    assert "prenotazione 1" in corpo["description"]
+
+
+def test_l_evento_non_puo_ricevere_email_e_note():
+    """Tolte dalla firma, non si possono rimettere nell'evento per sbaglio: Python si ferma."""
+    with pytest.raises(TypeError):
+        calendar_service.crea_evento_calendario(
+            nome_cliente="Mario Rossi", categoria="senior", data_slot="15/07/2030",
+            ora_slot="15:00", durata_ore=1, riferimento="prenotazione 1",
+            email_cliente="mario@example.com", note_cliente="Vorrei rivedere la finale",
+        )
 
 
 def test_se_google_calendar_fallisce_la_prenotazione_resta_senza_evento(client, db, monkeypatch):
@@ -269,7 +279,7 @@ def test_se_google_calendar_fallisce_la_prenotazione_resta_senza_evento(client, 
     monkeypatch.setattr(calendar_service, "get_calendar_service", esplode)
 
     event_id = calendar_service.crea_evento_calendario(
-        nome_cliente="Mario", email_cliente="mario@example.com", categoria="senior",
+        nome_cliente="Mario", categoria="senior",
         data_slot="15/07/2030", ora_slot="15:00", durata_ore=1,
         riferimento="prenotazione 1",
     )
@@ -285,7 +295,7 @@ def test_se_google_calendar_fallisce_la_prenotazione_resta_senza_evento(client, 
 
 
 @pytest.mark.parametrize("riesce", [True, False], ids=["riuscito", "fallito"])
-def test_il_log_dell_evento_ha_il_riferimento_e_non_l_email(monkeypatch, caplog, riesce):
+def test_il_log_dell_evento_ha_il_riferimento_e_non_il_cliente(monkeypatch, caplog, riesce):
     """Stessa regola delle email al cliente (voce 50): il log dice quale prenotazione, non di chi."""
     def servizio():
         if not riesce:
@@ -296,13 +306,13 @@ def test_il_log_dell_evento_ha_il_riferimento_e_non_l_email(monkeypatch, caplog,
     caplog.set_level(logging.INFO, logger="backend.services.calendar_service")
 
     calendar_service.crea_evento_calendario(
-        nome_cliente="Mario", email_cliente="mario.rossi@example.com", categoria="senior",
+        nome_cliente="Mario Rossi", categoria="senior",
         data_slot="15/07/2030", ora_slot="15:00", durata_ore=1,
         riferimento="prenotazione 42",
     )
 
     assert "prenotazione 42" in caplog.text
-    assert "mario.rossi@example.com" not in caplog.text
+    assert "Rossi" not in caplog.text
 
 
 class InvioEmailFinto:
@@ -410,6 +420,31 @@ def test_la_notifica_discord_traduce_il_servizio_in_etichetta_leggibile(monkeypa
     # I campi vuoti hanno un segnaposto, non restano vuoti.
     assert campi["Discord"] == "non specificato"
     assert campi["Note"] == "nessuna"
+
+
+def test_il_promemoria_discord_porta_servizio_e_note_entro_il_limite_di_discord(monkeypatch):
+    """
+    È il messaggio con cui il coach si prepara alla sessione, ora che le
+    note non sono più sul calendario (voce 39). Discord rifiuta l'intero
+    messaggio se il valore di un campo supera 1024 caratteri, e un team
+    incollato per intero in formato Showdown li supera facilmente.
+    """
+    post = PostFinto()
+    monkeypatch.setattr(discord_service, "requests", type("M", (), {"post": staticmethod(post)}))
+    monkeypatch.setattr(discord_service, "DISCORD_WEBHOOK_URL", "https://discord.test/webhook")
+    team_incollato = "Indeedee-F @ Psychic Seed\nAbility: Psychic Surge\n" * 60
+
+    discord_service.invia_promemoria_discord(
+        nome_cliente="Mario", discord_tag="mario_vgc", service_type="vod_review",
+        data_slot="15/07/2030", ora_slot="15:00", note_cliente=team_incollato,
+    )
+
+    assert len(team_incollato) > 1024
+    campi = {c["name"]: c["value"] for c in post.chiamate[0]["json"]["embeds"][0]["fields"]}
+    assert campi["Servizio"] == "VOD Review"
+    assert len(campi["Note"]) <= 1024
+    assert campi["Note"].startswith("Indeedee-F @ Psychic Seed")
+    assert campi["Note"].endswith("(continua nel pannello)")
 
 
 def test_senza_webhook_configurato_la_notifica_discord_viene_saltata(monkeypatch):
