@@ -28,6 +28,7 @@ from backend.models.users import User
 from backend.services import calendar_service
 from backend.services.booking_service import libera_slot_prenotazione
 from backend.services.calendar_service import (
+    CalendarioNonRaggiungibile,
     leggi_eventi_calendario,
     sincronizza_slot_con_calendario,
 )
@@ -160,11 +161,14 @@ def test_evento_in_formato_inatteso_viene_saltato_senza_fermare_la_sync(db, cale
     assert slot.is_available is False
 
 
-def test_calendario_irraggiungibile_non_blocca_nulla_e_non_solleva(db, monkeypatch):
-    """Se Google non risponde, la sincronizzazione lascia tutto com'è.
+def test_calendario_irraggiungibile_e_un_errore_non_un_agenda_vuota(db, monkeypatch):
+    """Se Google non risponde, la lettura lo dice invece di restituire [].
 
-    È una scelta dichiarata (l'except di leggi_eventi_calendario in
-    calendar_service.py): meglio non bloccare che fallire.
+    Una lista vuota significa "nessun impegno": con la disponibilità
+    calcolata (decisione P9) un minuto di irraggiungibilità metterebbe in
+    vendita tutti gli orari realmente occupati. Il guasto deve restare
+    distinguibile dall'agenda vuota, e la sincronizzazione non blocca
+    nulla ma non finge di essere riuscita.
     """
     slot = crea_slot(db, ORA + timedelta(days=7))
 
@@ -173,21 +177,27 @@ def test_calendario_irraggiungibile_non_blocca_nulla_e_non_solleva(db, monkeypat
 
     monkeypatch.setattr(calendar_service, "get_calendar_service", esplode)
 
-    bloccati = sincronizza_slot_con_calendario(db)
+    with pytest.raises(CalendarioNonRaggiungibile):
+        leggi_eventi_calendario(ORA, ORA + timedelta(days=1))
+    with pytest.raises(CalendarioNonRaggiungibile):
+        sincronizza_slot_con_calendario(db)
 
-    assert bloccati == 0
     db.refresh(slot)
     assert slot.is_available is True
 
-    # COMPORTAMENTO SOSPETTO: l'errore finisce solo nei log e la funzione
-    # restituisce una lista vuota, indistinguibile da "nessun impegno in
-    # agenda". Il pannello mostra "0 slot bloccati" anche quando la
-    # sincronizzazione non è mai avvenuta. Senza voce aperta per scelta
-    # (caso 4 della voce 39, deciso il 2026-09-16): il guasto duraturo lo
-    # segnala già la sonda settimanale delle credenziali Calendar, quello
-    # passeggero si ripara al giro successivo. Va corretto prima di
-    # qualunque riapertura automatica degli slot (decisione P1).
-    assert leggi_eventi_calendario(ORA, ORA + timedelta(days=1)) == []
+
+def test_il_pulsante_sincronizza_dice_al_coach_che_google_non_risponde(client, db, monkeypatch):
+    """Il pannello mostrava "0 slot bloccati" anche a sincronizzazione mai avvenuta."""
+    crea_slot(db, ORA + timedelta(days=7))
+
+    def esplode():
+        raise RuntimeError("Google non raggiungibile")
+
+    monkeypatch.setattr(calendar_service, "get_calendar_service", esplode)
+
+    risposta = client.post("/admin/slots/sync-calendario", headers=admin_headers())
+
+    assert risposta.status_code == 503
 
 
 def test_la_sincronizzazione_non_riapre_da_sola_lo_slot_bloccato(db, calendario):
@@ -211,10 +221,11 @@ def test_la_sincronizzazione_non_riapre_da_sola_lo_slot_bloccato(db, calendario)
 
     # Voluto: la query di sincronizzazione considera solo gli slot con
     # is_available == True, quindi uno slot già bloccato non viene più
-    # esaminato. Riaprirlo qui non sarebbe sicuro finché
-    # leggi_eventi_calendario restituisce [] anche quando Google non
-    # risponde: un minuto di irraggiungibilità rimetterebbe in vendita
-    # tutti gli orari realmente occupati. La via d'uscita è esplicita,
+    # esaminato. La riapertura automatica non si aggiunge alla tabella
+    # degli slot: arriva con la disponibilità calcolata (decisione P9),
+    # possibile da quando un Google irraggiungibile solleva
+    # CalendarioNonRaggiungibile invece di sembrare un'agenda vuota. Fino
+    # ad allora la via d'uscita è esplicita,
     # POST /admin/slots/{slot_id}/sblocca — vedi i test dedicati in
     # tests/test_availability.py.
     assert slot.is_available is False

@@ -11,7 +11,7 @@ Decisioni (P1-P6: dettaglio nell'archivio 2026-09, riga 1328):
 - P5 — Listino (prezzi, ore valide, etichette) servito dal server, o duplicato con rimandi nei commenti (22, 33)
 - P6a — `User.telefono`: campo nel form pubblico o migrazione che lo rimuove (36)
 - P6b — `AvailabilityRule.attiva`: `PATCH` nel pannello o migrazione che la rimuove (36)
-- P9 — Disponibilità calcolata da regole, blocchi, prenotazioni e impegni Google, non salvata come slot; rivede P1 (60)
+- P9 ✅ — Disponibilità calcolata da regole, blocchi, prenotazioni e impegni Google, non salvata come slot; rivede P1 (60). Decisa il 2026-11-19: pezzo 4
 
 Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischio):
 - [ ] 40 — Misure su Railway per la 48: IP dietro il proxy, repliche (le altre misure nei commit delle voci 58 e 9)

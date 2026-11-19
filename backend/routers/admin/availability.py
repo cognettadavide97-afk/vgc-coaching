@@ -17,7 +17,7 @@ from backend.schemas.availability import (
     AvailabilityExceptionCreate, AvailabilityExceptionResponse
 )
 from backend.routers.admin import get_admin
-from backend.services.calendar_service import sincronizza_slot_con_calendario
+from backend.services.calendar_service import CalendarioNonRaggiungibile, sincronizza_slot_con_calendario
 from backend.services.timezone_service import ROME_TZ, formatta_data_ora_rome, ora_utc_naive, utc_to_rome
 from backend.services.availability_service import genera_slot_da_regola, applica_blocco_eccezionale
 from backend.services.pagination_service import pagina_e_offset, busta_paginazione
@@ -78,8 +78,14 @@ def sincronizza_calendario(
 
     Attivazione manuale dal pannello. La stessa logica gira anche in un job
     periodico: le due strade condividono l'implementazione.
+
+    Google irraggiungibile è un 503, non "0 slot bloccati": il coach deve
+    sapere che la sincronizzazione non è avvenuta.
     """
-    bloccati = sincronizza_slot_con_calendario(db)
+    try:
+        bloccati = sincronizza_slot_con_calendario(db)
+    except CalendarioNonRaggiungibile:
+        raise HTTPException(status_code=503, detail="Google Calendar non raggiungibile")
     return {"slot_bloccati": bloccati}
 
 @router.delete("/slots/{slot_id}")

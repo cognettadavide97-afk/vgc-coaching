@@ -3,8 +3,10 @@
 In scrittura crea ed elimina l'evento associato a una prenotazione; in
 lettura recupera gli impegni esistenti per bloccare gli slot sovrapposti.
 
-Nessuna funzione propaga eccezioni: un'indisponibilità di Google non deve
-impedire una prenotazione né interrompere la sincronizzazione.
+In scrittura nessuna funzione propaga eccezioni: un'indisponibilità di
+Google non deve impedire una prenotazione. In lettura sì, ed è voluto:
+`leggi_eventi_calendario` solleva `CalendarioNonRaggiungibile`, perché un
+guasto scambiato per "nessun impegno" metterebbe in vendita orari occupati.
 
 Autenticazione tramite service account, con il calendario del coach
 condiviso esplicitamente con la sua email.
@@ -31,6 +33,15 @@ SERVICE_ACCOUNT_EMAIL = os.getenv("GOOGLE_SERVICE_ACCOUNT_EMAIL")
 PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY", "").replace("\\n", "\n")
 
 logger = logging.getLogger(__name__)
+
+
+class CalendarioNonRaggiungibile(Exception):
+    """Google Calendar non ha risposto: gli impegni del coach sono ignoti.
+
+    Esiste per non confondere il guasto con l'agenda vuota. Restituire []
+    direbbe "nessun impegno", e chi decide quali ore vendere le aprirebbe
+    tutte: nel dubbio si chiude (decisioni P1 e P9).
+    """
 
 
 def _credenziali_service_account():
@@ -62,9 +73,10 @@ def verifica_credenziali_calendario() -> bool:
     credenziali.
 
     Serviva un controllo perché questa integrazione è la più silenziosa
-    delle tre: `sincronizza_slot_con_calendario` cattura ogni errore e lo
-    lascia solo nei log, quindi senza questa sonda una chiave morta non
-    produce nessun segnale visibile.
+    delle tre: per anni `sincronizza_slot_con_calendario` ha catturato ogni
+    errore lasciandolo solo nei log. Oggi il guasto arriva al job e al
+    pulsante del pannello, ma la sonda resta l'unico segnale nei giorni in
+    cui non gira nessuna sincronizzazione.
 
     Attenzione al limite: verifica l'identità, non il permesso. Un
     calendario che smettesse di essere condiviso con il service account
@@ -159,9 +171,9 @@ def crea_evento_calendario(
 def leggi_eventi_calendario(time_min: datetime, time_max: datetime):
     """Restituisce gli intervalli occupati nel periodo indicato.
 
-    Lista di tuple (inizio_utc, fine_utc), entrambe naive. In caso di
-    errore restituisce una lista vuota: la sincronizzazione non blocca
-    nulla anziché fallire.
+    Lista di tuple (inizio_utc, fine_utc), entrambe naive. Se Google non
+    risponde solleva `CalendarioNonRaggiungibile`: una lista vuota vorrebbe
+    dire "nessun impegno", e il guasto non deve mai sembrarlo.
     """
     try:
         service = get_calendar_service()
@@ -200,9 +212,9 @@ def leggi_eventi_calendario(time_min: datetime, time_max: datetime):
 
         return intervalli
 
-    except Exception:
+    except Exception as errore:
         logger.exception("Errore lettura calendario")
-        return []
+        raise CalendarioNonRaggiungibile() from errore
 
 
 def sincronizza_slot_con_calendario(db: Session) -> int:
@@ -219,15 +231,14 @@ def sincronizza_slot_con_calendario(db: Session) -> int:
     ora = ora_utc_naive()
 
     # Solo gli slot ancora liberi: la sincronizzazione chiude, non riapre.
-    # Estendere il filtro agli slot con blocked_external=True per riaprire
-    # quelli il cui impegno è sparito sarebbe comodo, ma oggi non è sicuro:
-    # leggi_eventi_calendario restituisce [] sia con l'agenda vuota sia
-    # quando Google non risponde (vedi il suo except). Un minuto di
-    # irraggiungibilità basterebbe a far concludere "nessun impegno" e a
-    # rimettere in vendita tutti gli orari realmente occupati. Prerequisito
-    # per la riapertura automatica: far distinguere alla lettura il guasto
-    # dall'agenda vuota. Nel frattempo la via d'uscita è esplicita,
-    # POST /admin/slots/{slot_id}/sblocca.
+    # Fino al 2026-11 riaprire non era sicuro: leggi_eventi_calendario
+    # restituiva [] sia con l'agenda vuota sia con Google irraggiungibile, e
+    # un minuto di guasto avrebbe rimesso in vendita tutti gli orari
+    # occupati. Ora il guasto solleva CalendarioNonRaggiungibile e arriva a
+    # chi chiama (503 nel pannello, avviso di sorveglia_job per il job). La
+    # riapertura automatica non si aggiunge qui: arriva con la disponibilità
+    # calcolata (decisione P9), che sostituisce questa tabella. Nel
+    # frattempo la via d'uscita è esplicita, POST /admin/slots/{slot_id}/sblocca.
     slot_liberi = db.query(Slot).filter(
         Slot.is_available == True,
         Slot.start_time >= ora
