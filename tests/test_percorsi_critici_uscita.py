@@ -447,6 +447,37 @@ def test_il_promemoria_discord_porta_servizio_e_note_entro_il_limite_di_discord(
     assert campi["Note"].endswith("(continua nel pannello)")
 
 
+@pytest.mark.parametrize("invia, argomenti, campo", [
+    (discord_service.invia_notifica_discord,
+     dict(service_type="vod_review", data_slot="15/07/2030", ora_slot="15:00", durata_ore=1),
+     "Note"),
+    (discord_service.invia_richiesta_consulenza_discord,
+     dict(email_cliente="mario@example.com"),
+     "Messaggio"),
+    (discord_service.invia_richiesta_pacchetto_discord,
+     dict(email_cliente="mario@example.com", nome_pacchetto="Pacchetto 5"),
+     "Messaggio"),
+])
+def test_un_testo_lungo_del_cliente_non_fa_perdere_la_notifica_discord(monkeypatch, invia, argomenti, campo):
+    """
+    Voce 49: Discord rifiuta con un 400 l'intero messaggio se un campo
+    supera 1024 caratteri, e il coach non saprebbe della prenotazione o
+    della richiesta. Note e messaggi sono testo libero del cliente: escono
+    tagliati con `_anteprima`, come nel promemoria.
+    """
+    post = PostFinto()
+    monkeypatch.setattr(discord_service, "requests", type("M", (), {"post": staticmethod(post)}))
+    monkeypatch.setattr(discord_service, "DISCORD_WEBHOOK_URL", "https://discord.test/webhook")
+    team_incollato = "Indeedee-F @ Psychic Seed\nAbility: Psychic Surge\n" * 60
+    testo = {"note_cliente" if campo == "Note" else "messaggio": team_incollato}
+
+    invia(nome_cliente="Mario", discord_tag="mario_vgc", **argomenti, **testo)
+
+    campi = {c["name"]: c["value"] for c in post.chiamate[0]["json"]["embeds"][0]["fields"]}
+    assert len(campi[campo]) <= 1024
+    assert campi[campo].endswith("(continua nel pannello)")
+
+
 def test_senza_webhook_configurato_la_notifica_discord_viene_saltata(monkeypatch):
     """Un'installazione senza Discord non deve fallire, solo non notificare."""
     post = PostFinto()

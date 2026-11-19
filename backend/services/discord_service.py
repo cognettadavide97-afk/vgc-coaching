@@ -33,7 +33,8 @@ SERVICE_LABELS = {
 # campo supera 1024 caratteri. Note e messaggi dei clienti sono testo libero
 # senza limite di lunghezza, e un team incollato per intero in formato
 # Showdown lo supera facilmente: meglio un'anteprima tagliata, con il
-# rimando al pannello, che nessun messaggio.
+# rimando al pannello, che nessun messaggio. Vale per ogni campo di testo
+# libero: note delle prenotazioni e messaggi di consulenze e pacchetti.
 LIMITE_CAMPO_DISCORD = 1024
 CODA_ANTEPRIMA = "… (continua nel pannello)"
 
@@ -92,7 +93,7 @@ def invia_notifica_discord(
             {"name": "Data", "value": data_slot, "inline": True},
             {"name": "Orario", "value": ora_slot, "inline": True},
             {"name": "Durata", "value": f"{durata_ore} ora{'e' if durata_ore > 1 else ''}", "inline": True},
-            {"name": "Note", "value": note_cliente or "nessuna", "inline": False},
+            {"name": "Note", "value": _anteprima(note_cliente, "nessuna"), "inline": False},
         ]
     }
     _invia_embed(embed, "Notifica Discord inviata", "Errore invio notifica Discord")
@@ -149,7 +150,7 @@ def invia_richiesta_consulenza_discord(
             {"name": "Cliente", "value": nome_cliente, "inline": True},
             {"name": "Email", "value": email_cliente, "inline": True},
             {"name": "Discord", "value": discord_tag or "non specificato", "inline": True},
-            {"name": "Messaggio", "value": messaggio or "nessuno", "inline": False},
+            {"name": "Messaggio", "value": _anteprima(messaggio, "nessuno"), "inline": False},
         ]
     }
     _invia_embed(embed, "Notifica Discord richiesta consulenza inviata", "Errore invio notifica Discord richiesta consulenza")
@@ -188,7 +189,7 @@ def invia_richiesta_pacchetto_discord(
             {"name": "Cliente", "value": nome_cliente, "inline": True},
             {"name": "Email", "value": email_cliente, "inline": True},
             {"name": "Discord", "value": discord_tag or "non specificato", "inline": True},
-            {"name": "Messaggio", "value": messaggio or "nessuno", "inline": False},
+            {"name": "Messaggio", "value": _anteprima(messaggio, "nessuno"), "inline": False},
         ]
     }
     _invia_embed(embed, "Notifica Discord richiesta pacchetto inviata", "Errore invio notifica Discord richiesta pacchetto")
