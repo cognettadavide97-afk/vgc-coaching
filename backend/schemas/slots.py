@@ -19,13 +19,14 @@ class SlotCreate(BaseModel):
     def valida_durata(cls, v: int) -> int:
         """Ammette solo slot da 1 ora, come per le regole ricorrenti.
 
-        Stesso vincolo di `AvailabilityRuleCreate.valida_durata`, e per lo
-        stesso motivo: le sessioni da 2 ore nascono dall'unione di due slot
-        da 1 ora al momento della prenotazione, dove viene applicato il
-        vincolo sull'orario di inizio (15:00 o 17:00). Uno slot da 2 ore
-        **salta quel controllo**, perché in `create_booking` vive nel ramo
-        che confronta durata richiesta e durata dello slot: se coincidono,
-        non viene mai eseguito.
+        Stesso vincolo di `AvailabilityRuleCreate.valida_durata`. Fino al
+        pezzo 4.3 le sessioni da 2 ore nascevano dall'unione di due slot da
+        1 ora, con il vincolo sull'orario di inizio (15:00 o 17:00), e uno
+        slot da 2 ore saltava quel controllo. Dal 4.4 le ore prenotabili le
+        calcola services/disponibilita_service.py dalle regole: uno slot
+        creato qui senza una regola che preveda la sua ora non si può più
+        prenotare (decisione "aperture extra" del pezzo 4.5), e la tabella
+        sparisce nel 4.6.
 
         Fino al 2026-09-07 qui non c'era nessun controllo, e il vincolo era
         aggirabile dal pannello di amministrazione, che offriva "2 ore" fra
@@ -38,8 +39,8 @@ class SlotCreate(BaseModel):
         """
         if v != 1:
             raise ValueError(
-                "Il calendario usa solo slot da 1 ora - le sessioni da 2h uniscono "
-                "due slot da 1h adiacenti al momento della prenotazione"
+                "Il calendario usa solo slot da 1 ora - le sessioni da 2 ore uniscono "
+                "due ore consecutive di una regola"
             )
         return v
 

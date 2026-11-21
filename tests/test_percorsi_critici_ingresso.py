@@ -18,9 +18,10 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from backend.models.booking import Booking
 from backend.models.slots import Slot
 from backend.models.users import User
-from conftest import admin_headers, crea_slot
+from conftest import admin_headers, apri_ore, iso
 
 ROME_TZ = ZoneInfo("Europe/Rome")
 
@@ -79,7 +80,7 @@ def test_chi_conosce_lemail_di_un_cliente_ne_ottiene_lid_dallendpoint_pubblico(c
     id_ottenuto = registra(client, "vittima@example.com", nome="Attaccante")
 
     # COMPORTAMENTO SOSPETTO: la coppia (user_id, email) è l'unica difesa di
-    # create_booking nel flusso senza login (backend/routers/booking.py:127),
+    # create_booking nel flusso senza login (backend/routers/booking.py:102),
     # ma l'id si ottiene dall'email tramite questo stesso endpoint pubblico.
     # Chi conosce l'email di un cliente ha quindi entrambi i valori e può
     # prenotare a suo nome (vedi il test seguente).
@@ -89,12 +90,12 @@ def test_chi_conosce_lemail_di_un_cliente_ne_ottiene_lid_dallendpoint_pubblico(c
 def test_si_puo_prenotare_a_nome_di_un_altro_conoscendone_solo_lemail(client, db):
     """Il flusso completo dell'impersonazione, in due chiamate pubbliche."""
     id_vittima = registra(client, "vittima@example.com", nome="Vittima")
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
 
     res = client.post("/bookings/", json={
         "user_id": id_vittima,
         "email": "vittima@example.com",
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     })
@@ -102,7 +103,7 @@ def test_si_puo_prenotare_a_nome_di_un_altro_conoscendone_solo_lemail(client, db
     # COMPORTAMENTO SOSPETTO: la prenotazione va a buon fine senza alcuna
     # verifica del possesso dell'indirizzo. Consuma il limite di 2
     # prenotazioni attive della vittima, le fa arrivare un'email di
-    # conferma e occupa uno slot reale.
+    # conferma e occupa un'ora reale.
     assert res.status_code == 200, res.text
     assert res.json()["user_id"] == id_vittima
 
@@ -115,7 +116,7 @@ def test_email_con_maiuscole_diverse_ritrova_lo_stesso_utente(client, db):
     SQLite (case-sensitive) nascevano due clienti per la stessa persona, su
     MySQL (case-insensitive) tornava l'utente esistente, la cui email non
     coincideva con quella digitata, e la prenotazione finiva nel 403 "user_id
-    and email do not match" (booking.py:127). Ora EmailNormalizzata
+    and email do not match" (booking.py:102). Ora EmailNormalizzata
     (backend/schemas/users.py) la mette in minuscolo all'ingresso (voce 9).
     """
     primo = registra(client, "mario@example.com")
@@ -130,12 +131,12 @@ def test_email_con_maiuscole_diverse_ritrova_lo_stesso_utente(client, db):
 def test_il_prezzo_inviato_dal_client_viene_ignorato(client, db):
     """Il listino è del server: un prezzo nel corpo non viene nemmeno letto."""
     id_utente = registra(client, "cliente@example.com")
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
 
     res = client.post("/bookings/", json={
         "user_id": id_utente,
         "email": "cliente@example.com",
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review",
         # Campi non previsti da BookingCreate: Pydantic li scarta in
@@ -153,21 +154,21 @@ def test_il_prezzo_inviato_dal_client_viene_ignorato(client, db):
 def test_il_limite_di_due_prenotazioni_attive_riparte_da_zero_con_unaltra_email(client, db):
     """Il conteggio è per user.id, e per un ospite l'identità è l'email."""
     id_primo = registra(client, "uno@example.com")
-    slot_a = crea_slot(db, INIZIO)
-    slot_b = crea_slot(db, INIZIO + timedelta(days=1))
-    slot_c = crea_slot(db, INIZIO + timedelta(days=2))
+    ore = [INIZIO + timedelta(days=giorni) for giorni in range(3)]
+    for ora in ore:
+        apri_ore(db, ora)
 
-    for slot in (slot_a, slot_b):
+    for ora in ore[:2]:
         res = client.post("/bookings/", json={
             "user_id": id_primo, "email": "uno@example.com",
-            "slot_id": slot.id, "duration_hours": 1, "service_type": "vod_review"
+            "start_time": iso(ora), "duration_hours": 1, "service_type": "vod_review"
         })
         assert res.status_code == 200, res.text
 
     # La terza con la stessa email viene respinta: il limite funziona.
     res_terza = client.post("/bookings/", json={
         "user_id": id_primo, "email": "uno@example.com",
-        "slot_id": slot_c.id, "duration_hours": 1, "service_type": "vod_review"
+        "start_time": iso(ore[2]), "duration_hours": 1, "service_type": "vod_review"
     })
     assert res_terza.status_code == 400
 
@@ -175,10 +176,10 @@ def test_il_limite_di_due_prenotazioni_attive_riparte_da_zero_con_unaltra_email(
     id_secondo = registra(client, "uno+bis@example.com")
     res_aggirata = client.post("/bookings/", json={
         "user_id": id_secondo, "email": "uno+bis@example.com",
-        "slot_id": slot_c.id, "duration_hours": 1, "service_type": "vod_review"
+        "start_time": iso(ore[2]), "duration_hours": 1, "service_type": "vod_review"
     })
 
-    # COMPORTAMENTO SOSPETTO: MAX_PRENOTAZIONI_ATTIVE (booking.py:33) è
+    # COMPORTAMENTO SOSPETTO: MAX_PRENOTAZIONI_ATTIVE (booking.py:34) è
     # presentato come misura anti-abuso, ma per gli ospiti — cioè l'unico
     # flusso in cui il rischio esiste — basta una seconda email gratuita per
     # azzerarlo. Vincola solo gli studenti autenticati.
@@ -188,17 +189,16 @@ def test_il_limite_di_due_prenotazioni_attive_riparte_da_zero_con_unaltra_email(
 def test_durata_non_a_listino_respinta_prima_di_toccare_il_database(client, db):
     """Una durata fuori da {1, 2} è fermata da Pydantic con un 422."""
     id_utente = registra(client, "cliente@example.com")
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
 
     res = client.post("/bookings/", json={
         "user_id": id_utente, "email": "cliente@example.com",
-        "slot_id": slot.id, "duration_hours": 3, "service_type": "vod_review"
+        "start_time": iso(INIZIO), "duration_hours": 3, "service_type": "vod_review"
     })
 
     assert res.status_code == 422
-    # Lo slot non è stato toccato: la validazione avviene prima del router.
-    db.refresh(slot)
-    assert slot.is_available is True
+    # Nessuna prenotazione: la validazione avviene prima del router.
+    assert db.query(Booking).count() == 0
 
 
 # ─── SLOT DAL PANNELLO: l'orario digitato è ora italiana ───

@@ -21,7 +21,7 @@ from backend.models.users import User
 from backend.services import disponibilita_service
 from backend.services.disponibilita_service import calcola_disponibilita
 from backend.services.timezone_service import ROME_TZ, ora_utc_naive
-from conftest import TestingSessionLocal, admin_headers, crea_slot, studente_cookies
+from conftest import TestingSessionLocal, admin_headers, crea_slot, iso, studente_cookies
 
 # 16/07/2030, martedì d'estate: le 18:00 italiane sono le 16:00 UTC, le 15:00
 # italiane le 13:00 UTC.
@@ -60,10 +60,10 @@ def test_il_limite_di_prenotazioni_attive_guarda_l_orario_della_prenotazione(cli
     # Due prenotazioni future con lo slot nel passato: sono attive.
     for giorni in (3, 4):
         prenotazione_spostata(db, utente, adesso + timedelta(days=giorni), adesso - timedelta(days=giorni))
-    slot = crea_slot(db, adesso + timedelta(days=5))
 
+    # Il limite si controlla prima delle ore in vendita: non serve una regola.
     res = client.post("/bookings/", json={
-        "user_id": utente.id, "email": utente.email, "slot_id": slot.id,
+        "user_id": utente.id, "email": utente.email, "start_time": iso(adesso + timedelta(days=5)),
         "duration_hours": 1, "service_type": "vod_review"
     })
 

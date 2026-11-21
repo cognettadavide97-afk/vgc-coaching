@@ -12,7 +12,7 @@ import backend.routers.booking as booking_router
 import backend.services.calendar_service as calendar_service
 from backend.models.booking import Booking
 from backend.models.package import Package
-from conftest import TEST_ENGINE, admin_headers, crea_slot, studente_cookies
+from conftest import TEST_ENGINE, admin_headers, apri_ore, crea_slot, iso, studente_cookies
 
 ROME_TZ = ZoneInfo("Europe/Rome")
 
@@ -46,167 +46,119 @@ def crea_utente(client, email="cliente@example.com"):
 # Punto di partenza fisso per tutti gli orari di test: un lunedì alle 15:00
 # ora italiana, ben nel futuro — non importa la data esatta, solo che sia
 # sempre dopo "adesso" (i controlli di create_booking/cancella si basano su
-# datetime.now()), che le ore successive siano libere per i test sul merge
-# di due slot da 1h, E che sia un orario di inizio valido per una
-# prenotazione da 2 ore (vedi ORE_INIZIO_VALIDE_2H in
-# backend/routers/booking.py e i test dedicati più sotto).
+# datetime.now()) e che le ore successive siano libere per i test sulle
+# sessioni da 2 ore. Le ore diventano prenotabili con apri_ore (conftest.py),
+# che crea la regola settimanale che le prevede: dal pezzo 4.4 le ore in
+# vendita si calcolano dalle regole (services/disponibilita_service.py).
 INIZIO = rome_naive_utc(2030, 1, 7, 15)
+
+
+def prenota(client, utente, inizio, durata=1):
+    return client.post("/bookings/", json={
+        "user_id": utente["id"],
+        "email": utente["email"],
+        "start_time": iso(inizio),
+        "duration_hours": durata,
+        "service_type": "vod_review"
+    })
 
 
 def test_prenotazione_1_ora(client, db):
     utente = crea_utente(client)
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
 
-    res = client.post("/bookings/", json={
-        "user_id": utente["id"],
-        "email": utente["email"],
-        "slot_id": slot.id,
-        "duration_hours": 1,
-        "service_type": "vod_review"
-    })
+    res = prenota(client, utente, INIZIO)
 
     assert res.status_code == 200, res.text
     prenotazione = res.json()
-    assert prenotazione["slot_id"] == slot.id
+    # Prenotata per orario: nessuno slot collegato.
+    assert prenotazione["slot_id"] is None
     assert prenotazione["slot_id_secondario"] is None
     assert prenotazione["price_cents"] == 2000  # 20€/ora, vedi TABELLA_PREZZI in booking.py
     assert prenotazione["status"] == "confirmed"
+    assert db.query(Booking).one().start_time == INIZIO
 
 
-def test_prenotazione_su_slot_passato_viene_rifiutata(client, db):
-    # Uno slot mai prenotato resta is_available=True anche dopo che il suo
-    # orario è passato (nessun job lo marca scaduto) — vedi il controllo
-    # in create_booking, backend/routers/booking.py.
+def test_prenotazione_nel_passato_viene_rifiutata(client, db):
+    # Una regola prevede quell'ora ogni settimana, anche nelle settimane già
+    # passate: senza il controllo in create_booking una richiesta diretta
+    # confermerebbe una sessione impossibile.
     utente = crea_utente(client)
-    slot_passato = crea_slot(db, rome_naive_utc(2020, 1, 6, 15))
+    passato = rome_naive_utc(2020, 1, 6, 15)
+    apri_ore(db, passato)
 
-    res = client.post("/bookings/", json={
-        "user_id": utente["id"],
-        "email": utente["email"],
-        "slot_id": slot_passato.id,
-        "duration_hours": 1,
-        "service_type": "vod_review"
-    })
+    res = prenota(client, utente, passato)
 
     assert res.status_code == 400
+    assert "past" in res.json()["detail"]
 
 
-def test_prenotazione_2_ore_unisce_due_slot_adiacenti(client, db):
+def test_prenotazione_2_ore_occupa_due_ore_consecutive(client, db):
     utente = crea_utente(client)
-    primo = crea_slot(db, INIZIO)
-    secondo = crea_slot(db, INIZIO + timedelta(hours=1))
+    apri_ore(db, INIZIO, ore=2)
 
-    res = client.post("/bookings/", json={
-        "user_id": utente["id"],
-        "email": utente["email"],
-        "slot_id": primo.id,
-        "duration_hours": 2,
-        "service_type": "vod_review"
-    })
+    res = prenota(client, utente, INIZIO, durata=2)
 
     assert res.status_code == 200, res.text
-    prenotazione = res.json()
-    assert prenotazione["slot_id"] == primo.id
-    assert prenotazione["slot_id_secondario"] == secondo.id
-    assert prenotazione["price_cents"] == 4000
-
-    # Entrambi gli slot devono risultare occupati, non solo il primo.
-    db.refresh(primo)
-    db.refresh(secondo)
-    assert primo.is_available is False
-    assert secondo.is_available is False
+    assert res.json()["price_cents"] == 4000
 
 
-def test_prenotazione_2_ore_alle_17_e_permessa(client, db):
+def test_prenotazione_2_ore_alle_17_con_la_regola_15_19(client, db):
     utente = crea_utente(client)
-    primo = crea_slot(db, rome_naive_utc(2030, 1, 7, 17))
-    crea_slot(db, rome_naive_utc(2030, 1, 7, 18))
+    apri_ore(db, rome_naive_utc(2030, 1, 7, 15), ore=4)
 
-    res = client.post("/bookings/", json={
-        "user_id": utente["id"],
-        "email": utente["email"],
-        "slot_id": primo.id,
-        "duration_hours": 2,
-        "service_type": "vod_review"
-    })
+    res = prenota(client, utente, rome_naive_utc(2030, 1, 7, 17), durata=2)
 
     assert res.status_code == 200, res.text
 
 
-def test_prenotazione_2_ore_alle_16_e_rifiutata(client, db):
-    # Regola di prodotto: una sessione da 2 ore può iniziare SOLO alle 15:00
-    # o alle 17:00 (vedi ORE_INIZIO_VALIDE_2H in backend/routers/booking.py)
-    # — anche se sia lo slot delle 16 sia quello delle 17 esistono e sono
-    # entrambi liberi, il backend deve comunque rifiutare la richiesta.
+def test_prenotazione_2_ore_alle_16_con_la_regola_15_19_e_rifiutata(client, db):
+    # Le sessioni da 2 ore partono ogni 2 ore dall'inizio della regola: con
+    # 15-19 alle 15 e alle 17, mai alle 16, che lascerebbe isolate le ore ai
+    # lati (vedi calcola_disponibilita). Anche se le 16 e le 17 sono libere,
+    # il backend deve rifiutare la richiesta.
     utente = crea_utente(client)
-    primo = crea_slot(db, rome_naive_utc(2030, 1, 7, 16))
-    secondo = crea_slot(db, rome_naive_utc(2030, 1, 7, 17))
+    apri_ore(db, rome_naive_utc(2030, 1, 7, 15), ore=4)
 
-    res = client.post("/bookings/", json={
-        "user_id": utente["id"],
-        "email": utente["email"],
-        "slot_id": primo.id,
-        "duration_hours": 2,
-        "service_type": "vod_review"
-    })
+    res = prenota(client, utente, rome_naive_utc(2030, 1, 7, 16), durata=2)
 
     assert res.status_code == 400
-    db.refresh(primo)
-    db.refresh(secondo)
-    assert primo.is_available is True
-    assert secondo.is_available is True
+    assert db.query(Booking).count() == 0
 
 
-def test_prenotazione_2_ore_fallisce_se_ora_successiva_assente(client, db):
+def test_prenotazione_2_ore_fallisce_se_l_ora_successiva_non_e_in_vendita(client, db):
     utente = crea_utente(client)
-    # Solo UNO slot da 1h disponibile: non esiste l'ora successiva.
-    primo = crea_slot(db, INIZIO)
+    # La regola ha un'ora sola: non esiste l'ora successiva.
+    apri_ore(db, INIZIO)
 
-    res = client.post("/bookings/", json={
-        "user_id": utente["id"],
-        "email": utente["email"],
-        "slot_id": primo.id,
-        "duration_hours": 2,
-        "service_type": "vod_review"
-    })
+    res = prenota(client, utente, INIZIO, durata=2)
 
     assert res.status_code == 400
-    # Lo slot originale non deve essere stato toccato da un tentativo fallito.
-    db.refresh(primo)
-    assert primo.is_available is True
+    assert db.query(Booking).count() == 0
 
 
-def test_prenotazione_2_ore_fallisce_se_ora_successiva_gia_occupata(client, db):
+def test_prenotazione_2_ore_fallisce_se_l_ora_successiva_e_gia_presa(client, db):
     utente = crea_utente(client)
-    primo = crea_slot(db, INIZIO)
-    crea_slot(db, INIZIO + timedelta(hours=1), is_available=False)  # già preso da qualcun altro
+    altro = crea_utente(client, email="altro@example.com")
+    apri_ore(db, INIZIO, ore=2)
+    assert prenota(client, altro, INIZIO + timedelta(hours=1)).status_code == 200
 
-    res = client.post("/bookings/", json={
-        "user_id": utente["id"],
-        "email": utente["email"],
-        "slot_id": primo.id,
-        "duration_hours": 2,
-        "service_type": "vod_review"
-    })
+    res = prenota(client, utente, INIZIO, durata=2)
 
     assert res.status_code == 400
-    db.refresh(primo)
-    assert primo.is_available is True
+    assert db.query(Booking).count() == 1
 
 
-def test_slot_gia_occupato_viene_rifiutato(client, db):
+def test_ora_gia_presa_viene_rifiutata(client, db):
     utente = crea_utente(client)
-    slot = crea_slot(db, INIZIO, is_available=False)
+    altro = crea_utente(client, email="altro@example.com")
+    apri_ore(db, INIZIO)
+    assert prenota(client, altro, INIZIO).status_code == 200
 
-    res = client.post("/bookings/", json={
-        "user_id": utente["id"],
-        "email": utente["email"],
-        "slot_id": slot.id,
-        "duration_hours": 1,
-        "service_type": "vod_review"
-    })
+    res = prenota(client, utente, INIZIO)
 
     assert res.status_code == 400
+    assert res.json()["detail"] == "Slot not available"
 
 
 def test_prenotazione_guest_a_nome_di_un_altro_utente_viene_rifiutata(client, db):
@@ -220,12 +172,12 @@ def test_prenotazione_guest_a_nome_di_un_altro_utente_viene_rifiutata(client, db
     senza che lei abbia fatto nulla).
     """
     vittima = crea_utente(client, email="vittima-idor@example.com")
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
 
     res = client.post("/bookings/", json={
         "user_id": vittima["id"],
         "email": "attaccante-idor@example.com",  # non l'email della vittima
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     })
@@ -253,12 +205,12 @@ def test_prenotazione_guest_senza_email_restituisce_422(client, db):
     espresso nel router e non in Pydantic.
     """
     utente = crea_utente(client, email="guest-senza-email@example.com")
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
 
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
         # "email" deliberatamente assente
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     })
@@ -272,10 +224,8 @@ def test_prenotazione_guest_senza_email_restituisce_422(client, db):
 
 def test_redenzione_pacchetto_azzera_prezzo_e_scala_credito(client, db):
     utente = crea_utente(client)
-    slot_a = crea_slot(db, INIZIO)
-    # Lo slot adiacente deve esistere perché la sessione da 2 ore lo
-    # occupa: il router lo ritrova da solo per orario, non serve un nome.
-    crea_slot(db, INIZIO + timedelta(hours=1))
+    # Due ore consecutive in vendita: la sessione da 2 ore le occupa entrambe.
+    apri_ore(db, INIZIO, ore=2)
 
     pacchetto = Package(
         user_id=utente["id"], tipo="intro",
@@ -295,7 +245,7 @@ def test_redenzione_pacchetto_azzera_prezzo_e_scala_credito(client, db):
         cookies=studente_cookies(utente["id"], utente["email"]),
         json={
             "user_id": utente["id"],
-            "slot_id": slot_a.id,
+            "start_time": iso(INIZIO),
             "duration_hours": 2,
             "service_type": "team_building",
             "package_id": pacchetto.id
@@ -317,8 +267,7 @@ def test_redenzione_pacchetto_senza_login_viene_rifiutata(client, db):
     # anche di un altro utente) deve fallire con 401 — vedi il commento in
     # backend/routers/booking.py.
     utente = crea_utente(client)
-    slot_a = crea_slot(db, INIZIO)
-    crea_slot(db, INIZIO + timedelta(hours=1))
+    apri_ore(db, INIZIO, ore=2)
 
     pacchetto = Package(
         user_id=utente["id"], tipo="intro",
@@ -332,7 +281,7 @@ def test_redenzione_pacchetto_senza_login_viene_rifiutata(client, db):
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": utente["email"],
-        "slot_id": slot_a.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 2,
         "service_type": "team_building",
         "package_id": pacchetto.id
@@ -343,8 +292,7 @@ def test_redenzione_pacchetto_senza_login_viene_rifiutata(client, db):
 
 def test_redenzione_pacchetto_esaurito_viene_rifiutata(client, db):
     utente = crea_utente(client)
-    slot_a = crea_slot(db, INIZIO)
-    crea_slot(db, INIZIO + timedelta(hours=1))
+    apri_ore(db, INIZIO, ore=2)
 
     pacchetto = Package(
         user_id=utente["id"], tipo="intro",
@@ -360,7 +308,7 @@ def test_redenzione_pacchetto_esaurito_viene_rifiutata(client, db):
         cookies=studente_cookies(utente["id"], utente["email"]),
         json={
             "user_id": utente["id"],
-            "slot_id": slot_a.id,
+            "start_time": iso(INIZIO),
             "duration_hours": 2,
             "service_type": "team_building",
             "package_id": pacchetto.id
@@ -375,14 +323,13 @@ def test_credito_pacchetto_non_si_spende_due_volte(client, db):
     # cliente (doppio clic, due schede) passano entrambe il controllo "ha
     # ancora sessioni?" prima che una delle due scriva di averne usata una.
     # Nella suite le richieste arrivano una alla volta, quindi l'incrocio
-    # va provocato: l'"intruso" qui sotto è un listener che scatta mentre
-    # create_booking riserva lo slot, cioè DOPO il controllo sul credito, e
+    # va provocato: l'"intruso" qui sotto è un listener che scatta subito
+    # prima che create_booking scali il credito, cioè DOPO il controllo, e
     # consuma l'ultima sessione come farebbe la richiesta concorrente.
     # La prenotazione deve essere rifiutata: col vecchio `+= 1` sull'oggetto
     # letto prima passava, e il pacchetto da 1 sessione ne pagava 2.
     utente = crea_utente(client)
-    slot_a = crea_slot(db, INIZIO)
-    crea_slot(db, INIZIO + timedelta(hours=1))
+    apri_ore(db, INIZIO, ore=2)
 
     pacchetto = Package(
         user_id=utente["id"], tipo="intro",
@@ -396,7 +343,7 @@ def test_credito_pacchetto_non_si_spende_due_volte(client, db):
     scattato = []
 
     def intruso(conn, cursor, statement, parameters, context, executemany):
-        if not scattato and statement.lstrip().upper().startswith("UPDATE SLOTS"):
+        if not scattato and statement.lstrip().upper().startswith("UPDATE PACKAGES"):
             scattato.append(True)
             # Cursore separato sulla stessa connessione (StaticPool): la
             # scrittura entra nella stessa transazione della richiesta,
@@ -415,7 +362,7 @@ def test_credito_pacchetto_non_si_spende_due_volte(client, db):
             cookies=studente_cookies(utente["id"], utente["email"]),
             json={
                 "user_id": utente["id"],
-                "slot_id": slot_a.id,
+                "start_time": iso(INIZIO),
                 "duration_hours": 2,
                 "service_type": "team_building",
                 "package_id": id_pacchetto
@@ -439,8 +386,7 @@ def test_redenzione_pacchetto_di_un_altro_utente_viene_rifiutata(client, db):
     # user_id dichiarato nel body.
     vittima = crea_utente(client, email="vittima@example.com")
     attaccante = crea_utente(client, email="attaccante@example.com")
-    slot_a = crea_slot(db, INIZIO)
-    crea_slot(db, INIZIO + timedelta(hours=1))
+    apri_ore(db, INIZIO, ore=2)
 
     pacchetto_vittima = Package(
         user_id=vittima["id"], tipo="intro",
@@ -456,7 +402,7 @@ def test_redenzione_pacchetto_di_un_altro_utente_viene_rifiutata(client, db):
         cookies=studente_cookies(attaccante["id"], attaccante["email"]),
         json={
             "user_id": vittima["id"],  # l'attaccante dichiara la vittima come user_id...
-            "slot_id": slot_a.id,
+            "start_time": iso(INIZIO),
             "duration_hours": 2,
             "service_type": "team_building",
             "package_id": pacchetto_vittima.id  # ...e prova a usare il SUO pacchetto
@@ -503,8 +449,12 @@ def test_pacchetti_attivi_richiede_login_e_mostra_solo_i_propri(client, db):
     assert len(res_vittima.json()) == 1
 
 
-def test_cancellazione_self_service_libera_entrambi_gli_slot(client, db):
+def test_cancellazione_self_service_libera_entrambi_gli_slot_di_una_pagina_vecchia(client, db):
+    # Le pagine vecchie, rimaste nella cache dei browser, prenotano ancora
+    # per slot: la prenotazione li segna occupati e la cancellazione deve
+    # liberarli tutti e due, o la loro lista smetterebbe di offrirli.
     utente = crea_utente(client)
+    apri_ore(db, INIZIO, ore=2)
     primo = crea_slot(db, INIZIO)
     secondo = crea_slot(db, INIZIO + timedelta(hours=1))
 
@@ -515,6 +465,12 @@ def test_cancellazione_self_service_libera_entrambi_gli_slot(client, db):
         "duration_hours": 2,
         "service_type": "vod_review"
     }).json()
+    db.refresh(primo)
+    db.refresh(secondo)
+    assert prenotazione["slot_id"] == primo.id
+    assert prenotazione["slot_id_secondario"] == secondo.id
+    assert primo.is_available is False
+    assert secondo.is_available is False
 
     res = client.patch(
         f"/bookings/{prenotazione['id']}/cancella",
@@ -539,12 +495,12 @@ def test_cancellazione_self_service_non_espone_note_admin(client, db):
     scritto una nota privata se la ritroverebbe nel JSON di risposta.
     """
     utente = crea_utente(client)
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
 
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": utente["email"],
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     }).json()
@@ -567,12 +523,12 @@ def test_cancellazione_self_service_non_espone_note_admin(client, db):
 def test_cancellazione_rifiutata_per_prenotazione_di_un_altro(client, db):
     proprietario = crea_utente(client, email="proprietario@example.com")
     altro = crea_utente(client, email="altro@example.com")
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
 
     prenotazione = client.post("/bookings/", json={
         "user_id": proprietario["id"],
         "email": proprietario["email"],
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     }).json()
@@ -587,11 +543,11 @@ def test_cancellazione_rifiutata_per_prenotazione_di_un_altro(client, db):
 
 def test_cancellazione_richiede_login(client, db):
     utente = crea_utente(client)
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": utente["email"],
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     }).json()
@@ -603,11 +559,11 @@ def test_cancellazione_richiede_login(client, db):
 
 def test_doppia_cancellazione_rifiutata(client, db):
     utente = crea_utente(client)
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": utente["email"],
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     }).json()
@@ -630,7 +586,7 @@ def test_doppia_cancellazione_rifiutata(client, db):
 def prenota_con_pacchetto(client, db):
     """Utente con pacchetto da 2 sessioni da 1 ora, già usato una volta per una prenotazione futura."""
     utente = crea_utente(client)
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
     pacchetto = Package(
         user_id=utente["id"], tipo="intro",
         sessioni_totali=2, sessioni_usate=0,
@@ -641,7 +597,7 @@ def prenota_con_pacchetto(client, db):
     cookies = studente_cookies(utente["id"], utente["email"])
     res = client.post("/bookings/", cookies=cookies, json={
         "user_id": utente["id"],
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review",
         "package_id": pacchetto.id
@@ -699,12 +655,12 @@ def test_prenota_chi_scrive_il_dominio_con_la_maiuscola(client, db):
     # mentre la prenotazione riceveva il testo originale: 403 alla prima
     # prenotazione, su qualunque database.
     utente = crea_utente(client, email="mario@Example.com")
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
 
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": "mario@Example.com",
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     })
@@ -717,12 +673,12 @@ def test_cliente_che_torna_con_la_maiuscola_prenota_sullo_stesso_account(client,
     # prenotazione riuscita.
     primo = crea_utente(client, email="mario@example.com")
     di_nuovo = crea_utente(client, email="Mario@example.com")
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
 
     res = client.post("/bookings/", json={
         "user_id": di_nuovo["id"],
         "email": "Mario@example.com",
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     })
@@ -733,20 +689,21 @@ def test_cliente_che_torna_con_la_maiuscola_prenota_sullo_stesso_account(client,
 
 # ─── Evento Calendar dopo il commit (voci 11-12) ──────────────
 #
-# Le riserve di create_booking tengono un lock sulle righe di slot e
-# pacchetto fino al commit. Con Google Calendar chiamato prima del commit,
-# una risposta lenta (fino a 60 s) faceva aspettare ogni altra prenotazione
-# dello stesso slot o pacchetto, e oltre i 50 s MySQL rispondeva con un
+# Le riserve di create_booking tengono un lock sulle righe che scrivono
+# (allora slot e pacchetto, oggi ore vendute e pacchetto) fino al commit.
+# Con Google Calendar chiamato prima del commit, una risposta lenta (fino a
+# 60 s) faceva aspettare ogni altra prenotazione della stessa ora o dello
+# stesso pacchetto, e oltre i 50 s MySQL rispondeva con un
 # errore 1205, cioè un 500. SQLite non ha lock di riga: la contesa vera si
 # prova sul MySQL locale. Qui si fissano l'ordine e cosa succede dopo.
 
 def prenota_un_ora(client, db):
     utente = crea_utente(client)
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
     return client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": utente["email"],
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     })
@@ -754,7 +711,7 @@ def prenota_un_ora(client, db):
 
 def test_l_evento_calendar_si_crea_solo_a_prenotazione_salvata(client, db, monkeypatch):
     utente = crea_utente(client)
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
     sequenza = []
 
     def registra_commit(conn):
@@ -774,7 +731,7 @@ def test_l_evento_calendar_si_crea_solo_a_prenotazione_salvata(client, db, monke
         res = client.post("/bookings/", json={
             "user_id": utente["id"],
             "email": utente["email"],
-            "slot_id": slot.id,
+            "start_time": iso(INIZIO),
             "duration_hours": 1,
             "service_type": "vod_review"
         })
@@ -866,11 +823,11 @@ def test_la_prenotazione_crea_un_evento_senza_email_note_e_cognome(client, db, m
     monkeypatch.setattr(calendar_service, "get_calendar_service", lambda: ServizioFinto())
 
     utente = crea_utente(client)
-    slot = crea_slot(db, INIZIO)
+    apri_ore(db, INIZIO)
     res = client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": utente["email"],
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review",
         "note_cliente": "Uso Trick Room con Indeedee-F"

@@ -41,6 +41,8 @@ for _nome in CREDENZIALI_INTEGRAZIONI:
     os.environ[_nome] = ""
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -51,8 +53,10 @@ from backend.database import Base, get_db
 import backend.models  # registra tutti i model su Base.metadata (vedi backend/models/__init__.py)
 from backend.main import app
 from backend.rate_limit import limiter
+from backend.models.availability_rule import AvailabilityRule
 from backend.models.slots import Slot
 from backend.services.auth_service import crea_token, crea_token_studente
+from backend.services.timezone_service import ROME_TZ
 
 TEST_ENGINE = create_engine(
     "sqlite:///:memory:",
@@ -187,6 +191,32 @@ def integrazioni_esterne_finte(monkeypatch):
     monkeypatch.setattr(pacchetti_richieste_router, "invia_richiesta_pacchetto_discord", lambda **kwargs: None)
 
 
+@pytest.fixture(autouse=True)
+def agenda_google_vuota(monkeypatch):
+    """
+    Dal pezzo 4.4 ogni prenotazione chiede a Google gli impegni del coach
+    (services/disponibilita_service.py). Con le credenziali svuotate in cima
+    a questo file la lettura fallisce e solleva CalendarioNonRaggiungibile,
+    quindi ogni prenotazione dei test darebbe 503. A differenza delle finte
+    qui sopra, questa non serve ai log ma al funzionamento: un'agenda vuota,
+    salvo che un test non decida altri impegni (vedi test_disponibilita.py).
+    """
+    from backend.services import disponibilita_service
+    monkeypatch.setattr(disponibilita_service, "leggi_eventi_calendario", lambda da, a: [])
+
+
+@pytest.fixture(autouse=True)
+def orizzonte_aperto(monkeypatch):
+    """
+    Le ore si prenotano solo fino a fine mese (fine_orizzonte), mentre i test
+    usano date lontane, nel 2030, per non dipendere da "adesso". Senza
+    questo, ogni prenotazione dei test sarebbe fuori orizzonte. I test
+    sull'orizzonte stesso rimettono la funzione vera.
+    """
+    from backend.services import disponibilita_service
+    monkeypatch.setattr(disponibilita_service, "fine_orizzonte", lambda: datetime(2100, 1, 1))
+
+
 @pytest.fixture
 def client():
     return TestClient(app)
@@ -223,6 +253,26 @@ def studente_cookies(user_id, email):
     headers={"Authorization": ...} nelle chiamate di TestClient.
     """
     return {"student_token": crea_token_studente(user_id, email)}
+
+
+def apri_ore(db, inizio, ore=1):
+    """
+    Rende prenotabili `ore` ore consecutive da `inizio` (UTC naive): crea la
+    regola settimanale che le prevede, in ora italiana come quelle vere. È
+    l'equivalente di crea_slot dal pezzo 4.4, in cui le ore prenotabili si
+    calcolano dalle regole. Una regola parte sempre da `inizio`, quindi le
+    sessioni da 2 ore partono da lì ogni 2 ore.
+    """
+    roma = inizio.replace(tzinfo=timezone.utc).astimezone(ROME_TZ)
+    fine = roma + timedelta(hours=ore)
+    db.add(AvailabilityRule(giorno_settimana=roma.weekday(), ora_inizio=roma.time(),
+                            ora_fine=fine.time(), durata_slot_ore=1))
+    db.commit()
+
+
+def iso(inizio):
+    """L'orario come lo manda il sito: ISO con l'offset UTC, come in GET /disponibilita/."""
+    return inizio.replace(tzinfo=timezone.utc).isoformat()
 
 
 def crea_slot(db, start_time, duration_hours=1, is_available=True):

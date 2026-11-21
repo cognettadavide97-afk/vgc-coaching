@@ -24,12 +24,12 @@ PASSATO = datetime(2020, 1, 7, 15, 0, 0)
 
 def test_regola_con_durata_diversa_da_1_ora_viene_rifiutata(client, db):
     """
-    Il calendario genera solo slot da 1 ora: le sessioni da 2h uniscono due
-    slot da 1h adiacenti al momento della prenotazione (vedi
-    ORE_INIZIO_VALIDE_2H in backend/routers/booking.py). Una regola con
-    durata_slot_ore=2 genererebbe invece slot reali da 2h che bypassano
-    quel vincolo di orario (15:00/17:00) — bloccato qui, non solo omesso
-    dal form admin.
+    Le regole hanno solo ore da 1 ora: le sessioni da 2 ore uniscono due ore
+    consecutive, ogni 2 ore dall'inizio della regola (calcola_disponibilita
+    in backend/services/disponibilita_service.py). Fino al pezzo 4.3 una
+    regola con durata_slot_ore=2 avrebbe generato slot reali da 2h che
+    saltavano il vincolo sull'orario di inizio (allora 15:00/17:00) —
+    bloccata qui, non solo omessa dal form admin.
     """
     res = client.post(
         "/admin/disponibilita/regole",

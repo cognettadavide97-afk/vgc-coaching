@@ -7,9 +7,10 @@ succedeva la copia mentiva. Qui non si salva nulla: si parte dalle regole
 ricorrenti e si tolgono blocchi, prenotazioni e impegni Google, ogni volta
 che qualcuno chiede. Una sola fonte di verità, niente da tenere allineato.
 
-Il sito non la usa ancora (arriva nel pezzo 4.4). L'orario delle
-prenotazioni si legge dalla prenotazione stessa (pezzo 4.3), non dallo
-slot a cui punta ancora.
+Dal pezzo 4.4 è la fonte delle ore che il sito pubblico mostra
+(`disponibilita_pubblica`) e la verifica di ogni prenotazione
+(`ora_prenotabile`). L'orario delle prenotazioni si legge dalla prenotazione
+stessa (pezzo 4.3).
 """
 
 from datetime import datetime, timedelta, timezone
@@ -37,6 +38,19 @@ def _ore_della_regola(regola: AvailabilityRule, giorno) -> list[datetime]:
         ore.append(cursore.replace(tzinfo=ROME_TZ).astimezone(timezone.utc).replace(tzinfo=None))
         cursore += UN_ORA
     return ore
+
+
+def fine_orizzonte() -> datetime:
+    """Fin dove si può prenotare: la mezzanotte italiana fra l'ultimo giorno del mese e il primo del prossimo, in UTC naive.
+
+    È l'orizzonte di sempre, quello degli slot generati fino a fine mese
+    (availability_service.py, intervento 38): il 4.4 cambia da dove vengono
+    le ore, non fin dove arrivano. La conseguenza resta: circa trenta giorni
+    prenotabili a inizio mese, quasi nessuno negli ultimi giorni (voce 63).
+    """
+    oggi = utc_to_rome(ora_utc_naive())
+    anno, mese = (oggi.year + 1, 1) if oggi.month == 12 else (oggi.year, oggi.month + 1)
+    return datetime(anno, mese, 1, tzinfo=ROME_TZ).astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def calcola_disponibilita(db: Session, da: datetime, a: datetime) -> dict[int, list[datetime]]:
@@ -119,3 +133,26 @@ def calcola_disponibilita(db: Session, da: datetime, a: datetime) -> dict[int, l
         giorno += timedelta(days=1)
 
     return {1: sorted(da_un_ora), 2: sorted(da_due_ore)}
+
+
+def disponibilita_pubblica(db: Session) -> dict[int, list[datetime]]:
+    """Le ore che il sito pubblico offre: da adesso alla fine dell'orizzonte."""
+    return calcola_disponibilita(db, ora_utc_naive(), fine_orizzonte())
+
+
+def ora_prenotabile(db: Session, inizio: datetime, durata: int) -> bool:
+    """Indica se una sessione di `durata` ore può iniziare a `inizio` (UTC naive).
+
+    È la stessa domanda dell'elenco pubblico, fatta su un solo orario: chi
+    prenota con una richiesta diretta, scavalcando il sito, non ottiene
+    nulla che il sito non offrirebbe. Il calcolo su una finestra di un
+    minuto legge da Google soltanto le ore attorno a quella richiesta.
+
+    Non è la protezione contro due richieste simultanee sulla stessa ora:
+    quella è la tabella ore_prenotate (models/ora_prenotata.py). Qui si
+    risponde a "è in vendita?", là a "è già venduta?".
+    """
+    if inizio >= fine_orizzonte():
+        return False
+    libere = calcola_disponibilita(db, inizio, inizio + timedelta(minutes=1))
+    return inizio in libere.get(durata, [])

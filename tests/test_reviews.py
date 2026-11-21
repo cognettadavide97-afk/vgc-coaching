@@ -6,9 +6,9 @@
 
 from datetime import datetime
 
-from backend.models.slots import Slot
 from backend.models.booking import Booking
 from backend.services.auth_service import crea_token
+from conftest import apri_ore, iso
 
 INIZIO = datetime(2030, 1, 7, 12, 0, 0)
 
@@ -19,15 +19,12 @@ def crea_prenotazione_con_token(client, db, nome="Mario Rossi", email="mario@exa
         "discord_tag": None, "telefono": None
     }).json()
 
-    slot = Slot(start_time=INIZIO, duration_hours=1, is_available=True)
-    db.add(slot)
-    db.commit()
-    db.refresh(slot)
+    apri_ore(db, INIZIO)
 
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": email,
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     }).json()

@@ -331,7 +331,7 @@ def test_cancellare_due_volte_non_tocca_lo_slot_di_un_altro_cliente(client, db):
     # quella prenotazione ha già rilasciato il proprio slot e non ha più
     # alcun diritto su di esso. Senza questo rifiuto lo slot del secondo
     # cliente tornerebbe prenotabile mentre la sua prenotazione è ancora
-    # confermata, aggirando la riserva atomica di booking.py:180-189 che è
+    # confermata, aggirando la riserva atomica di create_booking (oggi sulle ore vendute) che è
     # la difesa contro la doppia prenotazione.
     assert res.status_code == 409, res.text
 

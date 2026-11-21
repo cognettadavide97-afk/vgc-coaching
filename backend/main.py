@@ -43,6 +43,7 @@ import backend.routers.admin as admin
 import backend.routers.discord_auth as discord_auth
 import backend.routers.consulenza as consulenza
 import backend.routers.pacchetti_richieste as pacchetti_richieste
+import backend.routers.disponibilita as disponibilita
 
 from alembic.config import Config
 from alembic import command
@@ -157,6 +158,7 @@ app.include_router(admin.router)
 app.include_router(discord_auth.router)
 app.include_router(consulenza.router)
 app.include_router(pacchetti_richieste.router)
+app.include_router(disponibilita.router)
 
 # Espone frontend/ sotto /static: le pagine HTML caricano da qui CSS e JS.
 app.mount("/static", StaticFiles(directory="frontend"), name="static")

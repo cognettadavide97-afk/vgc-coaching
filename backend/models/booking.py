@@ -18,7 +18,10 @@ class Booking(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    slot_id = Column(Integer, ForeignKey("slots.id"), nullable=False)
+    # Facoltativo dal pezzo 4.4: le prenotazioni fatte per orario non hanno
+    # uno slot. Lo hanno quelle precedenti e quelle che arrivano dalle
+    # pagine vecchie rimaste nella cache dei browser; sparisce nel 4.6.
+    slot_id = Column(Integer, ForeignKey("slots.id"), nullable=True)
 
     # Valorizzato solo per le sessioni da 2 ore, che occupano due slot da
     # 1 ora consecutivi: il calendario genera esclusivamente slot da 1 ora.

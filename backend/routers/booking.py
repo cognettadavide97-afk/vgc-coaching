@@ -23,7 +23,8 @@ from backend.schemas.booking import BookingCreate, BookingResponse, BookingRespo
 from backend.schemas.review import ReviewCreate, ReviewResponse, ReviewPubblica
 from backend.services.email_service import invia_conferma_cliente, invia_notifica_admin
 from backend.services.timezone_service import utc_to_rome, ora_utc_naive
-from backend.services.calendar_service import crea_evento_calendario, elimina_evento_calendario
+from backend.services.calendar_service import CalendarioNonRaggiungibile, crea_evento_calendario, elimina_evento_calendario
+from backend.services.disponibilita_service import ora_prenotabile
 from backend.services.discord_service import invia_alert_sistema, invia_notifica_discord
 from backend.services.booking_service import libera_slot_prenotazione, restituisci_credito_pacchetto
 from backend.routers.users import get_studente, get_studente_opzionale
@@ -39,12 +40,6 @@ router = APIRouter(prefix="/bookings", tags=["Bookings"])
 # pacchetti.
 TABELLA_PREZZI = {1: 2000, 2: 4000}
 
-# Orari di inizio ammessi per le sessioni da 2 ore (ora italiana). Con
-# ricevimento 15:00-19:00, ammettere anche le 16:00 creerebbe blocchi
-# incompatibili fra loro (15-17 e 16-18) e lascerebbe ore isolate
-# difficili da vendere. Vincolo di prodotto, non tecnico.
-ORE_INIZIO_VALIDE_2H = {15, 17}
-
 
 @router.post("/", response_model=BookingResponse)
 @limiter.limit("5/minute")
@@ -57,46 +52,26 @@ def create_booking(
     # Il login non è richiesto: i pagamenti non passano dall'applicazione,
     # quindi non serve un account per prenotare.
 
-    slot = db.query(Slot).filter(Slot.id == booking.slot_id).first()
-    if not slot:
-        raise HTTPException(status_code=404, detail="Slot not found")
+    # L'orario richiesto. Dal pezzo 4.4 il sito manda l'inizio; le pagine
+    # vecchie ancora nella cache dei browser mandano uno slot, da cui si
+    # ricava (ponte che sparisce con la tabella slots, nel 4.6).
+    slot = slot_secondario = None
+    if booking.slot_id is not None:
+        slot = db.query(Slot).filter(Slot.id == booking.slot_id).first()
+        if not slot:
+            raise HTTPException(status_code=404, detail="Slot not found")
+        inizio = slot.start_time
+        if booking.duration_hours == 2:
+            slot_secondario = db.query(Slot).filter(Slot.start_time == inizio + timedelta(hours=1)).first()
+    else:
+        inizio = booking.start_time
 
-    # Nessun processo marca gli slot come scaduti: senza questo controllo
-    # una richiesta diretta potrebbe confermare un appuntamento nel passato,
-    # generando evento ed email per una sessione impossibile.
-    if slot.start_time <= ora_utc_naive():
+    # Senza questo controllo una richiesta diretta potrebbe confermare un
+    # appuntamento nel passato, generando evento ed email per una sessione
+    # impossibile. La verifica sulle ore in vendita più sotto la escluderebbe
+    # comunque, ma con un messaggio che non direbbe il motivo.
+    if inizio <= ora_utc_naive():
         raise HTTPException(status_code=400, detail="This slot is in the past")
-
-    # Il calendario genera solo slot da 1 ora: una sessione da 2 ore occupa
-    # lo slot scelto e quello successivo, se esiste ed è libero.
-    # slot_secondario resta None per le sessioni da 1 ora.
-    #
-    # Il controllo è ripetuto qui anche se il frontend propone solo
-    # combinazioni valide: l'interfaccia è scavalcabile con una richiesta
-    # diretta. Vale per tutti i controlli di questa funzione.
-    slot_secondario = None
-    if booking.duration_hours != slot.duration_hours:
-        if booking.duration_hours == 2 and slot.duration_hours == 1:
-            if utc_to_rome(slot.start_time).hour not in ORE_INIZIO_VALIDE_2H:
-                raise HTTPException(
-                    status_code=400,
-                    detail="A 2-hour session can only start at 15:00 or 17:00"
-                )
-            inizio_secondario = slot.start_time + timedelta(hours=1)
-            slot_secondario = db.query(Slot).filter(
-                Slot.start_time == inizio_secondario,
-                Slot.duration_hours == 1
-            ).first()
-            if not slot_secondario or not slot_secondario.is_available:
-                raise HTTPException(
-                    status_code=400,
-                    detail="The following hour isn't available, so a 2-hour session can't start here"
-                )
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"The requested duration ({booking.duration_hours}h) does not match the selected slot's duration ({slot.duration_hours}h)"
-            )
 
     # Identità del prenotante. `booking.user_id` da solo non è una prova:
     # è un intero sequenziale che chiunque può scrivere in una richiesta
@@ -166,49 +141,37 @@ def create_booking(
             detail=f"You already have {MAX_PRENOTAZIONI_ATTIVE} active bookings. Cancel or complete a session before booking another one."
         )
 
-    # Riserva atomica dello slot.
-    #
-    # Un controllo seguito da una scrittura ("se è libero, occupalo")
-    # lascerebbe una finestra fra lettura e scrittura in cui una seconda
-    # richiesta troverebbe lo slot ancora libero, producendo due
-    # prenotazioni sullo stesso orario. È una race condition, e si
-    # manifesta solo sotto concorrenza reale.
-    #
-    # L'UPDATE condizionale sposta la verifica dentro la scrittura: il
-    # database garantisce che una sola richiesta possa trovare la
-    # condizione vera.
-    esito = db.execute(
-        update(Slot)
-        .where(Slot.id == booking.slot_id, Slot.is_available == True)
-        .values(is_available=False)
-    )
-    # rowcount a zero significa che la condizione non era più vera: un'altra
-    # richiesta ha riservato lo slot per prima.
-    if esito.rowcount == 0:
-        db.rollback()  # annulla qualunque modifica non ancora salvata in questa sessione
+    # L'ora dev'essere fra quelle in vendita: la stessa domanda dell'elenco
+    # pubblico (GET /disponibilita/), ripetuta qui anche se il sito propone
+    # solo orari validi, perché l'interfaccia è scavalcabile con una
+    # richiesta diretta. Vale per tutti i controlli di questa funzione.
+    # Viene prima di ogni scrittura: l'attesa di Google non tiene lock aperti
+    # su righe che altre prenotazioni aspettano (voci 11-12).
+    try:
+        in_vendita = ora_prenotabile(db, inizio, booking.duration_hours)
+    except CalendarioNonRaggiungibile:
+        # Nel dubbio nessuna vendita, come nell'elenco pubblico (pezzo 4.1).
+        raise HTTPException(status_code=503, detail="Availability temporarily unavailable")
+    if not in_vendita:
         raise HTTPException(status_code=400, detail="Slot not available")
 
-    # Stessa riserva per il secondo slot delle sessioni da 2 ore. Il
-    # rollback annulla anche la prima, non ancora committata: o si
-    # riservano entrambi gli slot, o nessuno.
-    if slot_secondario:
-        esito_secondario = db.execute(
-            update(Slot)
-            .where(Slot.id == slot_secondario.id, Slot.is_available == True)
-            .values(is_available=False)
-        )
-        if esito_secondario.rowcount == 0:
-            db.rollback()
-            raise HTTPException(status_code=400, detail="Slot not available")
+    # Pagine vecchie: lo slot da cui prenotano si segna occupato, come prima
+    # del 4.4, così la loro lista smette di offrirlo. È solo un riflesso per
+    # quelle pagine, non una guardia: in vendita lo dice la verifica qui
+    # sopra, e la doppia vendita la ferma la tabella ore_prenotate più sotto.
+    for s in (slot, slot_secondario):
+        if s:
+            s.is_available = False
 
-    # Stessa riserva per il credito del pacchetto, e per lo stesso motivo: il
-    # controllo "ha ancora sessioni?" più sopra è separato dalla scrittura, e
-    # due richieste simultanee dello stesso cliente lo passerebbero entrambe,
-    # spendendo un credito due volte. Come le due riserve sopra, sta prima
-    # del commit e quindi prima di Google Calendar, che si chiama solo a
-    # prenotazione salvata: un rifiuto a evento già creato lascerebbe un
-    # appuntamento fantasma, che il rollback non cancella perché sta fuori
-    # dal database.
+    # Riserva atomica del credito del pacchetto. Il controllo "ha ancora
+    # sessioni?" più sopra è separato dalla scrittura, e due richieste
+    # simultanee dello stesso cliente lo passerebbero entrambe, spendendo un
+    # credito due volte: è la race condition spiegata alla guardia sulle
+    # ore, più sotto. L'UPDATE condizionale sposta la verifica dentro la
+    # scrittura. Come quella guardia, sta prima del commit e quindi prima di
+    # Google Calendar, che si chiama solo a prenotazione salvata: un rifiuto
+    # a evento già creato lascerebbe un appuntamento fantasma, che il
+    # rollback non cancella perché sta fuori dal database.
     if package:
         esito_pacchetto = db.execute(
             update(Package)
@@ -224,15 +187,16 @@ def create_booking(
     # incassato all'acquisto e conteggiarlo di nuovo falserebbe gli incassi.
     price = 0 if package else TABELLA_PREZZI[booking.duration_hours]
 
-    slot_rome = utc_to_rome(slot.start_time)
+    slot_rome = utc_to_rome(inizio)
     data_slot = slot_rome.strftime("%d/%m/%Y")
     ora_slot = slot_rome.strftime("%H:%M")
 
     db_booking = Booking(
         user_id=user.id,
-        slot_id=booking.slot_id,
+        # Gli slot solo per le prenotazioni delle pagine vecchie (vedi sopra).
+        slot_id=slot.id if slot else None,
         slot_id_secondario=slot_secondario.id if slot_secondario else None,
-        start_time=slot.start_time,
+        start_time=inizio,
         duration_hours=booking.duration_hours,
         price_cents=price,
         service_type=booking.service_type,
@@ -251,21 +215,28 @@ def create_booking(
     # righe qui sotto, ma niente è ancora salvato.
     db.flush()
 
-    # Guardia sulle ore vendute (models/ora_prenotata.py): una riga per ogni
-    # ora della sessione, e il database rifiuta un'ora già presente. Come le
-    # riserve sopra, sposta la verifica dentro la scrittura; a differenza di
-    # quella sullo slot vale anche senza slot, ed è l'unica che resterà
-    # quando la disponibilità sarà calcolata (P9). Fino ad allora le due
-    # guardie convivono: lo slot dice se l'ora è in vendita, questa se è già
-    # venduta. Con due richieste davvero simultanee, MySQL fa aspettare la
-    # seconda scrittura finché la prima non è salvata, poi la rifiuta.
+    # Guardia sulle ore vendute (models/ora_prenotata.py).
+    #
+    # Un controllo seguito da una scrittura ("se è libera, occupala")
+    # lascerebbe una finestra fra lettura e scrittura in cui una seconda
+    # richiesta troverebbe l'ora ancora libera, producendo due prenotazioni
+    # sullo stesso orario: la verifica "in vendita?" più sopra è proprio un
+    # controllo di quel tipo. È una race condition, e si manifesta solo
+    # sotto concorrenza reale.
+    #
+    # Qui la verifica sta dentro la scrittura: una riga per ogni ora della
+    # sessione, e il database rifiuta un'ora già presente, quindi una sola
+    # richiesta può riuscire. Con due richieste davvero simultanee, MySQL fa
+    # aspettare la seconda scrittura finché la prima non è salvata, poi la
+    # rifiuta. Fino al 4.3 lo stesso compito lo faceva un UPDATE condizionale
+    # sullo slot, che senza slot non ha più niente da occupare.
     for ora in range(booking.duration_hours):
         db.add(OraPrenotata(inizio=db_booking.start_time + timedelta(hours=ora), booking_id=db_booking.id))
     try:
         db.flush()
     except IntegrityError:
-        # Il rollback annulla anche le riserve di slot e credito e la
-        # prenotazione stessa: o tutto, o niente.
+        # Il rollback annulla anche la riserva del credito, gli slot delle
+        # pagine vecchie e la prenotazione stessa: o tutto, o niente.
         db.rollback()
         raise HTTPException(status_code=400, detail="Slot not available")
 

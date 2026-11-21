@@ -1,7 +1,7 @@
 # Copre DELETE /admin/clienti/{id} (backend/routers/admin/clients.py), l'endpoint
 # che implementa il diritto alla cancellazione (Art. 17 GDPR): deve
 # eliminare cliente, prenotazioni, recensioni, note tecniche e pacchetti
-# collegati, e liberare lo slot di ogni prenotazione ancora "confirmed".
+# collegati, e liberare l'ora di ogni prenotazione ancora "confirmed".
 # Vedi tests/conftest.py per come sono preparati client/db e perché le
 # integrazioni esterne sono finte in tutti questi test.
 
@@ -10,9 +10,10 @@ from datetime import datetime, timedelta, timezone
 from backend.models.slots import Slot
 from backend.models.users import User
 from backend.models.booking import Booking
+from backend.models.ora_prenotata import OraPrenotata
 from backend.models.client_note import ClientNote
 from backend.models.package import Package
-from conftest import admin_headers
+from conftest import admin_headers, apri_ore, iso
 
 INIZIO = datetime(2030, 1, 7, 12, 0, 0)
 
@@ -31,15 +32,12 @@ def crea_utente(client, nome="Mario Rossi", email="mario@example.com"):
 def test_elimina_cliente_rimuove_tutti_i_dati_collegati(client, db):
     utente = crea_utente(client)
 
-    slot = Slot(start_time=INIZIO, duration_hours=1, is_available=True)
-    db.add(slot)
-    db.commit()
-    db.refresh(slot)
+    apri_ore(db, INIZIO)
 
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": utente["email"],
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     }).json()
@@ -57,11 +55,10 @@ def test_elimina_cliente_rimuove_tutti_i_dati_collegati(client, db):
     assert db.query(ClientNote).filter(ClientNote.user_id == utente["id"]).count() == 0
     assert db.query(Package).filter(Package.user_id == utente["id"]).count() == 0
 
-    # Lo slot occupato dalla prenotazione "confirmed" deve tornare libero,
+    # L'ora occupata dalla prenotazione "confirmed" deve tornare libera,
     # esattamente come farebbe una cancellazione singola (vedi
     # libera_slot_prenotazione in backend/services/booking_service.py).
-    db.refresh(slot)
-    assert slot.is_available is True
+    assert db.query(OraPrenotata).count() == 0
 
 
 def test_elimina_cliente_inesistente_restituisce_404(client, db):
@@ -83,15 +80,12 @@ def test_export_csv_richiede_admin(client, db):
 def test_export_csv_contiene_le_prenotazioni(client, db):
     utente = crea_utente(client, nome="Federica Test", email="federica.test@example.com")
 
-    slot = Slot(start_time=INIZIO, duration_hours=1, is_available=True)
-    db.add(slot)
-    db.commit()
-    db.refresh(slot)
+    apri_ore(db, INIZIO)
 
     client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": utente["email"],
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     })
@@ -229,15 +223,12 @@ def test_aggiorna_stato_prenotazione(client, db):
     aveva nessuna copertura prima di questo cambio di contratto.
     """
     utente = crea_utente(client)
-    slot = Slot(start_time=INIZIO, duration_hours=1, is_available=True)
-    db.add(slot)
-    db.commit()
-    db.refresh(slot)
+    apri_ore(db, INIZIO)
 
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": utente["email"],
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     }).json()
@@ -256,15 +247,12 @@ def test_aggiorna_stato_prenotazione(client, db):
 def test_aggiorna_stato_rifiuta_valore_non_valido(client, db):
     """Literal in BookingStatoUpdate rifiuta uno stato inventato con 422, prima ancora di eseguire l'endpoint."""
     utente = crea_utente(client)
-    slot = Slot(start_time=INIZIO, duration_hours=1, is_available=True)
-    db.add(slot)
-    db.commit()
-    db.refresh(slot)
+    apri_ore(db, INIZIO)
 
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": utente["email"],
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     }).json()
@@ -280,15 +268,12 @@ def test_aggiorna_stato_rifiuta_valore_non_valido(client, db):
 def test_aggiorna_note_prenotazione(client, db):
     """ANALISI_2026-08-31.md, Area Sicurezza: note viaggiava come query param, ora nel body JSON (BookingNoteUpdate)."""
     utente = crea_utente(client)
-    slot = Slot(start_time=INIZIO, duration_hours=1, is_available=True)
-    db.add(slot)
-    db.commit()
-    db.refresh(slot)
+    apri_ore(db, INIZIO)
 
     prenotazione = client.post("/bookings/", json={
         "user_id": utente["id"],
         "email": utente["email"],
-        "slot_id": slot.id,
+        "start_time": iso(INIZIO),
         "duration_hours": 1,
         "service_type": "vod_review"
     }).json()
