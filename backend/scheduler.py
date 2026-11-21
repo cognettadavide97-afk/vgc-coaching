@@ -3,11 +3,13 @@
 È l'unico punto in cui il codice viene eseguito senza una richiesta HTTP:
 APScheduler li esegue su un thread separato, in parallelo al server.
 
-Otto job: promemoria pre-sessione, richieste di recensione, sincronizzazione
-del calendario, generazione notturna degli slot, controllo delle credenziali
-Google, data retention, pulizia degli slot obsoleti e backup del database.
+Cinque job: promemoria pre-sessione, richieste di recensione, controllo
+delle credenziali Google, data retention e backup del database. Fino al
+pezzo 4.6a ce n'erano altri tre, per gli slot (generazione notturna,
+sincronizzazione con Google Calendar, pulizia): con le ore calcolate a ogni
+richiesta non resta niente da preparare di notte.
 
-Sei girano ogni giorno; il controllo delle credenziali e il backup girano
+Tre girano ogni giorno; il controllo delle credenziali e il backup girano
 una volta a settimana, la domenica alle 03:30 e alle 04:00 — in
 quest'ordine, di proposito: vedi i commenti in `avvia_scheduler`.
 
@@ -26,12 +28,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import joinedload
 from backend.database import SessionLocal, engine
 from backend.models.booking import Booking
-from backend.models.availability_rule import AvailabilityRule
 from backend.services.email_service import invia_promemoria_cliente, invia_richiesta_recensione, verifica_credenziali_gmail
 from backend.services.discord_service import invia_promemoria_discord, invia_alert_sistema
 from backend.services.timezone_service import utc_to_rome, ora_utc_naive
-from backend.services.calendar_service import sincronizza_slot_con_calendario, verifica_credenziali_calendario
-from backend.services.availability_service import genera_slot_da_regola, elimina_slot_obsoleti
+from backend.services.calendar_service import verifica_credenziali_calendario
 from backend.services.retention_service import anonimizza_clienti_inattivi, RETENTION_MONTHS
 from backend.services.backup_service import esegui_backup_database, verifica_credenziali_drive
 
@@ -46,8 +46,6 @@ PUBLIC_BASE_URL = os.getenv(
     "PUBLIC_BASE_URL",
     os.getenv("FRONTEND_ORIGINS", "http://127.0.0.1:8000").split(",")[0]
 ).rstrip("/")
-
-CALENDAR_SYNC_INTERVAL_MINUTES = int(os.getenv("CALENDAR_SYNC_INTERVAL_MINUTES", "60"))
 
 # Esito dell'ultimo controllo di ciascuna credenziale, per notificare solo
 # la transizione fra stato valido e non valido invece di ripetere l'avviso
@@ -90,8 +88,9 @@ CREDENZIALI_SORVEGLIATE = (
     CredenzialeSorvegliata(
         nome="Calendar",
         sonda=verifica_credenziali_calendario,
-        cosa_si_ferma="La sincronizzazione con Google Calendar è ferma: gli impegni presi "
-                      "fuori dall'app non bloccano più gli slot, e i nuovi eventi non vengono creati.",
+        cosa_si_ferma="Il sito non mostra nessuna ora prenotabile e il pannello non mostra "
+                      "l'anteprima: senza leggere l'agenda la disponibilità non si calcola. "
+                      "I nuovi eventi non vengono creati.",
         come_si_ripara="Controlla che il service account esista ancora su Google Cloud e che "
                        "GOOGLE_PRIVATE_KEY su Railway corrisponda a una chiave non revocata.",
     ),
@@ -220,52 +219,6 @@ def controlla_e_invia_richieste_recensione():
             inviate += 1
 
         return inviate
-    finally:
-        db.close()
-
-
-def controlla_e_sincronizza_calendario():
-    """Sincronizza gli slot con il calendario Google.
-
-    Stessa logica del pulsante manuale nel pannello: un impegno aggiunto
-    sul calendario blocca gli slot corrispondenti senza intervento.
-    """
-    db = SessionLocal()
-    try:
-        return sincronizza_slot_con_calendario(db)
-    finally:
-        db.close()
-
-
-def genera_slot_giornaliero():
-    """Genera gli slot mancanti da tutte le regole di disponibilità attive.
-
-    Restituisce il numero di slot creati. Gira ogni giorno e non una volta
-    a settimana perché la generazione arriva a fine mese corrente: con una
-    cadenza settimanale, l'inizio di un mese in un giorno diverso da quello
-    del job lascerebbe scoperti alcuni giorni. L'idempotenza rende
-    innocue le esecuzioni ripetute.
-    """
-    db = SessionLocal()
-    try:
-        regole_attive = db.query(AvailabilityRule).filter(AvailabilityRule.attiva == True).all()
-        totale_creati = 0
-        for regola in regole_attive:
-            totale_creati += genera_slot_da_regola(regola, db)
-        return totale_creati
-    finally:
-        db.close()
-
-
-def pulisci_slot_obsoleti():
-    """Elimina gli slot passati e mai prenotati.
-
-    Restituisce il numero di slot rimossi. Nessuna notifica: una pulizia di
-    routine che non trova nulla da fare non è un evento da segnalare.
-    """
-    db = SessionLocal()
-    try:
-        return elimina_slot_obsoleti(db)
     finally:
         db.close()
 
@@ -404,7 +357,7 @@ def sorveglia_job(evento):
 
     Un solo ascoltatore per tutti i job: è APScheduler ad annunciare l'esito
     di ogni esecuzione, quindi nessun job deve ricordarsi di segnalare i
-    propri errori. Copre i sei job che non avevano un avviso; backup e
+    propri errori. Copre i tre job che non avevano un avviso; backup e
     credenziali catturano da sé i propri guasti e li segnalano con un
     messaggio più preciso, quindi qui arrivano come esecuzioni riuscite.
 
@@ -437,7 +390,7 @@ def sorveglia_job(evento):
 
 
 def avvia_scheduler():
-    """Registra gli otto job e l'ascoltatore che ne sorveglia l'esito, poi avvia lo scheduler.
+    """Registra i cinque job e l'ascoltatore che ne sorveglia l'esito, poi avvia lo scheduler.
 
     Restituisce l'istanza, che il chiamante deve conservare per poterla
     fermare alla chiusura dell'applicazione.
@@ -456,12 +409,6 @@ def avvia_scheduler():
         minutes=REVIEW_CHECK_INTERVAL_MINUTES,
         id="controlla_recensioni"
     )
-    scheduler.add_job(
-        controlla_e_sincronizza_calendario,
-        "interval",
-        minutes=CALENDAR_SYNC_INTERVAL_MINUTES,
-        id="sincronizza_calendario"
-    )
     # I job notturni usano trigger cron, non interval: contano gli orari e
     # non il tempo trascorso dall'avvio.
     #
@@ -470,13 +417,6 @@ def avvia_scheduler():
     # processo gira in UTC, quindi le 03:00 corrispondono alle 04:00 o alle
     # 05:00 italiane a seconda dell'ora legale. Nessun impatto pratico —
     # restano ore a basso traffico — ma va tenuto presente leggendo i log.
-    scheduler.add_job(
-        genera_slot_giornaliero,
-        "cron",
-        hour=3,
-        minute=0,
-        id="genera_slot_giornaliero"
-    )
     # Settimanale e non giornaliero: con la schermata di consenso "In
     # production" la scadenza periodica non esiste più, e restano solo
     # revoca e cambio account — eventi rari e quasi sempre volontari. Un
@@ -494,24 +434,16 @@ def avvia_scheduler():
         minute=30,
         id="controlla_credenziali"
     )
-    # Cadenza giornaliera: la soglia di retention è in mesi. Sfalsato di un
-    # minuto per non sovrapporlo al job precedente.
+    # Cadenza giornaliera: la soglia di retention è in mesi. Le 03:01
+    # vengono da quando alle 03:00 girava la generazione degli slot, tolta
+    # nel 4.6a: l'orario resta, perché spostarlo cambierebbe l'ora reale
+    # del job senza un motivo.
     scheduler.add_job(
         controlla_e_anonimizza_clienti_inattivi,
         "cron",
         hour=3,
         minute=1,
         id="controlla_retention_clienti"
-    )
-    # Resta giornaliero: è una pulizia di routine, non una copia. Girando
-    # comunque prima delle 04:00, la domenica precede il backup e il dump
-    # non include slot che stanno per essere eliminati.
-    scheduler.add_job(
-        pulisci_slot_obsoleti,
-        "cron",
-        hour=3,
-        minute=2,
-        id="pulisci_slot_obsoleti"
     )
     # Settimanale: il volume di dati è basso e cambia poco, quindi sei
     # dump identici a settimana costerebbero spazio e attenzione senza

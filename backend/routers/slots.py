@@ -1,16 +1,17 @@
-"""Endpoint sugli slot di disponibilità.
+"""Endpoint pubblico sugli slot, solo per le pagine vecchie.
 
-La lettura è pubblica (serve al form di prenotazione, che non richiede
-login), la scrittura è riservata all'amministratore.
+Le pagine del sito precedenti al pezzo 4.4, ancora nella cache dei
+browser, leggono qui la lista degli slot. Il sito di oggi legge
+GET /disponibilita/. Questo endpoint sparisce nel 4.6b; la creazione a mano
+degli slot (POST /slots/), che dal 4.4 creava ore impossibili da vendere, è
+sparita nel 4.6a.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models.slots import Slot
-from backend.schemas.slots import SlotCreate, SlotResponse
-from backend.routers.admin import get_admin
-from backend.services.availability_service import slot_si_sovrappone
+from backend.schemas.slots import SlotResponse
 from backend.services.timezone_service import ora_utc_naive
 from typing import List
 
@@ -45,27 +46,3 @@ def get_slots(db: Session = Depends(get_db)):
         Slot.start_time >= ora_utc
     ).order_by(Slot.start_time).all()
     return slots
-
-
-@router.post("/", response_model=SlotResponse)
-def create_slot(slot: SlotCreate, admin: str = Depends(get_admin), db: Session = Depends(get_db)):
-    """Crea un singolo slot di disponibilità.
-
-    Riservato all'amministratore. Restituisce 400 se il nuovo slot si
-    sovrappone a uno esistente.
-    """
-    if slot_si_sovrappone(db, slot.start_time, slot.duration_hours):
-        raise HTTPException(
-            status_code=400,
-            detail="Questo slot si sovrappone a uno slot già esistente"
-        )
-
-    # start_time arriva già convertito in UTC dal validator di SlotCreate.
-    db_slot = Slot(
-        start_time=slot.start_time,
-        duration_hours=slot.duration_hours
-    )
-    db.add(db_slot)
-    db.commit()
-    db.refresh(db_slot)
-    return db_slot

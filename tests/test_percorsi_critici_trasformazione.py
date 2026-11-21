@@ -3,7 +3,7 @@
 # Qui il dato è già dentro: questi test documentano cosa gli succede
 # mentre viene rielaborato. Tre trasformazioni sono coperte:
 #
-#   1. calendario Google -> stato degli slot (sincronizza_slot_con_calendario)
+#   1. calendario Google -> intervalli occupati (leggi_eventi_calendario)
 #   2. cambio di stato di una prenotazione -> disponibilità dello slot
 #      (PATCH /admin/prenotazioni/{id}/stato + libera_slot_prenotazione)
 #   3. cancellazione e anonimizzazione del cliente -> righe collegate
@@ -27,23 +27,22 @@ from backend.models.slots import Slot
 from backend.models.users import User
 from backend.services import calendar_service
 from backend.services.booking_service import libera_slot_prenotazione
-from backend.services.calendar_service import (
-    CalendarioNonRaggiungibile,
-    leggi_eventi_calendario,
-    sincronizza_slot_con_calendario,
-)
+from backend.services.calendar_service import CalendarioNonRaggiungibile, leggi_eventi_calendario
 from backend.services.retention_service import anonimizza_clienti_inattivi
 from conftest import admin_headers, crea_slot
 
 ORA = datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-# ─── 1. DAL CALENDARIO GOOGLE ALLO STATO DEGLI SLOT ──────────
+# ─── 1. DAL CALENDARIO GOOGLE AGLI INTERVALLI OCCUPATI ───────
 #
 # Il servizio Google non viene mai contattato: al suo posto c'è questo
 # finto client, che restituisce gli eventi che il test decide. Serve a
-# provare la TRASFORMAZIONE (evento -> intervallo UTC -> slot bloccato),
-# non la libreria di Google.
+# provare la TRASFORMAZIONE (evento -> intervallo UTC), non la libreria di
+# Google. Cosa fa poi il calcolo con quegli intervalli, togliere le ore che
+# toccano, è provato in tests/test_disponibilita.py. Fino al pezzo 4.6a gli
+# stessi eventi passavano da sincronizza_slot_con_calendario, che chiudeva
+# gli slot della vecchia tabella.
 
 class ServizioCalendarioFinto:
     """Imita la catena service.events().list(...).execute() usata dal codice."""
@@ -81,97 +80,54 @@ def calendario(monkeypatch):
     return con_eventi
 
 
-def test_evento_sul_calendario_blocca_lo_slot_sovrapposto(db, calendario):
-    """Un impegno del coach rende non prenotabile lo slot che ci finisce dentro."""
-    # Slot alle 15:00 italiane (13:00 UTC d'estate) fra una settimana.
-    inizio = ORA + timedelta(days=7)
-    slot = crea_slot(db, inizio)
+def test_un_evento_con_orario_diventa_un_intervallo_utc(calendario):
+    """L'orario di Google porta il suo fuso: si converte in UTC naive, come il database."""
+    calendario([evento_con_orario("2030-07-15T15:00:00+02:00", "2030-07-15T16:30:00+02:00")])
 
-    calendario([evento_con_orario(
-        (inizio - timedelta(minutes=30)).isoformat() + "+00:00",
-        (inizio + timedelta(minutes=30)).isoformat() + "+00:00",
-    )])
-
-    bloccati = sincronizza_slot_con_calendario(db)
-
-    assert bloccati == 1
-    db.refresh(slot)
-    assert slot.is_available is False
-    # blocked_external distingue il blocco automatico da quello manuale.
-    assert slot.blocked_external is True
+    assert leggi_eventi_calendario(datetime(2030, 7, 15), datetime(2030, 7, 16)) == [
+        (datetime(2030, 7, 15, 13, 0), datetime(2030, 7, 15, 14, 30))
+    ]
 
 
-def test_slot_fuori_dallevento_resta_prenotabile(db, calendario):
-    """La sovrapposizione è sugli intervalli, non sul giorno."""
-    inizio = ORA + timedelta(days=7)
-    slot = crea_slot(db, inizio)
-
-    # Evento che finisce esattamente quando lo slot comincia: gli estremi
-    # che si toccano non contano come sovrapposizione.
-    calendario([evento_con_orario(
-        (inizio - timedelta(hours=2)).isoformat() + "+00:00",
-        inizio.isoformat() + "+00:00",
-    )])
-
-    bloccati = sincronizza_slot_con_calendario(db)
-
-    assert bloccati == 0
-    db.refresh(slot)
-    assert slot.is_available is True
-
-
-def test_evento_di_una_giornata_intera_blocca_la_giornata_italiana(db, calendario):
+def test_evento_di_una_giornata_intera_copre_la_giornata_italiana(calendario):
     """"Tutto il giorno" su Google non ha orario: viene esteso al giorno di Roma.
 
     Il 15 luglio 2030 Roma è UTC+2, quindi la giornata italiana va dalle
-    22:00 UTC del 14 alle 22:00 UTC del 15. Uno slot alle 23:00 italiane
-    (21:00 UTC) di quel giorno deve rientrarci, e uno del giorno dopo no.
+    22:00 UTC del 14 alle 22:00 UTC del 15: un'ora alle 23:00 italiane del
+    15 (21:00 UTC) ci rientra, una del 16 no. D'inverno lo scarto è di
+    un'ora sola: la conversione usa il fuso reale, non uno scarto fisso.
     """
-    dentro = crea_slot(db, datetime(2030, 7, 15, 21, 0))     # 23:00 italiane del 15
-    fuori = crea_slot(db, datetime(2030, 7, 16, 13, 0))      # 15:00 italiane del 16
-
     calendario([evento_giornata_intera("2030-07-15", "2030-07-16")])
+    assert leggi_eventi_calendario(datetime(2030, 7, 14), datetime(2030, 7, 17)) == [
+        (datetime(2030, 7, 14, 22, 0), datetime(2030, 7, 15, 22, 0))
+    ]
 
-    bloccati = sincronizza_slot_con_calendario(db)
-
-    assert bloccati == 1
-    db.refresh(dentro)
-    db.refresh(fuori)
-    assert dentro.is_available is False
-    assert fuori.is_available is True
+    calendario([evento_giornata_intera("2030-01-15", "2030-01-16")])
+    assert leggi_eventi_calendario(datetime(2030, 1, 14), datetime(2030, 1, 17)) == [
+        (datetime(2030, 1, 14, 23, 0), datetime(2030, 1, 15, 23, 0))
+    ]
 
 
-def test_evento_in_formato_inatteso_viene_saltato_senza_fermare_la_sync(db, calendario):
-    """Un evento privo sia di dateTime sia di date non blocca gli altri."""
-    inizio = ORA + timedelta(days=7)
-    slot = crea_slot(db, inizio)
-
+def test_evento_in_formato_inatteso_viene_saltato_senza_fermare_la_lettura(calendario):
+    """Un evento privo sia di dateTime sia di date non fa perdere gli altri."""
     calendario([
         {"start": {}, "end": {}},                            # formato inatteso
-        evento_con_orario(
-            (inizio - timedelta(minutes=30)).isoformat() + "+00:00",
-            (inizio + timedelta(minutes=30)).isoformat() + "+00:00",
-        ),
+        evento_con_orario("2030-07-15T15:00:00+02:00", "2030-07-15T16:00:00+02:00"),
     ])
 
-    bloccati = sincronizza_slot_con_calendario(db)
-
-    assert bloccati == 1
-    db.refresh(slot)
-    assert slot.is_available is False
+    assert leggi_eventi_calendario(datetime(2030, 7, 15), datetime(2030, 7, 16)) == [
+        (datetime(2030, 7, 15, 13, 0), datetime(2030, 7, 15, 14, 0))
+    ]
 
 
-def test_calendario_irraggiungibile_e_un_errore_non_un_agenda_vuota(db, monkeypatch):
+def test_calendario_irraggiungibile_e_un_errore_non_un_agenda_vuota(monkeypatch):
     """Se Google non risponde, la lettura lo dice invece di restituire [].
 
     Una lista vuota significa "nessun impegno": con la disponibilità
     calcolata (decisione P9) un minuto di irraggiungibilità metterebbe in
     vendita tutti gli orari realmente occupati. Il guasto deve restare
-    distinguibile dall'agenda vuota, e la sincronizzazione non blocca
-    nulla ma non finge di essere riuscita.
+    distinguibile dall'agenda vuota.
     """
-    slot = crea_slot(db, ORA + timedelta(days=7))
-
     def esplode():
         raise RuntimeError("Google non raggiungibile")
 
@@ -179,80 +135,6 @@ def test_calendario_irraggiungibile_e_un_errore_non_un_agenda_vuota(db, monkeypa
 
     with pytest.raises(CalendarioNonRaggiungibile):
         leggi_eventi_calendario(ORA, ORA + timedelta(days=1))
-    with pytest.raises(CalendarioNonRaggiungibile):
-        sincronizza_slot_con_calendario(db)
-
-    db.refresh(slot)
-    assert slot.is_available is True
-
-
-def test_il_pulsante_sincronizza_dice_al_coach_che_google_non_risponde(client, db, monkeypatch):
-    """Il pannello mostrava "0 slot bloccati" anche a sincronizzazione mai avvenuta."""
-    crea_slot(db, ORA + timedelta(days=7))
-
-    def esplode():
-        raise RuntimeError("Google non raggiungibile")
-
-    monkeypatch.setattr(calendar_service, "get_calendar_service", esplode)
-
-    risposta = client.post("/admin/slots/sync-calendario", headers=admin_headers())
-
-    assert risposta.status_code == 503
-
-
-def test_la_sincronizzazione_non_riapre_da_sola_lo_slot_bloccato(db, calendario):
-    """Il blocco automatico è a senso unico: si mette, non si toglie."""
-    inizio = ORA + timedelta(days=7)
-    slot = crea_slot(db, inizio)
-
-    calendario([evento_con_orario(
-        (inizio - timedelta(minutes=30)).isoformat() + "+00:00",
-        (inizio + timedelta(minutes=30)).isoformat() + "+00:00",
-    )])
-    sincronizza_slot_con_calendario(db)
-    db.refresh(slot)
-    assert slot.is_available is False
-
-    # Il coach cancella l'impegno dal proprio calendario e si sincronizza
-    # di nuovo: l'agenda ora è vuota.
-    calendario([])
-    sincronizza_slot_con_calendario(db)
-    db.refresh(slot)
-
-    # Voluto: la query di sincronizzazione considera solo gli slot con
-    # is_available == True, quindi uno slot già bloccato non viene più
-    # esaminato. La riapertura automatica non si aggiunge alla tabella
-    # degli slot: arriva con la disponibilità calcolata (decisione P9),
-    # possibile da quando un Google irraggiungibile solleva
-    # CalendarioNonRaggiungibile invece di sembrare un'agenda vuota. Fino
-    # ad allora la via d'uscita è esplicita,
-    # POST /admin/slots/{slot_id}/sblocca — vedi i test dedicati in
-    # tests/test_availability.py.
-    assert slot.is_available is False
-    assert slot.blocked_external is True
-
-
-def test_uno_slot_bloccato_non_e_eliminabile_se_ha_uno_storico(client, db, calendario):
-    """Eliminare uno slot già usato resta vietato: si sblocca, non si cancella."""
-    inizio = ORA + timedelta(days=7)
-    slot = crea_slot(db, inizio)
-
-    utente = User(nome="Cliente", email="c@example.com", categoria="senior")
-    db.add(utente)
-    db.commit()
-    # Una prenotazione cancellata in passato basta a legare lo slot allo storico.
-    db.add(Booking(user_id=utente.id, slot_id=slot.id, start_time=slot.start_time, duration_hours=1,
-                   price_cents=2000, service_type="vod_review", status="cancelled"))
-    db.commit()
-
-    res = client.delete(f"/admin/slots/{slot.id}", headers=admin_headers())
-
-    # Preservare lo storico è corretto e resta così: la prenotazione
-    # cancellata perderebbe il riferimento all'orario a cui si riferiva.
-    # Non è più un vicolo cieco, però: per rimettere in vendita quell'ora
-    # c'è lo sblocco, che non tocca lo storico.
-    assert res.status_code == 400
-    assert db.query(Slot).filter(Slot.id == slot.id).first() is not None
 
 
 # ─── 2. CAMBIO DI STATO -> DISPONIBILITÀ DELLO SLOT ──────────

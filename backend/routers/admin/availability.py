@@ -1,22 +1,20 @@
-"""Gestione della disponibilità: slot, regole ricorrenti e blocchi.
+"""Gestione della disponibilità: regole ricorrenti, blocchi e anteprima.
 
-Tre livelli distinti: gli slot concreti, le regole che li generano
-("ogni martedì 18-22") e i blocchi eccezionali che li sospendono (ferie).
+Le regole dicono quando il coach lavora ("ogni martedì 18-22"), i blocchi
+quando no (ferie). Si salvano e basta: le ore in vendita le calcola
+services/disponibilita_service.py a ogni richiesta, quindi una regola o un
+blocco creati o eliminati valgono subito, per il sito e per l'anteprima.
 
-Dal pezzo 4.4 il sito non vende più gli slot: calcola le ore da regole e
-blocchi a ogni richiesta (services/disponibilita_service.py), quindi una
-regola o un blocco creati o eliminati valgono subito. Gli slot si generano e
-si bloccano ancora, per le pagine vecchie nella cache dei browser, fino
-alla rimozione della tabella nel 4.6. Dal 4.5 il pannello mostra le ore
-calcolate con l'anteprima settimanale.
+Fino al pezzo 4.6a regole e blocchi generavano e chiudevano gli slot, una
+copia della disponibilità salvata in anticipo, e il pannello aveva gli
+endpoint per sincronizzarli con Google, sbloccarli ed eliminarli a mano.
+Dal 4.4 il sito non vendeva più gli slot; nel 4.6a sono spariti anche
+questi endpoint.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from backend.database import get_db
-from backend.models.booking import Booking
-from backend.models.slots import Slot
 from backend.models.availability_rule import AvailabilityRule
 from backend.models.availability_exception import AvailabilityException
 from backend.schemas.availability import (
@@ -24,13 +22,11 @@ from backend.schemas.availability import (
     AvailabilityExceptionCreate, AvailabilityExceptionResponse
 )
 from backend.routers.admin import get_admin
-from backend.services.calendar_service import CalendarioNonRaggiungibile, sincronizza_slot_con_calendario
-from backend.services.timezone_service import ROME_TZ, formatta_data_ora_rome, ora_utc_naive, utc_to_rome
-from backend.services.availability_service import genera_slot_da_regola, applica_blocco_eccezionale
+from backend.services.calendar_service import CalendarioNonRaggiungibile
+from backend.services.timezone_service import ora_utc_naive, utc_to_rome
 from backend.services.disponibilita_service import anteprima_settimana
-from backend.services.pagination_service import pagina_e_offset, busta_paginazione
 from typing import List
-from datetime import datetime, time, timedelta, timezone
+from datetime import timedelta
 
 router = APIRouter()
 
@@ -39,149 +35,6 @@ router = APIRouter()
 # services/disponibilita_service.py).
 SETTIMANE_ANTEPRIMA = 12
 
-
-# ─── GESTIONE SLOT ───────────────────────────────────────────
-@router.get("/slots")
-def get_slots_admin(
-    admin: str = Depends(get_admin),
-    db: Session = Depends(get_db),
-    pagina: int = 1,
-    per_pagina: int = 20
-):
-    """Restituisce gli slot da oggi in poi, liberi e occupati, paginati (più vicini nel tempo prima)."""
-    pagina, per_pagina, offset = pagina_e_offset(pagina, per_pagina)
-
-    # Gli slot passati e prenotati non vengono mai cancellati (sono lo storico
-    # delle sessioni): senza questo filtro, ordinati dal più vecchio, col tempo
-    # riempirebbero la prima pagina. Si parte dalla mezzanotte italiana di oggi
-    # e non da adesso, così le sessioni di oggi già iniziate restano visibili;
-    # "oggi" è il giorno di Roma, poi riportato in UTC come il database.
-    oggi_rome = utc_to_rome(ora_utc_naive()).date()
-    da_utc = datetime.combine(oggi_rome, time.min, tzinfo=ROME_TZ)         .astimezone(timezone.utc).replace(tzinfo=None)
-    da_oggi = db.query(Slot).filter(Slot.start_time >= da_utc)
-
-    totale = da_oggi.count()
-
-    slots = da_oggi.order_by(Slot.start_time) \
-        .offset(offset) \
-        .limit(per_pagina) \
-        .all()
-
-    items = []
-    for s in slots:
-        data, ora = formatta_data_ora_rome(s.start_time)
-        items.append({
-            "id": s.id,
-            "data": data,
-            "ora": ora,
-            "durata_ore": s.duration_hours,
-            "disponibile": s.is_available,
-            "bloccato_da_calendario": s.blocked_external,
-            "bloccato_da_admin": s.blocked_admin
-        })
-
-    return busta_paginazione(items, totale, pagina, per_pagina)
-
-@router.post("/slots/sync-calendario")
-def sincronizza_calendario(
-    admin: str = Depends(get_admin),
-    db: Session = Depends(get_db)
-):
-    """Blocca gli slot sovrapposti a impegni esterni sul calendario Google.
-
-    Attivazione manuale dal pannello. La stessa logica gira anche in un job
-    periodico: le due strade condividono l'implementazione.
-
-    Google irraggiungibile è un 503, non "0 slot bloccati": il coach deve
-    sapere che la sincronizzazione non è avvenuta.
-    """
-    try:
-        bloccati = sincronizza_slot_con_calendario(db)
-    except CalendarioNonRaggiungibile:
-        raise HTTPException(status_code=503, detail="Google Calendar non raggiungibile")
-    return {"slot_bloccati": bloccati}
-
-@router.delete("/slots/{slot_id}")
-def elimina_slot(
-    slot_id: int,
-    admin: str = Depends(get_admin),
-    db: Session = Depends(get_db)
-):
-    """Elimina uno slot privo di prenotazioni collegate.
-
-    Restituisce 400 se lo slot compare in qualsiasi prenotazione, anche
-    cancellata o come slot secondario di una sessione da 2 ore: lo storico
-    va preservato. Per sospendere uno slot senza eliminarlo si usa un
-    blocco eccezionale.
-    """
-    slot = db.query(Slot).filter(Slot.id == slot_id).first()
-    if not slot:
-        raise HTTPException(status_code=404, detail="Slot non trovato")
-
-    # Entrambe le colonne che referenziano slots vanno controllate: il
-    # vincolo di chiave esterna bloccherebbe comunque la cancellazione, ma
-    # con un errore tecnico invece del messaggio esplicito qui sotto.
-    prenotazioni_collegate = db.query(Booking).filter(
-        or_(Booking.slot_id == slot_id, Booking.slot_id_secondario == slot_id)
-    ).count()
-
-    if prenotazioni_collegate > 0:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Impossibile eliminare: questo slot ha {prenotazioni_collegate} prenotazione/i collegate nello storico. Non può essere rimosso per preservare i dati."
-        )
-
-    db.delete(slot)
-    db.commit()
-    return {"message": "Slot eliminato"}
-
-@router.post("/slots/{slot_id}/sblocca")
-def sblocca_slot(
-    slot_id: int,
-    admin: str = Depends(get_admin),
-    db: Session = Depends(get_db)
-):
-    """Rimette in vendita uno slot chiuso da un blocco, manuale o da calendario.
-
-    È l'unica via d'uscita dai due blocchi: sia la sincronizzazione col
-    calendario sia i blocchi eccezionali scrivono `blocked_external` e
-    `blocked_admin` solo a True e non li riaprono mai (vedi il commento in
-    `calendar_service.sincronizza_slot_con_calendario` e il docstring di
-    `elimina_blocco_eccezionale`). Senza questo endpoint un impegno
-    cancellato dal calendario o una settimana di ferie inserita per sbaglio
-    toglie quegli orari dalla vendita in modo definitivo.
-    """
-    slot = db.query(Slot).filter(Slot.id == slot_id).first()
-    if not slot:
-        raise HTTPException(status_code=404, detail="Slot non trovato")
-
-    if slot.is_available:
-        # 409 e non un 200 silenzioso: se il coach chiede di sbloccare uno
-        # slot già libero, la lista che ha davanti è vecchia e deve saperlo.
-        raise HTTPException(status_code=409, detail="Questo slot è già disponibile")
-
-    # I due flag sono l'unico modo per distinguere "bloccato" da "prenotato":
-    # quando sono entrambi False e lo slot non è disponibile, quell'ora è
-    # stata venduta a un cliente (vedi backend/models/slots.py:29-32).
-    # Riaprirla la rimetterebbe in vendita creando un doppio impegno reale,
-    # che è esattamente il danno chiuso lato prenotazioni in aggiorna_stato.
-    if not slot.blocked_external and not slot.blocked_admin:
-        raise HTTPException(
-            status_code=409,
-            detail="Questo slot non è bloccato: è prenotato da un cliente. Per liberarlo si cancella la prenotazione."
-        )
-
-    # Entrambi i flag, non solo quello acceso: descrivono *perché* lo slot è
-    # chiuso, quindi su uno slot aperto devono essere entrambi falsi. Se ne
-    # restasse uno a True il pannello continuerebbe a mostrarlo bloccato.
-    slot.is_available = True
-    slot.blocked_external = False
-    slot.blocked_admin = False
-    db.commit()
-
-    # Nessun controllo sul calendario: se l'impegno esiste ancora, la
-    # sincronizzazione notturna richiude lo slot da sola.
-    return {"message": "Slot sbloccato"}
 
 # ─── ANTEPRIMA SETTIMANALE ────────────────────────────────────
 @router.get("/disponibilita/anteprima")
@@ -219,16 +72,16 @@ def lista_regole_disponibilita(
         AvailabilityRule.giorno_settimana, AvailabilityRule.ora_inizio
     ).all()
 
-@router.post("/disponibilita/regole")
+@router.post("/disponibilita/regole", response_model=AvailabilityRuleResponse)
 def crea_regola_disponibilita(
     regola: AvailabilityRuleCreate,
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
     """
-    Crea una regola di disponibilità ricorrente (es. "ogni martedì 18-22,
-    slot da 1h") e genera subito gli slot corrispondenti fino alla fine
-    del mese corrente, saltando quelli già esistenti allo stesso orario.
+    Crea una regola di disponibilità ricorrente (es. "ogni martedì 18-22")
+    e la restituisce. Le sue ore libere sono in vendita da subito, fino
+    all'orizzonte (GIORNI_PRENOTABILI): nessuno slot da generare.
     """
     if regola.ora_fine <= regola.ora_inizio:
         raise HTTPException(status_code=400, detail="L'ora di fine deve essere successiva all'ora di inizio")
@@ -242,17 +95,7 @@ def crea_regola_disponibilita(
     db.add(db_regola)
     db.commit()
     db.refresh(db_regola)
-
-    # Salvare la regola non crea slot: la generazione è un passo separato,
-    # eseguito subito qui e poi ripetuto ogni notte dal job schedulato.
-    slot_creati = genera_slot_da_regola(db_regola, db)
-
-    return {
-        # Conversione manuale: la risposta combina due valori, quindi non
-        # può essere dichiarata con un singolo response_model.
-        "regola": AvailabilityRuleResponse.model_validate(db_regola),
-        "slot_creati": slot_creati
-    }
+    return db_regola
 
 @router.delete("/disponibilita/regole/{regola_id}")
 def elimina_regola_disponibilita(
@@ -262,9 +105,8 @@ def elimina_regola_disponibilita(
 ):
     """
     Elimina una regola di disponibilità ricorrente. Le sue ore escono
-    subito dalla vendita, perché il sito le calcola dalle regole (dal 4.4);
-    le prenotazioni già fatte restano. Gli slot che aveva generato restano
-    nella tabella come slot indipendenti, che nessuno vende più.
+    subito dalla vendita, perché il sito le calcola dalle regole; le
+    prenotazioni già fatte restano.
     """
     regola = db.query(AvailabilityRule).filter(AvailabilityRule.id == regola_id).first()
     if not regola:
@@ -285,15 +127,16 @@ def lista_blocchi_eccezionali(
         AvailabilityException.data_inizio.desc()
     ).all()
 
-@router.post("/disponibilita/blocchi")
+@router.post("/disponibilita/blocchi", response_model=AvailabilityExceptionResponse)
 def crea_blocco_eccezionale(
     blocco: AvailabilityExceptionCreate,
     admin: str = Depends(get_admin),
     db: Session = Depends(get_db)
 ):
     """
-    Crea un blocco eccezionale (es. ferie) su un periodo di date e marca
-    subito come non disponibili gli slot liberi che ci cadono dentro.
+    Crea un blocco eccezionale (es. ferie) su un periodo di giorni italiani,
+    estremi inclusi, e lo restituisce. Quei giorni escono subito dalla
+    vendita; le prenotazioni già fatte restano (l'anteprima le mostra).
     """
     if blocco.data_fine < blocco.data_inizio:
         raise HTTPException(status_code=400, detail="La data di fine deve essere successiva o uguale alla data di inizio")
@@ -306,13 +149,7 @@ def crea_blocco_eccezionale(
     db.add(db_blocco)
     db.commit()
     db.refresh(db_blocco)
-
-    slot_bloccati = applica_blocco_eccezionale(db_blocco, db)
-
-    return {
-        "blocco": AvailabilityExceptionResponse.model_validate(db_blocco),
-        "slot_bloccati": slot_bloccati
-    }
+    return db_blocco
 
 @router.delete("/disponibilita/blocchi/{blocco_id}")
 def elimina_blocco_eccezionale(
@@ -322,16 +159,12 @@ def elimina_blocco_eccezionale(
 ):
     """Elimina un blocco eccezionale.
 
-    Per il sito il blocco smette di valere subito: dal 4.4 le ore si
-    calcolano leggendo i blocchi a ogni richiesta, e un secondo blocco
+    Quei giorni tornano subito in vendita, se una regola li prevede e sono
+    liberi: il calcolo legge i blocchi a ogni richiesta, e un secondo blocco
     sovrapposto resta in vigore perché il calcolo lo legge per conto suo.
-
-    Gli slot che aveva chiuso nella tabella, invece, non vengono riaperti.
-    Non è una dimenticanza: il blocco non registra da nessuna parte *quali*
-    slot abbia chiuso, e riaprirli in automatico significherebbe riaprire
-    tutto ciò che cade nell'intervallo di date, compresi gli slot chiusi da
-    un secondo blocco sovrapposto. Restano chiusi in una tabella che il sito
-    non vende più, fino alla sua rimozione nel 4.6.
+    Con gli slot, fino al 4.6a, non era così: il blocco non registrava
+    quali slot avesse chiuso, e riaprirli era una decisione a mano, slot per
+    slot (decisione P1, superata da P9).
     """
     blocco = db.query(AvailabilityException).filter(AvailabilityException.id == blocco_id).first()
     if not blocco:

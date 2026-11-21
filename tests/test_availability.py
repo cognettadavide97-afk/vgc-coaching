@@ -1,26 +1,41 @@
-# Copre backend/services/availability_service.py e la parte di
-# backend/routers/admin/availability.py legata alle regole ricorrenti —
-# finora senza nessun test dedicato. Vedi tests/conftest.py per come sono
+# Copre backend/routers/admin/availability.py: regole ricorrenti e blocchi
+# eccezionali, dal lato del pannello. Vedi tests/conftest.py per come sono
 # preparati client/db.
+#
+# Dal pezzo 4.6a regole e blocchi non generano né chiudono slot: si salvano
+# e basta, e le ore in vendita le calcola services/disponibilita_service.py
+# a ogni richiesta. Qui si prova che gli endpoint salvino e validino, e che
+# ogni modifica valga subito per il calcolo. Fino ad allora questo file
+# provava la generazione degli slot, il loro blocco e lo sblocco a mano:
+# quei test sono spariti con il codice che provavano.
 
 from datetime import date, datetime, time
 
-from backend.models.slots import Slot
-from backend.models.users import User
-from backend.models.booking import Booking
-from backend.models.availability_rule import AvailabilityRule
 from backend.models.availability_exception import AvailabilityException
-from backend.services import availability_service
-from backend.services.availability_service import (
-    applica_blocco_eccezionale,
-    elimina_slot_obsoleti,
-    genera_slot_da_regola,
-)
-from conftest import admin_headers, crea_slot
+from backend.models.availability_rule import AvailabilityRule
+from backend.services.disponibilita_service import calcola_disponibilita
+from conftest import admin_headers
 
-FUTURO = datetime(2030, 1, 7, 15, 0, 0)
-PASSATO = datetime(2020, 1, 7, 15, 0, 0)
+# Martedì 16 luglio 2030, d'estate: le 18:00 italiane sono le 16:00 UTC.
+MARTEDI = date(2030, 7, 16)
+INIZIO_MARTEDI = datetime(2030, 7, 16, 0, 0)
+FINE_MARTEDI = datetime(2030, 7, 17, 0, 0)
 
+
+def crea_regola(client, giorno=1, inizio="18:00:00", fine="20:00:00"):
+    return client.post(
+        "/admin/disponibilita/regole",
+        headers=admin_headers(),
+        json={"giorno_settimana": giorno, "ora_inizio": inizio, "ora_fine": fine, "durata_slot_ore": 1}
+    )
+
+
+def ore_in_vendita(db, da, a):
+    """Le ore da 1 ora che il calcolo offre fra `da` e `a` (UTC naive)."""
+    return calcola_disponibilita(db, da, a)[1]
+
+
+# ─── REGOLE RICORRENTI ────────────────────────────────────────
 
 def test_regola_con_durata_diversa_da_1_ora_viene_rifiutata(client, db):
     """
@@ -44,301 +59,64 @@ def test_regola_con_durata_diversa_da_1_ora_viene_rifiutata(client, db):
     assert res.status_code == 422
 
 
-def test_regola_con_durata_1_ora_viene_accettata(client, db):
-    res = client.post(
-        "/admin/disponibilita/regole",
-        headers=admin_headers(),
-        json={
-            "giorno_settimana": 1,
-            "ora_inizio": "18:00:00",
-            "ora_fine": "22:00:00",
-            "durata_slot_ore": 1
-        }
-    )
+def test_creare_una_regola_restituisce_la_regola_salvata(client, db):
+    """Solo la regola: dal 4.6a non c'è più un conteggio di slot generati."""
+    res = crea_regola(client)
+
     assert res.status_code == 200, res.text
+    corpo = res.json()
+    assert corpo["giorno_settimana"] == 1
+    assert corpo["ora_inizio"] == "18:00:00"
+    assert corpo["attiva"] is True
+    assert db.query(AvailabilityRule).filter(AvailabilityRule.id == corpo["id"]).count() == 1
 
 
-def test_genera_slot_da_regola_ignora_regola_legacy_da_2_ore(db):
-    """
-    Difesa in profondità: AvailabilityRuleCreate rifiuta già durata_slot_ore
-    diverso da 1 in scrittura (vedi il test sopra), ma una riga con
-    durata_slot_ore=2 potrebbe comunque esistere nel database se creata
-    prima che quel controllo esistesse (inserita qui direttamente, bypassando
-    lo schema Pydantic, per simulare esattamente quel caso). Il job notturno
-    genera_slot_giornaliero deve ignorarla, non continuare a generare slot
-    da 2h prenotabili fuori dalla fascia 15:00/17:00.
-    """
-    regola_legacy = AvailabilityRule(
-        giorno_settimana=datetime.today().weekday(),
-        ora_inizio=time(18, 0),
-        ora_fine=time(20, 0),
-        durata_slot_ore=2,
-        attiva=True,
-    )
-    db.add(regola_legacy)
-    db.commit()
-    db.refresh(regola_legacy)
-
-    creati = genera_slot_da_regola(regola_legacy, db)
-
-    assert creati == 0
-    assert db.query(Slot).filter(Slot.duration_hours == 2).count() == 0
+def test_crea_regola_rifiuta_ora_fine_non_successiva(client, db):
+    res = crea_regola(client, inizio="22:00:00", fine="22:00:00")
+    assert res.status_code == 400
 
 
-def test_elimina_slot_obsoleti_rimuove_slot_passato_mai_prenotato(db):
-    slot = crea_slot(db, PASSATO)
-    eliminati = elimina_slot_obsoleti(db)
-    assert eliminati == 1
-    assert db.query(Slot).filter(Slot.id == slot.id).first() is None
+def test_lista_regole_ordinata_per_giorno_e_ora(client, db):
+    for giorno, ora in ((3, "18:00:00"), (1, "20:00:00"), (1, "18:00:00")):
+        crea_regola(client, giorno=giorno, inizio=ora, fine="23:00:00")
 
-
-def test_elimina_slot_obsoleti_non_tocca_slot_futuri(db):
-    slot = crea_slot(db, FUTURO)
-    eliminati = elimina_slot_obsoleti(db)
-    assert eliminati == 0
-    assert db.query(Slot).filter(Slot.id == slot.id).first() is not None
-
-
-def test_elimina_slot_obsoleti_preserva_slot_con_prenotazione_cancellata(db):
-    """
-    Uno slot passato con is_available=True può anche essere uno che ERA
-    prenotato ed è stato poi cancellato (libera_slot_prenotazione lo riapre
-    senza eliminare la riga Booking, che resta con status="cancelled") —
-    va preservato per non perdere lo storico, esattamente come la
-    cancellazione manuale (DELETE /admin/slots/{id}) già si rifiuta di
-    eliminarlo.
-    """
-    slot = crea_slot(db, PASSATO, is_available=True)
-    utente = User(nome="Test", email="storico@example.com")
-    db.add(utente)
-    db.commit()
-    db.refresh(utente)
-
-    prenotazione = Booking(
-        user_id=utente.id, slot_id=slot.id, start_time=slot.start_time, duration_hours=1,
-        price_cents=2000, service_type="vod_review", status="cancelled"
-    )
-    db.add(prenotazione)
-    db.commit()
-
-    eliminati = elimina_slot_obsoleti(db)
-    assert eliminati == 0
-    assert db.query(Slot).filter(Slot.id == slot.id).first() is not None
-
-
-def test_elimina_slot_obsoleti_rimuove_anche_slot_bloccato_mai_prenotato(db):
-    """
-    Uno slot passato bloccato (es. da un blocco eccezionale/ferie mai
-    utilizzato) non ha nessun valore storico da preservare se nessuna
-    prenotazione lo referenzia — va ripulito come uno slot libero.
-    """
-    slot = crea_slot(db, PASSATO, is_available=False)
-    eliminati = elimina_slot_obsoleti(db)
-    assert eliminati == 1
-    assert db.query(Slot).filter(Slot.id == slot.id).first() is None
-
-
-def test_elimina_slot_rifiuta_slot_secondario_di_una_sessione_da_2h(client, db):
-    """
-    Una sessione da 2h unisce due slot da 1h adiacenti: il primo tramite
-    Booking.slot_id, il secondo tramite Booking.slot_id_secondario (vedi
-    backend/models/booking.py). Cancellare lo slot referenziato SOLO come
-    slot_id_secondario deve dare lo stesso 400 pulito dello slot
-    referenziato come slot_id — non un errore del database, dato che
-    entrambe le colonne sono una ForeignKey verso slots.id.
-    """
-    utente = User(nome="Test", email="due-ore@example.com")
-    db.add(utente)
-    db.commit()
-    db.refresh(utente)
-
-    slot_primario = crea_slot(db, datetime(2030, 1, 8, 14, 0, 0), is_available=False)
-    slot_secondario = crea_slot(db, datetime(2030, 1, 8, 15, 0, 0), is_available=False)
-
-    prenotazione = Booking(
-        user_id=utente.id, slot_id=slot_primario.id, start_time=slot_primario.start_time, slot_id_secondario=slot_secondario.id,
-        duration_hours=2, price_cents=4000, service_type="vod_review", status="confirmed"
-    )
-    db.add(prenotazione)
-    db.commit()
-
-    res = client.delete(f"/admin/slots/{slot_secondario.id}", headers=admin_headers())
-
-    assert res.status_code == 400, res.text
-    assert db.query(Slot).filter(Slot.id == slot_secondario.id).first() is not None
-
-
-def test_lista_slot_del_pannello_parte_da_oggi_in_ora_italiana(client, db, monkeypatch):
-    """Il pannello mostra gli slot dalla mezzanotte italiana di oggi, i più vicini prima.
-
-    Gli slot passati e prenotati non vengono mai cancellati: ordinati dal più
-    vecchio, col tempo riempirebbero la prima pagina di sole sessioni finite.
-    Quelli di oggi già iniziati restano visibili. Ora fissata al 10/07/2030
-    alle 14 italiane (12 UTC, ora legale).
-    """
-    from backend.routers.admin import availability as router_disponibilita
-    monkeypatch.setattr(router_disponibilita, "ora_utc_naive", lambda: datetime(2030, 7, 10, 12, 0))
-
-    crea_slot(db, datetime(2030, 7, 11, 16, 0))   # domani
-    crea_slot(db, datetime(2030, 7, 9, 21, 0))    # ieri alle 23 italiane: fuori
-    crea_slot(db, datetime(2030, 7, 10, 6, 0))    # stamattina alle 8, già passato: dentro
-    crea_slot(db, datetime(2030, 7, 9, 22, 30))   # oggi alle 00:30 italiane, ieri in UTC: dentro
-
-    res = client.get("/admin/slots", headers=admin_headers())
+    res = client.get("/admin/disponibilita/regole", headers=admin_headers())
 
     assert res.status_code == 200
-    dati = res.json()
-    assert [(s["data"], s["ora"]) for s in dati["items"]] == [
-        ("10/07/2030", "00:30"), ("10/07/2030", "08:00"), ("11/07/2030", "18:00")
+    assert [(r["giorno_settimana"], r["ora_inizio"]) for r in res.json()] == [
+        (1, "18:00:00"), (1, "20:00:00"), (3, "18:00:00")
     ]
-    assert dati["totale"] == 3
 
 
-# ─── BLOCCHI ECCEZIONALI (FERIE) ──────────────────────────────
-# applica_blocco_eccezionale è il punto in cui "sono via dal 10 al 15"
-# diventa un insieme di slot davvero bloccati. Il rischio non è ovvio:
-# gli slot sono salvati in UTC, ma il periodo che il coach indica è in
-# GIORNI ITALIANI. Chi confrontasse le date senza convertire otterrebbe
-# uno scarto di un'ora (due d'estate) proprio sui bordi — cioè slot
-# ancora prenotabili mentre il coach è via, o chiusi un giorno di troppo.
-# I test qui sotto stanno tutti su quei bordi, ed è il motivo per cui
-# usano orari a cavallo della mezzanotte invece di orari comodi.
-
-def blocco(db, data_inizio, data_fine, motivo="Ferie"):
-    """Crea il blocco sul database e lo applica, come fa l'endpoint POST."""
-    eccezione = AvailabilityException(data_inizio=data_inizio, data_fine=data_fine, motivo=motivo)
-    db.add(eccezione)
-    db.commit()
-    db.refresh(eccezione)
-    return eccezione, applica_blocco_eccezionale(eccezione, db)
+def test_elimina_regola_inesistente_risponde_404(client, db):
+    res = client.delete("/admin/disponibilita/regole/9999", headers=admin_headers())
+    assert res.status_code == 404
 
 
-def test_blocco_estivo_copre_il_giorno_italiano_non_quello_utc(db):
-    """Ora legale: Roma è UTC+2, quindi il 10 luglio italiano inizia alle 22:00 UTC del 9.
+def test_una_regola_vale_subito_e_una_volta_eliminata_non_vale_piu(client, db):
+    """Nessun job da aspettare né slot da ripulire: il calcolo legge le regole a ogni richiesta.
 
-    Lo slot delle 22:30 UTC del 9 luglio è già "10 luglio sera" per il
-    coach e deve essere bloccato; quello delle 21:30 è ancora il 9 e non
-    deve esserlo. È la coppia che smaschera un confronto fatto sulle date
-    UTC senza conversione.
+    Fino al 4.6a eliminare una regola lasciava in vendita gli slot che
+    aveva già generato, fino a fine mese.
     """
-    dentro = crea_slot(db, datetime(2030, 7, 9, 22, 30))    # Roma: 10 luglio 00:30
-    fuori = crea_slot(db, datetime(2030, 7, 9, 21, 30))     # Roma: 9 luglio 23:30
+    regola = crea_regola(client).json()
+    assert ore_in_vendita(db, INIZIO_MARTEDI, FINE_MARTEDI) == [datetime(2030, 7, 16, 16), datetime(2030, 7, 16, 17)]
 
-    _, bloccati = blocco(db, date(2030, 7, 10), date(2030, 7, 15))
+    res = client.delete(f"/admin/disponibilita/regole/{regola['id']}", headers=admin_headers())
 
-    assert bloccati == 1
-    db.refresh(dentro); db.refresh(fuori)
-    assert dentro.is_available is False and dentro.blocked_admin is True
-    assert fuori.is_available is True
+    assert res.status_code == 200
+    assert ore_in_vendita(db, INIZIO_MARTEDI, FINE_MARTEDI) == []
 
 
-def test_blocco_estivo_copre_lultimo_giorno_fino_a_mezzanotte_italiana(db):
-    """L'estremo finale è incluso per intero, non troncato alle 00:00."""
-    dentro = crea_slot(db, datetime(2030, 7, 15, 21, 30))   # Roma: 15 luglio 23:30
-    fuori = crea_slot(db, datetime(2030, 7, 15, 22, 30))    # Roma: 16 luglio 00:30
-
-    _, bloccati = blocco(db, date(2030, 7, 10), date(2030, 7, 15))
-
-    assert bloccati == 1
-    db.refresh(dentro); db.refresh(fuori)
-    assert dentro.is_available is False
-    assert fuori.is_available is True
-
-
-def test_blocco_invernale_usa_lo_scarto_giusto_e_non_uno_fisso(db):
-    """Stessa scena in ora solare, dove Roma è UTC+1 invece di UTC+2.
-
-    Le 22:30 UTC del 9 gennaio sono ancora il 9 in Italia (23:30), mentre
-    le stesse 22:30 UTC del 9 luglio erano già il 10. Se la conversione
-    usasse uno scarto fisso invece del fuso reale, uno dei due test della
-    coppia fallirebbe.
-    """
-    fuori = crea_slot(db, datetime(2030, 1, 9, 22, 30))     # Roma: 9 gennaio 23:30
-    dentro = crea_slot(db, datetime(2030, 1, 9, 23, 30))    # Roma: 10 gennaio 00:30
-
-    _, bloccati = blocco(db, date(2030, 1, 10), date(2030, 1, 10))
-
-    assert bloccati == 1
-    db.refresh(dentro); db.refresh(fuori)
-    assert dentro.is_available is False
-    assert fuori.is_available is True
-
-
-def test_blocco_non_tocca_gli_slot_gia_prenotati(db):
-    """Una prenotazione confermata resta valida anche se il coach blocca il periodo.
-
-    Il blocco agisce solo su ciò che è ancora libero: annullare una
-    sessione già venduta è una decisione umana, non un effetto collaterale.
-    """
-    prenotato = crea_slot(db, datetime(2030, 7, 12, 10, 0), is_available=False)
-    libero = crea_slot(db, datetime(2030, 7, 12, 11, 0))
-
-    _, bloccati = blocco(db, date(2030, 7, 10), date(2030, 7, 15))
-
-    assert bloccati == 1
-    db.refresh(prenotato)
-    # Non è stato ri-toccato: resta occupato, ma non marcato come blocco admin.
-    assert prenotato.is_available is False and prenotato.blocked_admin is False
-    db.refresh(libero)
-    assert libero.blocked_admin is True
-
-
-def test_blocco_di_un_solo_giorno_non_sconfina(db):
-    prima = crea_slot(db, datetime(2030, 7, 11, 12, 0))
-    dentro = crea_slot(db, datetime(2030, 7, 12, 12, 0))
-    dopo = crea_slot(db, datetime(2030, 7, 13, 12, 0))
-
-    _, bloccati = blocco(db, date(2030, 7, 12), date(2030, 7, 12))
-
-    assert bloccati == 1
-    db.refresh(prima); db.refresh(dentro); db.refresh(dopo)
-    assert dentro.is_available is False
-    assert prima.is_available is True and dopo.is_available is True
-
-
-class OggiFisso(date):
-    """1° luglio 2030, un lunedì: tutto luglio è ancora da generare."""
-    @classmethod
-    def today(cls):
-        return cls(2030, 7, 1)
-
-
-def oggi_fisso(monkeypatch):
-    """genera_slot_da_regola legge la data di oggi e genera fino a fine mese:
-    senza fissarla, il risultato dipenderebbe dal giorno in cui gira la suite."""
-    monkeypatch.setattr(availability_service, "date", OggiFisso)
-    monkeypatch.setattr(availability_service, "ora_utc_naive", lambda: datetime(2030, 7, 1))
-
-
-def test_slot_generati_dopo_un_blocco_nascono_bloccati(db, monkeypatch):
-    """Ferie fissate quando gli slot del periodo non esistono ancora.
-
-    Succede ogni volta che il coach blocca il mese prossimo: quegli slot
-    li genera il job notturno il 1°, quando il blocco c'è già. Devono
-    nascere chiusi come se il blocco li avesse trovati, non in vendita.
-    """
-    oggi_fisso(monkeypatch)
-    _, bloccati = blocco(db, date(2030, 7, 14), date(2030, 7, 20))
-    assert bloccati == 0    # alla creazione del blocco non c'era niente da chiudere
-    martedi_18_20 = AvailabilityRule(giorno_settimana=1, ora_inizio=time(18, 0), ora_fine=time(20, 0), durata_slot_ore=1)
-    db.add(martedi_18_20)
+def test_una_regola_legacy_da_2_ore_non_produce_ore(db):
+    """Salvata prima del vincolo sulla durata: non produce ore invece di produrne di sbagliate."""
+    db.add(AvailabilityRule(giorno_settimana=1, ora_inizio=time(18), ora_fine=time(22), durata_slot_ore=2))
     db.commit()
 
-    creati = genera_slot_da_regola(martedi_18_20, db)
-
-    # Martedì 2, 9, 16, 23 e 30 luglio, due slot ciascuno; solo il 16 è nelle ferie.
-    assert creati == 10
-    for slot in db.query(Slot).all():
-        nelle_ferie = slot.start_time.date() == date(2030, 7, 16)
-        assert slot.is_available is not nelle_ferie
-        assert slot.blocked_admin is nelle_ferie
+    assert calcola_disponibilita(db, INIZIO_MARTEDI, FINE_MARTEDI) == {1: [], 2: []}
 
 
-# ─── CRUD di regole e blocchi, dal lato HTTP ──────────────────
-# Le funzioni sopra sono provate direttamente; qui si prova che gli
-# endpoint le colleghino davvero — validazione degli estremi, conteggio
-# restituito, e le due cancellazioni, che hanno un comportamento
-# volutamente asimmetrico rispetto agli slot già toccati.
+# ─── BLOCCHI ECCEZIONALI ──────────────────────────────────────
 
 def test_crea_blocco_rifiuta_un_periodo_alla_rovescia(client, db):
     res = client.post(
@@ -359,21 +137,19 @@ def test_crea_blocco_di_un_giorno_solo_e_ammesso(client, db):
     assert res.status_code == 200
 
 
-def test_crea_blocco_riporta_quanti_slot_ha_chiuso(client, db):
-    crea_slot(db, datetime(2030, 7, 12, 10, 0))
-    crea_slot(db, datetime(2030, 7, 12, 11, 0))
-    crea_slot(db, datetime(2030, 8, 12, 10, 0))    # fuori periodo
-
+def test_creare_un_blocco_restituisce_il_blocco_salvato(client, db):
+    """Solo il blocco: dal 4.6a non c'è più un conteggio di slot chiusi."""
     res = client.post(
         "/admin/disponibilita/blocchi",
         headers=admin_headers(),
         json={"data_inizio": "2030-07-10", "data_fine": "2030-07-15", "motivo": "Ferie"}
     )
 
-    assert res.status_code == 200
+    assert res.status_code == 200, res.text
     corpo = res.json()
-    assert corpo["slot_bloccati"] == 2
-    assert corpo["blocco"]["motivo"] == "Ferie"
+    assert corpo["motivo"] == "Ferie"
+    assert corpo["data_inizio"] == "2030-07-10"
+    assert db.query(AvailabilityException).filter(AvailabilityException.id == corpo["id"]).count() == 1
 
 
 def test_lista_blocchi_mostra_prima_i_piu_recenti(client, db):
@@ -396,164 +172,99 @@ def test_elimina_blocco_inesistente_risponde_404(client, db):
     assert res.status_code == 404
 
 
-def test_elimina_blocco_non_riapre_gli_slot_che_aveva_chiuso(client, db):
-    """Comportamento voluto, non dimenticanza.
+def test_un_blocco_chiude_subito_i_suoi_giorni_e_eliminato_li_riapre(client, db):
+    """Il contrario di come funzionava con gli slot.
 
-    Il blocco non registra quali slot abbia chiuso: riaprirli in automatico
-    vorrebbe dire riaprire tutto ciò che cade nell'intervallo di date,
-    compresi gli slot chiusi da un secondo blocco sovrapposto che deve
-    restare in vigore. La riapertura è quindi una decisione esplicita, slot
-    per slot, tramite POST /admin/slots/{slot_id}/sblocca. Il test lo fissa
-    perché è controintuitivo, e senza una prova qualcuno lo "correggerebbe"
-    in buona fede.
+    Fino al 4.6a eliminare un blocco non riapriva gli slot che aveva chiuso:
+    il blocco non sapeva quali fossero, e si sbloccavano uno per uno a mano.
+    Il calcolo invece legge i blocchi a ogni richiesta, e un secondo blocco
+    sovrapposto resta in vigore da solo.
     """
-    slot = crea_slot(db, datetime(2030, 7, 12, 10, 0))
-    creato = client.post(
+    crea_regola(client)
+    blocco = client.post(
         "/admin/disponibilita/blocchi",
         headers=admin_headers(),
-        json={"data_inizio": "2030-07-10", "data_fine": "2030-07-15"}
+        json={"data_inizio": "2030-07-16", "data_fine": "2030-07-16", "motivo": "Ferie"}
     ).json()
+    assert ore_in_vendita(db, INIZIO_MARTEDI, FINE_MARTEDI) == []
 
-    res = client.delete(f"/admin/disponibilita/blocchi/{creato['blocco']['id']}", headers=admin_headers())
+    res = client.delete(f"/admin/disponibilita/blocchi/{blocco['id']}", headers=admin_headers())
 
     assert res.status_code == 200
-    db.refresh(slot)
-    assert slot.is_available is False and slot.blocked_admin is True
+    assert len(ore_in_vendita(db, INIZIO_MARTEDI, FINE_MARTEDI)) == 2
 
 
-# ─── SBLOCCO DI UNO SLOT ──────────────────────────────────────
-# È l'unica riga del backend che riporti blocked_external e blocked_admin a
-# False: senza, un impegno cancellato dal calendario o una settimana di
-# ferie sbagliata toglie quegli orari dalla vendita in modo definitivo.
-# La guardia che conta è quella sullo slot prenotato: i due flag sono
-# l'unico modo per distinguerlo da uno bloccato.
+# ─── IL BLOCCO SEGUE IL GIORNO ITALIANO ───────────────────────
+# Le ore sono salvate e confrontate in UTC, ma il periodo che il coach
+# indica è in GIORNI ITALIANI. Chi confrontasse le date senza convertire
+# otterrebbe uno scarto di un'ora (due d'estate) proprio sui bordi: ore
+# ancora prenotabili mentre il coach è via, o chiuse un giorno di troppo.
+# I test qui sotto stanno su quei bordi, con regole a cavallo della
+# mezzanotte italiana. Fino al 4.6a provavano lo stesso fatto sugli slot
+# (applica_blocco_eccezionale).
 
-def test_sblocca_slot_bloccato_da_ferie_lo_rimette_in_vendita(client, db):
-    slot = crea_slot(db, FUTURO)
-    blocco(db, FUTURO.date(), FUTURO.date())
-    db.refresh(slot)
-    assert slot.is_available is False and slot.blocked_admin is True
-
-    res = client.post(f"/admin/slots/{slot.id}/sblocca", headers=admin_headers())
-
-    assert res.status_code == 200, res.text
-    db.refresh(slot)
-    assert slot.is_available is True
-    # Entrambi i flag, non solo quello che era acceso: su uno slot aperto
-    # non c'è più un "perché è chiuso" da conservare.
-    assert slot.blocked_admin is False and slot.blocked_external is False
-
-
-def test_sblocca_slot_bloccato_dal_calendario_lo_rimette_in_vendita(client, db):
-    """L'altro dei due blocchi, che nasce dalla sincronizzazione notturna."""
-    slot = crea_slot(db, FUTURO, is_available=False)
-    slot.blocked_external = True
+def regola_db(db, giorno_settimana, inizio, fine):
+    db.add(AvailabilityRule(giorno_settimana=giorno_settimana, ora_inizio=time(inizio),
+                            ora_fine=time(fine), durata_slot_ore=1))
     db.commit()
 
-    res = client.post(f"/admin/slots/{slot.id}/sblocca", headers=admin_headers())
 
-    assert res.status_code == 200, res.text
-    db.refresh(slot)
-    assert slot.is_available is True
-    assert slot.blocked_external is False and slot.blocked_admin is False
+def blocco_db(db, data_inizio, data_fine):
+    db.add(AvailabilityException(data_inizio=data_inizio, data_fine=data_fine, motivo="Ferie"))
+    db.commit()
 
 
-def test_sblocca_rifiuta_uno_slot_prenotato_da_un_cliente(client, db):
-    """La guardia che impedisce di vendere due volte la stessa ora.
+def test_il_blocco_estivo_copre_il_giorno_italiano_non_quello_utc(db):
+    """Ora legale: Roma è UTC+2, quindi il 10 luglio italiano inizia alle 22:00 UTC del 9.
 
-    Uno slot prenotato ha is_available False come uno bloccato, ma entrambi
-    i flag a False. Riaprirlo lo rimetterebbe nella lista pubblica mentre
-    un cliente lo ha già comprato.
+    La mezzanotte italiana del 10 (22:00 UTC del 9) è già nelle ferie;
+    le 22:00 italiane del 9 (20:00 UTC) no. È la coppia che smaschera un
+    confronto fatto sulle date UTC senza conversione.
     """
-    slot = crea_slot(db, FUTURO, is_available=False)
-    utente = User(nome="Cliente", email="c@example.com", categoria="senior")
-    db.add(utente)
-    db.commit()
-    db.add(Booking(user_id=utente.id, slot_id=slot.id, start_time=slot.start_time, duration_hours=1,
-                   price_cents=2000, service_type="vod_review", status="confirmed"))
-    db.commit()
+    regola_db(db, 1, 22, 23)    # martedì 9 luglio, 22:00 italiane
+    regola_db(db, 2, 0, 1)      # mercoledì 10 luglio, 00:00 italiane
+    blocco_db(db, date(2030, 7, 10), date(2030, 7, 15))
 
-    res = client.post(f"/admin/slots/{slot.id}/sblocca", headers=admin_headers())
-
-    assert res.status_code == 409
-    db.refresh(slot)
-    assert slot.is_available is False
+    assert ore_in_vendita(db, datetime(2030, 7, 9), datetime(2030, 7, 10, 6)) == [datetime(2030, 7, 9, 20)]
 
 
-def test_sblocca_rifiuta_uno_slot_gia_disponibile(client, db):
-    """409 e non un 200 silenzioso: la lista a schermo del coach è vecchia."""
-    slot = crea_slot(db, FUTURO)
+def test_il_blocco_estivo_copre_l_ultimo_giorno_fino_a_mezzanotte_italiana(db):
+    """L'estremo finale è incluso per intero, non troncato alle 00:00 UTC."""
+    regola_db(db, 0, 22, 23)    # lunedì 15 luglio, 22:00 italiane: ancora ferie
+    regola_db(db, 1, 0, 1)      # martedì 16 luglio, 00:00 italiane: 22:00 UTC del 15, ferie finite
+    blocco_db(db, date(2030, 7, 10), date(2030, 7, 15))
 
-    res = client.post(f"/admin/slots/{slot.id}/sblocca", headers=admin_headers())
-
-    assert res.status_code == 409
-
-
-def test_sblocca_slot_inesistente_risponde_404(client, db):
-    res = client.post("/admin/slots/9999/sblocca", headers=admin_headers())
-    assert res.status_code == 404
+    assert ore_in_vendita(db, datetime(2030, 7, 15), datetime(2030, 7, 16, 6)) == [datetime(2030, 7, 15, 22)]
 
 
-def test_slot_sbloccato_ricompare_nella_lista_pubblica(client, db):
-    """Il punto dell'intervento: l'ora torna prenotabile dal sito, non solo nel pannello."""
-    slot = crea_slot(db, FUTURO)
-    blocco(db, FUTURO.date(), FUTURO.date())
+def test_il_blocco_invernale_usa_lo_scarto_giusto_e_non_uno_fisso(db):
+    """Stessa scena in ora solare, dove Roma è UTC+1 invece di UTC+2.
 
-    assert slot.id not in [s["id"] for s in client.get("/slots/").json()]
+    Se la conversione usasse uno scarto fisso invece del fuso reale, uno
+    dei due test, l'estivo o questo, fallirebbe.
+    """
+    regola_db(db, 2, 22, 23)    # mercoledì 9 gennaio, 22:00 italiane = 21:00 UTC
+    regola_db(db, 3, 0, 1)      # giovedì 10 gennaio, 00:00 italiane = 23:00 UTC del 9
+    blocco_db(db, date(2030, 1, 10), date(2030, 1, 10))
 
-    client.post(f"/admin/slots/{slot.id}/sblocca", headers=admin_headers())
-
-    assert slot.id in [s["id"] for s in client.get("/slots/").json()]
-
-
-def test_crea_regola_rifiuta_ora_fine_non_successiva(client, db):
-    res = client.post(
-        "/admin/disponibilita/regole",
-        headers=admin_headers(),
-        json={"giorno_settimana": 1, "ora_inizio": "22:00:00", "ora_fine": "22:00:00", "durata_slot_ore": 1}
-    )
-    assert res.status_code == 400
+    assert ore_in_vendita(db, datetime(2030, 1, 9), datetime(2030, 1, 10, 6)) == [datetime(2030, 1, 9, 21)]
 
 
-def test_lista_regole_ordinata_per_giorno_e_ora(client, db):
-    for giorno, ora in ((3, "18:00:00"), (1, "20:00:00"), (1, "18:00:00")):
-        client.post(
-            "/admin/disponibilita/regole",
-            headers=admin_headers(),
-            json={"giorno_settimana": giorno, "ora_inizio": ora, "ora_fine": "23:00:00", "durata_slot_ore": 1}
-        )
+# ─── ENDPOINT DEGLI SLOT ──────────────────────────────────────
 
-    res = client.get("/admin/disponibilita/regole", headers=admin_headers())
+def test_gli_endpoint_degli_slot_del_pannello_non_esistono_piu(client, db):
+    """Lista, sincronizzazione, eliminazione e sblocco degli slot, e la creazione a mano.
 
-    assert res.status_code == 200
-    assert [(r["giorno_settimana"], r["ora_inizio"]) for r in res.json()] == [
-        (1, "18:00:00"), (1, "20:00:00"), (3, "18:00:00")
+    Il pannello non li chiama dal 4.5b; dal 4.6a non esistono. GET /slots/
+    resta fino al 4.6b per le pagine vecchie nella cache dei browser, quindi
+    POST sullo stesso indirizzo risponde 405 e non 404.
+    """
+    chiamate = [
+        client.get("/admin/slots", headers=admin_headers()),
+        client.post("/admin/slots/sync-calendario", headers=admin_headers()),
+        client.delete("/admin/slots/1", headers=admin_headers()),
+        client.post("/admin/slots/1/sblocca", headers=admin_headers()),
+        client.post("/slots/", headers=admin_headers(), json={"start_time": "2030-07-15T18:00:00", "duration_hours": 1}),
     ]
 
-
-def test_elimina_regola_inesistente_risponde_404(client, db):
-    res = client.delete("/admin/disponibilita/regole/9999", headers=admin_headers())
-    assert res.status_code == 404
-
-
-def test_elimina_regola_non_cancella_gli_slot_gia_generati(client, db, monkeypatch):
-    """Gli slot generati diventano indipendenti dalla regola che li ha creati.
-
-    Altrimenti togliere una regola cancellerebbe orari già pubblicati, e
-    potenzialmente già prenotabili, senza che nessuno lo abbia chiesto.
-    """
-    # Data fissa: con quella vera, dopo le 18 dell'ultimo martedì del mese la
-    # regola non genera nulla e il controllo qui sotto fallirebbe.
-    oggi_fisso(monkeypatch)
-    creata = client.post(
-        "/admin/disponibilita/regole",
-        headers=admin_headers(),
-        json={"giorno_settimana": 1, "ora_inizio": "18:00:00", "ora_fine": "20:00:00", "durata_slot_ore": 1}
-    ).json()
-    slot_prima = db.query(Slot).count()
-    assert slot_prima > 0    # la regola ha davvero generato qualcosa
-
-    res = client.delete(f"/admin/disponibilita/regole/{creata['regola']['id']}", headers=admin_headers())
-
-    assert res.status_code == 200
-    assert db.query(Slot).count() == slot_prima
+    assert [r.status_code for r in chiamate] == [404, 404, 404, 404, 405]

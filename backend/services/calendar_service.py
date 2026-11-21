@@ -1,7 +1,8 @@
 """Integrazione con Google Calendar.
 
 In scrittura crea ed elimina l'evento associato a una prenotazione; in
-lettura recupera gli impegni esistenti per bloccare gli slot sovrapposti.
+lettura recupera gli impegni del coach, che il calcolo delle ore
+prenotabili toglie dalla vendita (services/disponibilita_service.py).
 
 In scrittura nessuna funzione propaga eccezioni: un'indisponibilità di
 Google non deve impedire una prenotazione. In lettura sì, ed è voluto:
@@ -15,13 +16,12 @@ condiviso esplicitamente con la sua email.
 import os
 import logging
 from datetime import datetime, timedelta, timezone
-from sqlalchemy.orm import Session
 from google.oauth2 import service_account
 from backend.services.google_oauth_service import verifica_credenziali_google
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from dotenv import load_dotenv
-from backend.services.timezone_service import ROME_TZ, ora_utc_naive, intervalli_si_sovrappongono
+from backend.services.timezone_service import ROME_TZ
 
 load_dotenv()
 
@@ -73,14 +73,16 @@ def verifica_credenziali_calendario() -> bool:
     credenziali.
 
     Serviva un controllo perché questa integrazione è la più silenziosa
-    delle tre: per anni `sincronizza_slot_con_calendario` ha catturato ogni
-    errore lasciandolo solo nei log. Oggi il guasto arriva al job e al
-    pulsante del pannello, ma la sonda resta l'unico segnale nei giorni in
-    cui non gira nessuna sincronizzazione.
+    delle tre: per anni la sincronizzazione degli slot (rimossa nel pezzo
+    4.6a) ha catturato ogni errore lasciandolo solo nei log. Oggi un guasto
+    in lettura arriva a chi chiede le ore, con un 503 al sito e
+    all'anteprima, ma se nessuno le chiede nessuno lo vede: la sonda
+    settimanale è il segnale che arriva comunque al coach.
 
     Attenzione al limite: verifica l'identità, non il permesso. Un
     calendario che smettesse di essere condiviso con il service account
-    darebbe credenziali valide e sincronizzazione comunque ferma.
+    darebbe credenziali valide e il sito comunque senza ore, perché la
+    lettura degli impegni verrebbe rifiutata.
     """
     return verifica_credenziali_google("Calendar", _credenziali_service_account)
 
@@ -179,7 +181,7 @@ def leggi_eventi_calendario(time_min: datetime, time_max: datetime):
         service = get_calendar_service()
 
         # singleEvents espande le ricorrenze in occorrenze singole, molto
-        # più semplici da confrontare con gli slot.
+        # più semplici da confrontare con le ore.
         eventi = service.events().list(
             calendarId=CALENDAR_ID,
             timeMin=time_min.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -200,7 +202,7 @@ def leggi_eventi_calendario(time_min: datetime, time_max: datetime):
                 dt_fine = datetime.fromisoformat(end_info["dateTime"]).astimezone(timezone.utc).replace(tzinfo=None)
             elif "date" in start_info and "date" in end_info:
                 # Un evento "tutto il giorno" viene trattato come l'intera
-                # giornata italiana, così da bloccarne tutti gli slot.
+                # giornata italiana, così da toglierne tutte le ore.
                 giorno_inizio = datetime.strptime(start_info["date"], "%Y-%m-%d").replace(tzinfo=ROME_TZ)
                 giorno_fine = datetime.strptime(end_info["date"], "%Y-%m-%d").replace(tzinfo=ROME_TZ)
                 dt_inizio = giorno_inizio.astimezone(timezone.utc).replace(tzinfo=None)
@@ -215,58 +217,6 @@ def leggi_eventi_calendario(time_min: datetime, time_max: datetime):
     except Exception as errore:
         logger.exception("Errore lettura calendario")
         raise CalendarioNonRaggiungibile() from errore
-
-
-def sincronizza_slot_con_calendario(db: Session) -> int:
-    """Blocca gli slot liberi sovrapposti a impegni esterni sul calendario.
-
-    Restituisce il numero di slot bloccati. Condivisa fra il pulsante
-    manuale del pannello e il job periodico, che devono comportarsi allo
-    stesso modo.
-    """
-    # Import locale per evitare un ciclo: il router che importa da qui
-    # importa a sua volta i model.
-    from backend.models.slots import Slot
-
-    ora = ora_utc_naive()
-
-    # Solo gli slot ancora liberi: la sincronizzazione chiude, non riapre.
-    # Fino al 2026-11 riaprire non era sicuro: leggi_eventi_calendario
-    # restituiva [] sia con l'agenda vuota sia con Google irraggiungibile, e
-    # un minuto di guasto avrebbe rimesso in vendita tutti gli orari
-    # occupati. Ora il guasto solleva CalendarioNonRaggiungibile e arriva a
-    # chi chiama (503 nel pannello, avviso di sorveglia_job per il job). La
-    # riapertura automatica non si aggiunge qui: arriva con la disponibilità
-    # calcolata (decisione P9), che sostituisce questa tabella. Nel
-    # frattempo la via d'uscita è esplicita, POST /admin/slots/{slot_id}/sblocca.
-    slot_liberi = db.query(Slot).filter(
-        Slot.is_available == True,
-        Slot.start_time >= ora
-    ).all()
-
-    if not slot_liberi:
-        return 0
-
-    # Una sola lettura del calendario per l'intero periodo coperto dagli
-    # slot, invece di una richiesta per slot.
-    fine_intervallo = max(
-        s.start_time + timedelta(hours=s.duration_hours) for s in slot_liberi
-    )
-    eventi = leggi_eventi_calendario(ora, fine_intervallo)
-
-    bloccati = 0
-    for slot in slot_liberi:
-        slot_inizio = slot.start_time
-        slot_fine = slot.start_time + timedelta(hours=slot.duration_hours)
-        for evento_inizio, evento_fine in eventi:
-            if intervalli_si_sovrappongono(slot_inizio, slot_fine, evento_inizio, evento_fine):
-                slot.is_available = False
-                slot.blocked_external = True
-                bloccati += 1
-                break
-
-    db.commit()
-    return bloccati
 
 
 def elimina_evento_calendario(event_id: str) -> bool:

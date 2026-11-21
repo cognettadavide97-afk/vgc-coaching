@@ -41,12 +41,10 @@ I documenti cancellati il 2026-09-11, citati da alcuni commenti: `git show 2f912
   transazione teneva il lock su slot e credito fino a 60 s contro i 50 s di attesa di MySQL, e chi prenotava lo
   stesso slot riceveva un 500 (R4, voci 11-12, provato sul MySQL locale). L'id si salva solo se la prenotazione
   è ancora `confirmed`, altrimenti l'evento si elimina: una cancellazione arrivata durante la chiamata non lo trova.
-- `scheduler.py:38-50` e `:446` — env var lette a livello di modulo e `BackgroundScheduler(job_defaults=...)`
+- `scheduler.py:38-48` e `:399` — env var lette a livello di modulo e `BackgroundScheduler(job_defaults=...)`
   senza timezone: toccarlo sposta l'orario reale di tutti i job (R11/D3, interventi 13/17).
   `TOLLERANZA_RITARDI` (`misfire_grace_time=None`) fa partire in ritardo invece di saltare: con il default di
   1 s un avviso di `sorveglia_job` farebbe saltare gli altri job (voce 47).
-- `services/availability_service.py:68` — gli slot delle regole si generano solo fino a fine mese (intervento 38),
-  ma dal 4.4 il sito non li vende: vende per `GIORNI_PRENOTABILI` giorni da oggi (voce 63). Via nel 4.6.
 - `routers/admin/__init__.py` — `get_admin` e l'import dei sotto-router in fondo (D1/D2, 15/16).
 - `tests/conftest.py` — il listener `PRAGMA foreign_keys=ON` allinea SQLite a MySQL sui vincoli, ma
   collation, bulk delete e locking di riga restano diversi: si prova sul MySQL locale. Le righe in cima,

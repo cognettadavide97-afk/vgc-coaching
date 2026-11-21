@@ -1,61 +1,12 @@
-"""Schemi Pydantic per gli slot.
+"""Schema Pydantic per la lista pubblica degli slot (GET /slots/).
 
-Qui vive la conversione di fuso orario ai due confini dell'API: l'input
-dell'amministratore viene interpretato come ora italiana e convertito in
-UTC, l'output viene marcato con l'offset UTC esplicito.
+Resta fino al pezzo 4.6b per le pagine vecchie nella cache dei browser.
+SlotCreate, lo schema della creazione a mano dal pannello, è sparito nel
+4.6a con l'endpoint: interpretava come ora italiana l'orario digitato.
 """
 
-from pydantic import ConfigDict, BaseModel, field_validator, field_serializer
+from pydantic import ConfigDict, BaseModel, field_serializer
 from datetime import datetime, timezone
-from backend.services.timezone_service import ROME_TZ
-
-
-class SlotCreate(BaseModel):
-    start_time: datetime
-    duration_hours: int = 1
-
-    @field_validator("duration_hours")
-    @classmethod
-    def valida_durata(cls, v: int) -> int:
-        """Ammette solo slot da 1 ora, come per le regole ricorrenti.
-
-        Stesso vincolo di `AvailabilityRuleCreate.valida_durata`. Fino al
-        pezzo 4.3 le sessioni da 2 ore nascevano dall'unione di due slot da
-        1 ora, con il vincolo sull'orario di inizio (15:00 o 17:00), e uno
-        slot da 2 ore saltava quel controllo. Dal 4.4 le ore prenotabili le
-        calcola services/disponibilita_service.py dalle regole: uno slot
-        creato qui senza una regola che preveda la sua ora non si può più
-        prenotare (decisione "aperture extra" del pezzo 4.5), e la tabella
-        sparisce nel 4.6.
-
-        Fino al 2026-09-07 qui non c'era nessun controllo, e il vincolo era
-        aggirabile dal pannello di amministrazione, che offriva "2 ore" fra
-        le scelte. Uno slot così creato, oltretutto, non compariva mai ai
-        clienti: il frontend mostra solo gli slot da 1 ora.
-
-        Il controllo respinge anche 0 e i valori negativi, che passavano
-        senza obiezioni, e le durate fuori listino, che facevano fallire la
-        prenotazione con un 500 invece che con un errore leggibile.
-        """
-        if v != 1:
-            raise ValueError(
-                "Il calendario usa solo slot da 1 ora - le sessioni da 2 ore uniscono "
-                "due ore consecutive di una regola"
-            )
-        return v
-
-    @field_validator("start_time")
-    @classmethod
-    def interpreta_come_rome_e_converti_in_utc(cls, v: datetime) -> datetime:
-        """Interpreta l'orario ricevuto come ora italiana e lo salva in UTC.
-
-        Il browser invia un orario privo di fuso ("2026-08-12T18:00"):
-        senza questa conversione il valore finirebbe nel database in un
-        fuso ambiguo. Facendola qui, il resto del codice riceve sempre UTC.
-        """
-        if v.tzinfo is None:
-            v = v.replace(tzinfo=ROME_TZ)
-        return v.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 class SlotResponse(BaseModel):

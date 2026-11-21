@@ -998,9 +998,8 @@ async function creaRegolaDisponibilita() {
             return;
         }
 
-        // La risposta conta ancora gli slot generati nella vecchia tabella,
-        // che il sito non vende più: qui non si mostra, l'effetto vero lo
-        // dice l'anteprima.
+        // Nessun numero da mostrare: le ore della regola non si generano, si
+        // calcolano. L'effetto vero, ora per ora, lo dice l'anteprima.
         alert('Regola creata: le sue ore libere sono subito in vendita (l\'anteprima mostra fin dove).');
         caricaRegole();
         caricaAnteprima(settimanaAnteprima);
@@ -1095,10 +1094,8 @@ async function creaBloccoEccezionale() {
             return;
         }
 
-        // Come per le regole: il conteggio degli slot della vecchia tabella
-        // non dice nulla sulle ore in vendita, e non si mostra. Un blocco
-        // non cancella le prenotazioni già fatte in quei giorni: restano
-        // nell'anteprima come "Prenotata".
+        // Un blocco non cancella le prenotazioni già fatte in quei giorni:
+        // restano nell'anteprima come "Prenotata".
         alert('Blocco creato: quei giorni escono subito dalla vendita. Le prenotazioni già fatte restano.');
         document.getElementById('blocco-motivo').value = '';
         caricaBlocchi();

@@ -1,11 +1,13 @@
 # Percorsi critici — INGRESSO DEI DATI.
 #
 # Questo file documenta come il sistema accetta i dati che arrivano da
-# fuori: registrazione del cliente (POST /users/), creazione della
-# prenotazione (POST /bookings/) e creazione dello slot dal pannello
-# (POST /slots/). Sono i tre punti in cui un valore scritto dal browser
-# entra nel database, e quindi i tre punti in cui un comportamento
-# inatteso si propaga a tutto il resto.
+# fuori: registrazione del cliente (POST /users/) e creazione della
+# prenotazione (POST /bookings/). Sono i punti in cui un valore scritto dal
+# browser entra nel database, e quindi quelli in cui un comportamento
+# inatteso si propaga a tutto il resto. Fino al pezzo 4.6a c'era anche la
+# creazione dello slot dal pannello (POST /slots/), sparita con gli slot:
+# l'ora italiana delle regole la provano i test del calcolo
+# (tests/test_disponibilita.py, test_l_ora_legale_sposta_l_orario_utc).
 #
 # I test NON dicono come il sistema dovrebbe comportarsi: dicono come si
 # comporta oggi. Dove il comportamento attuale è discutibile il test passa
@@ -19,7 +21,6 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from backend.models.booking import Booking
-from backend.models.slots import Slot
 from backend.models.users import User
 from conftest import admin_headers, apri_ore, iso
 
@@ -199,53 +200,3 @@ def test_durata_non_a_listino_respinta_prima_di_toccare_il_database(client, db):
     assert res.status_code == 422
     # Nessuna prenotazione: la validazione avviene prima del router.
     assert db.query(Booking).count() == 0
-
-
-# ─── SLOT DAL PANNELLO: l'orario digitato è ora italiana ───
-
-def test_lo_slot_creato_dallo_admin_viene_salvato_in_utc(client, db):
-    """L'orario senza fuso inviato dal pannello è interpretato come ora di Roma.
-
-    15 luglio = ora legale, Roma è UTC+2: le 18:00 digitate diventano le
-    16:00 UTC nel database (backend/schemas/slots.py:46-57).
-    """
-    res = client.post("/slots/", json={
-        "start_time": "2030-07-15T18:00:00",
-        "duration_hours": 1
-    }, headers=admin_headers())
-
-    assert res.status_code == 200, res.text
-    slot = db.query(Slot).filter(Slot.id == res.json()["id"]).first()
-    assert slot.start_time == datetime(2030, 7, 15, 16, 0)
-
-    # In uscita l'offset viene rimesso esplicito, così il browser non
-    # reinterpreta il valore come ora locale.
-    assert res.json()["start_time"] == "2030-07-15T16:00:00+00:00"
-
-
-def test_lo_stesso_orario_dinverno_usa_un_offset_diverso(client, db):
-    """La conversione usa il fuso reale della data, non uno scarto fisso.
-
-    15 gennaio = ora solare, Roma è UTC+1: le 18:00 diventano le 17:00 UTC.
-    """
-    res = client.post("/slots/", json={
-        "start_time": "2030-01-15T18:00:00",
-        "duration_hours": 1
-    }, headers=admin_headers())
-
-    assert res.status_code == 200, res.text
-    slot = db.query(Slot).filter(Slot.id == res.json()["id"]).first()
-    assert slot.start_time == datetime(2030, 1, 15, 17, 0)
-
-
-def test_orario_con_fuso_esplicito_viene_rispettato_non_reinterpretato(client, db):
-    """Se il chiamante dichiara il fuso, il validator non lo sovrascrive."""
-    res = client.post("/slots/", json={
-        "start_time": "2030-07-15T18:00:00+00:00",
-        "duration_hours": 1
-    }, headers=admin_headers())
-
-    assert res.status_code == 200, res.text
-    slot = db.query(Slot).filter(Slot.id == res.json()["id"]).first()
-    # Nessuna conversione da Roma: erano già le 18:00 UTC.
-    assert slot.start_time == datetime(2030, 7, 15, 18, 0)

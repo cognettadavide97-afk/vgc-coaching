@@ -51,9 +51,10 @@ def _ore_della_regola(regola: AvailabilityRule, giorno) -> list[datetime]:
 def _regole_valide(db: Session) -> list[AvailabilityRule]:
     """Le regole che producono ore: attive e da 1 ora.
 
-    Solo regole da 1 ora, come in genera_slot_da_regola: una regola salvata
-    prima del vincolo sulla durata non produce ore. Una funzione sola perché
-    calcolo e anteprima devono vedere le stesse regole.
+    Solo regole da 1 ora: una regola salvata prima del vincolo sulla durata
+    (AvailabilityRuleCreate) non produce ore, invece di produrne di
+    sbagliate. Una funzione sola perché calcolo e anteprima devono vedere le
+    stesse regole.
     """
     return db.query(AvailabilityRule).filter(
         AvailabilityRule.attiva == True,

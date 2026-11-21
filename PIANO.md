@@ -5,7 +5,6 @@ Stato degli interventi. Analisi: `_archivio_audit/PIANO_ANALISI_2026-09.md` (voc
 riferimenti stanno nella riga. Un intervento risolto si cancella da qui nello stesso commit che lo risolve, dove sta il dettaglio.
 
 Decisioni (P1-P6: dettaglio nell'archivio 2026-09, riga 1328):
-- P1 ✅ — Slot bloccati: sblocco esplicito del coach, non riapertura automatica (interventi 4, 5)
 - P3 — Prenotare senza login: login obbligatorio, conferma via email, tetto giornaliero o commenti resi onesti (14)
 - P4 — `/docs`, `/redoc` e `/openapi.json` restano pubblici? (21)
 - P5 — Listino (prezzi, ore valide, etichette) servito dal server, o duplicato con rimandi nei commenti (22, 33)

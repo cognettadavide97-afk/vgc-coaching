@@ -1,8 +1,9 @@
 """Model della tabella `availability_exceptions`: i blocchi eccezionali.
 
-A differenza di `AvailabilityRule`, che genera slot nuovi, questo model
-serve a rendere non disponibili gli slot di un periodo: quelli che esistono
-già alla sua creazione e quelli generati dopo, che nascono bloccati.
+A differenza di `AvailabilityRule`, che dice quando il coach lavora, questo
+model dice quando no: il calcolo delle ore toglie dalla vendita i giorni del
+periodo (services/disponibilita_service.py). Le prenotazioni già fatte in
+quei giorni restano.
 """
 
 from sqlalchemy import Column, Integer, Date, String, DateTime

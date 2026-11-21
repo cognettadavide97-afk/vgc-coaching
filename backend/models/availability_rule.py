@@ -1,7 +1,8 @@
 """Model della tabella `availability_rules`: la disponibilità ricorrente.
 
-Descrive una regola ("ogni martedì 18-22, slot da 1 ora"); gli slot concreti
-sono generati a partire da questa da `services/availability_service.py`.
+Descrive una regola ("ogni martedì 18-22, ore da 1 ora"): le ore che
+produce si calcolano a ogni richiesta in `services/disponibilita_service.py`.
+Fino al pezzo 4.6a la regola generava invece slot salvati in anticipo.
 """
 
 from sqlalchemy import Column, Integer, Time, Boolean, DateTime
@@ -19,16 +20,16 @@ class AvailabilityRule(Base):
     giorno_settimana = Column(Integer, nullable=False)
 
     # Orari senza data, intesi come ora italiana. La conversione in UTC
-    # avviene alla generazione dello slot.
+    # avviene nel calcolo, ora per ora con il fuso di Roma.
     ora_inizio = Column(Time, nullable=False)
     ora_fine = Column(Time, nullable=False)
 
     durata_slot_ore = Column(Integer, nullable=False, default=1)
 
-    # Il job notturno genera slot solo dalle regole attive, quindi metterla
-    # a False sospende la produzione senza toccare gli slot già creati.
-    # Nessun endpoint espone oggi la modifica di questo campo: una regola
-    # nasce attiva e per sospenderla serve intervenire sul database.
+    # Il calcolo usa solo le regole attive, quindi metterla a False sospende
+    # la regola senza eliminarla. Nessun endpoint espone oggi la modifica di
+    # questo campo: una regola nasce attiva e per sospenderla serve
+    # intervenire sul database (decisione P6b).
     attiva = Column(Boolean, default=True, nullable=False)
 
     created_at = Column(DateTime, default=ora_utc_naive)

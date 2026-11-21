@@ -495,52 +495,40 @@ def test_le_credenziali_si_controllano_prima_del_backup(monkeypatch):
     assert minuti_backup - minuti_credenziali == 30
 
 
-def test_gli_altri_job_notturni_restano_giornalieri(monkeypatch):
-    """Solo credenziali e backup passano a settimanale: generazione slot,
-    retention e pulizia restano quotidiane, e la pulizia deve continuare a
-    precedere il backup."""
+def test_lo_scheduler_registra_i_cinque_job(monkeypatch):
+    """Dal 4.6a i tre job degli slot non esistono più: generazione notturna,
+    sincronizzazione con Google Calendar e pulizia degli slot passati. Le ore
+    si calcolano a ogni richiesta, e non c'è più niente da preparare di notte."""
     job = leggi_job_registrati(monkeypatch)
 
-    for id_job in ("genera_slot_giornaliero", "controlla_retention_clienti", "pulisci_slot_obsoleti"):
-        _, trigger, opzioni = job[id_job]
-        assert trigger == "cron"
-        assert "day_of_week" not in opzioni, f"{id_job} non deve essere settimanale"
-
-    _, _, pulizia = job["pulisci_slot_obsoleti"]
-    _, _, backup = job["backup_database"]
-    assert pulizia["hour"] * 60 + pulizia["minute"] < backup["hour"] * 60 + backup["minute"]
+    assert set(job) == {
+        "controlla_promemoria", "controlla_recensioni", "controlla_credenziali",
+        "controlla_retention_clienti", "backup_database",
+    }
 
 
-def test_richiesta_recensione_fallita_non_segnata(db, monkeypatch):
-    finge_sessione_scheduler(monkeypatch)
-    monkeypatch.setattr(scheduler_module, "invia_richiesta_recensione", lambda **kw: False)
+def test_la_retention_resta_giornaliera_alle_tre_e_un_minuto(monkeypatch):
+    """Solo credenziali e backup sono settimanali. L'orario resta quello di
+    sempre anche senza il job delle 03:00 che la precedeva: spostarlo
+    cambierebbe l'ora reale del job (CLAUDE.md, NON TOCCARE)."""
+    _, trigger, opzioni = leggi_job_registrati(monkeypatch)["controlla_retention_clienti"]
 
-    utente = crea_utente_db(db)
-    slot = crea_slot(db, scheduler_module.ora_utc_naive() - timedelta(hours=3), is_available=False)
-    prenotazione = crea_prenotazione_db(db, utente, slot, review_token="token-test-789")
-
-    risultato = scheduler_module.controlla_e_invia_richieste_recensione()
-
-    assert risultato == 0
-    db.refresh(prenotazione)
-    assert prenotazione.review_email_sent is False
+    assert trigger == "cron"
+    assert "day_of_week" not in opzioni
+    assert (opzioni["hour"], opzioni["minute"]) == (3, 1)
 
 
-def test_richiesta_recensione_non_ritentata_oltre_sette_giorni(db, monkeypatch):
-    """Un invio che fallisce sempre non si riprova all'infinito: dopo 7 giorni si lascia perdere."""
-    finge_sessione_scheduler(monkeypatch)
-    inviate = []
-    monkeypatch.setattr(scheduler_module, "invia_richiesta_recensione", lambda **kw: inviate.append(kw) or True)
+def test_l_avviso_di_calendar_descrive_il_guasto_vero():
+    """Con Calendar giù il sito non mostra nessuna ora (pezzo 4.4).
 
-    utente = crea_utente_db(db)
-    slot = crea_slot(db, scheduler_module.ora_utc_naive() - timedelta(days=8), is_available=False)
-    crea_prenotazione_db(db, utente, slot, review_token="token-test-vecchio")
+    Fino al 4.6a l'avviso diceva che gli impegni "non bloccano più gli
+    slot": falso dal 4.4, e un avviso che descrive il guasto sbagliato
+    porta a cercare la riparazione sbagliata.
+    """
+    calendar = next(c for c in scheduler_module.CREDENZIALI_SORVEGLIATE if c.nome == "Calendar")
 
-    risultato = scheduler_module.controlla_e_invia_richieste_recensione()
-
-    assert risultato == 0
-    assert inviate == []
-
+    assert "nessuna ora" in calendar.cosa_si_ferma
+    assert "slot" not in calendar.cosa_si_ferma
 
 # ─── Sorveglianza dei job (voce 47) ───────────────────────────
 #
@@ -548,7 +536,7 @@ def test_richiesta_recensione_non_ritentata_oltre_sette_giorni(db, monkeypatch):
 # avevano nessun avviso. E uno partito con più di un secondo di ritardo
 # veniva saltato in silenzio, senza nemmeno fallire.
 
-def evento(codice, id_job="genera_slot_giornaliero", eccezione=None):
+def evento(codice, id_job="controlla_retention_clienti", eccezione=None):
     """L'annuncio che APScheduler manda agli ascoltatori dopo un'esecuzione."""
     return JobExecutionEvent(codice, id_job, "default", datetime.now(timezone.utc), exception=eccezione)
 
@@ -576,7 +564,7 @@ def test_un_job_che_continua_a_fallire_avvisa_una_volta_sola(monkeypatch):
 
     assert len(avvisi) == 1
     titolo, descrizione = avvisi[0]
-    assert "genera_slot_giornaliero" in titolo
+    assert "controlla_retention_clienti" in titolo
     assert "RuntimeError" in descrizione
 
 
@@ -607,8 +595,8 @@ def test_ogni_job_ha_il_proprio_stato(monkeypatch):
     """Il guasto di un job non deve zittire l'avviso di un altro."""
     avvisi = raccogli_avvisi(monkeypatch)
 
-    scheduler_module.sorveglia_job(evento(EVENT_JOB_ERROR, id_job="genera_slot_giornaliero", eccezione=RuntimeError()))
-    scheduler_module.sorveglia_job(evento(EVENT_JOB_ERROR, id_job="pulisci_slot_obsoleti", eccezione=RuntimeError()))
+    scheduler_module.sorveglia_job(evento(EVENT_JOB_ERROR, id_job="controlla_retention_clienti", eccezione=RuntimeError()))
+    scheduler_module.sorveglia_job(evento(EVENT_JOB_ERROR, id_job="controlla_promemoria", eccezione=RuntimeError()))
 
     assert len(avvisi) == 2
 
