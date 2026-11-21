@@ -55,7 +55,7 @@ def prenotazione(db, inizio_utc, durata=1, status="confirmed"):
         db.add(utente)
         db.commit()
     slot = crea_slot(db, inizio_utc, is_available=False)
-    db.add(Booking(user_id=utente.id, slot_id=slot.id, duration_hours=durata,
+    db.add(Booking(user_id=utente.id, slot_id=slot.id, start_time=slot.start_time, duration_hours=durata,
                    price_cents=2000 * durata, service_type="vod_review", status=status))
     db.commit()
 

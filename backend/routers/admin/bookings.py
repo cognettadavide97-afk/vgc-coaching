@@ -27,18 +27,18 @@ def get_prenotazioni(
     pagina: int = 1,
     per_pagina: int = 20
 ):
-    """Elenca le prenotazioni paginate, con i dati di cliente e slot.
+    """Elenca le prenotazioni paginate, con i dati di cliente e orario.
 
     `stato` filtra per confirmed / cancelled / no_show.
     """
     pagina, per_pagina, offset = pagina_e_offset(pagina, per_pagina)
 
-    # I join da soli non impediscono a SQLAlchemy di rileggere user e slot
-    # riga per riga nel ciclo: contains_eager glieli fa riusare. La
+    # Il join da solo non impedisce a SQLAlchemy di rileggere l'utente
+    # riga per riga nel ciclo: contains_eager glielo fa riusare. La
     # recensione usa joinedload perché è opzionale e non è nel join.
-    query = db.query(Booking).join(User).join(Booking.slot).options(
+    # L'orario sta sulla prenotazione: lo slot non serve.
+    query = db.query(Booking).join(User).options(
         contains_eager(Booking.user),
-        contains_eager(Booking.slot),
         joinedload(Booking.review)
     )
 
@@ -55,7 +55,7 @@ def get_prenotazioni(
 
     risultato = []
     for p in prenotazioni:
-        data_slot, ora_slot = formatta_data_ora_rome(p.slot.start_time)
+        data_slot, ora_slot = formatta_data_ora_rome(p.start_time)
         risultato.append({
             "id": p.id,
             "stato": p.status,
@@ -186,9 +186,8 @@ def export_csv(
 
     Deliberatamente non paginato: un export parziale non servirebbe.
     """
-    prenotazioni = db.query(Booking).join(User).join(Booking.slot).options(
-        contains_eager(Booking.user),
-        contains_eager(Booking.slot)
+    prenotazioni = db.query(Booking).join(User).options(
+        contains_eager(Booking.user)
     ).all()
 
     # Il CSV viene costruito in memoria e spedito subito: non serve
@@ -206,7 +205,7 @@ def export_csv(
 
     # una riga per ogni prenotazione
     for p in prenotazioni:
-        data_slot, ora_slot = formatta_data_ora_rome(p.slot.start_time)
+        data_slot, ora_slot = formatta_data_ora_rome(p.start_time)
         writer.writerow([
             p.id,
             p.status,

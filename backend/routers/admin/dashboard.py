@@ -1,7 +1,7 @@
 """Metriche del pannello: dashboard sintetica e analytics sugli ultimi mesi."""
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session, contains_eager
+from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta, timezone
 from backend.database import get_db
@@ -37,11 +37,11 @@ def dashboard(
     oggi_utc_inizio = oggi_rome_inizio.astimezone(timezone.utc).replace(tzinfo=None)
     oggi_utc_fine = (oggi_rome_inizio + timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)
 
-    # .join(Booking.slot) e non .join(Slot): con due colonne verso slots il
-    # join generico è ambiguo.
-    prenotazioni_oggi = db.query(Booking).join(Booking.slot).filter(
-        Slot.start_time >= oggi_utc_inizio,
-        Slot.start_time < oggi_utc_fine
+    # Sull'orario della prenotazione, senza join con slots: dal pezzo 4.3 la
+    # prenotazione sa da sé quando avviene.
+    prenotazioni_oggi = db.query(Booking).filter(
+        Booking.start_time >= oggi_utc_inizio,
+        Booking.start_time < oggi_utc_fine
     ).count()
 
     # Definizione unica di incasso (services/incasso_service.py): sessioni
@@ -109,10 +109,10 @@ def analytics(
     # Qui le metriche sulle prenotazioni si calcolano in Python su un solo
     # caricamento: le aggregazioni richieste (per mese, servizio e stato
     # insieme) sarebbero SQL elaborato, e su questi volumi il ciclo è più
-    # leggibile. contains_eager evita che il ciclo rilegga lo slot riga per
-    # riga. L'incasso viene dopo, da una fonte sua.
-    prenotazioni = db.query(Booking).join(Booking.slot).options(contains_eager(Booking.slot)).filter(
-        Slot.start_time >= inizio_finestra_utc
+    # leggibile. L'orario sta sulla prenotazione, quindi il ciclo non rilegge
+    # nient'altro riga per riga. L'incasso viene dopo, da una fonte sua.
+    prenotazioni = db.query(Booking).filter(
+        Booking.start_time >= inizio_finestra_utc
     ).all()
     ora_utc = ora_utc_naive()
 
@@ -127,7 +127,7 @@ def analytics(
 
     # Un solo passaggio aggiorna tutte le metriche sulle prenotazioni.
     for p in prenotazioni:
-        rome_dt = utc_to_rome(p.slot.start_time)
+        rome_dt = utc_to_rome(p.start_time)
         chiave_mese = (rome_dt.year, rome_dt.month)
 
         if p.status == "confirmed" and chiave_mese in sessioni_per_mese:
@@ -137,7 +137,7 @@ def analytics(
 
         if p.status == "no_show":
             no_show_count += 1
-        elif p.status == "confirmed" and p.slot.start_time < ora_utc:
+        elif p.status == "confirmed" and p.start_time < ora_utc:
             confirmed_passate_count += 1
 
         prenotazioni_per_utente[p.user_id] = prenotazioni_per_utente.get(p.user_id, 0) + 1

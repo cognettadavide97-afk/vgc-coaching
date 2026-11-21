@@ -152,11 +152,11 @@ def create_booking(
 
     # Limite anti-abuso: senza pagamento anticipato nulla impedirebbe a una
     # sola persona di occupare più slot. Contano solo le prenotazioni
-    # confermate con slot ancora futuro.
-    prenotazioni_attive = db.query(Booking).join(Booking.slot).filter(
+    # confermate con sessione ancora futura.
+    prenotazioni_attive = db.query(Booking).filter(
         Booking.user_id == user.id,
         Booking.status == "confirmed",
-        Slot.start_time >= ora_utc_naive()
+        Booking.start_time >= ora_utc_naive()
     ).count()
     if prenotazioni_attive >= MAX_PRENOTAZIONI_ATTIVE:
         raise HTTPException(
@@ -230,6 +230,7 @@ def create_booking(
         user_id=user.id,
         slot_id=booking.slot_id,
         slot_id_secondario=slot_secondario.id if slot_secondario else None,
+        start_time=slot.start_time,
         duration_hours=booking.duration_hours,
         price_cents=price,
         service_type=booking.service_type,
@@ -342,7 +343,7 @@ def cancella_prenotazione_cliente(
         raise HTTPException(status_code=403, detail="This booking doesn't belong to you")
     if prenotazione.status != "confirmed":
         raise HTTPException(status_code=400, detail="This booking is not active")
-    if prenotazione.slot.start_time <= ora_utc_naive():
+    if prenotazione.start_time <= ora_utc_naive():
         raise HTTPException(status_code=400, detail="This session has already happened, it can no longer be cancelled")
 
     prenotazione.status = "cancelled"

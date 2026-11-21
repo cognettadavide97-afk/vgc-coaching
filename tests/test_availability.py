@@ -115,7 +115,7 @@ def test_elimina_slot_obsoleti_preserva_slot_con_prenotazione_cancellata(db):
     db.refresh(utente)
 
     prenotazione = Booking(
-        user_id=utente.id, slot_id=slot.id, duration_hours=1,
+        user_id=utente.id, slot_id=slot.id, start_time=slot.start_time, duration_hours=1,
         price_cents=2000, service_type="vod_review", status="cancelled"
     )
     db.add(prenotazione)
@@ -156,7 +156,7 @@ def test_elimina_slot_rifiuta_slot_secondario_di_una_sessione_da_2h(client, db):
     slot_secondario = crea_slot(db, datetime(2030, 1, 8, 15, 0, 0), is_available=False)
 
     prenotazione = Booking(
-        user_id=utente.id, slot_id=slot_primario.id, slot_id_secondario=slot_secondario.id,
+        user_id=utente.id, slot_id=slot_primario.id, start_time=slot_primario.start_time, slot_id_secondario=slot_secondario.id,
         duration_hours=2, price_cents=4000, service_type="vod_review", status="confirmed"
     )
     db.add(prenotazione)
@@ -469,7 +469,7 @@ def test_sblocca_rifiuta_uno_slot_prenotato_da_un_cliente(client, db):
     utente = User(nome="Cliente", email="c@example.com", categoria="senior")
     db.add(utente)
     db.commit()
-    db.add(Booking(user_id=utente.id, slot_id=slot.id, duration_hours=1,
+    db.add(Booking(user_id=utente.id, slot_id=slot.id, start_time=slot.start_time, duration_hours=1,
                    price_cents=2000, service_type="vod_review", status="confirmed"))
     db.commit()
 

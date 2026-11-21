@@ -241,7 +241,7 @@ def test_uno_slot_bloccato_non_e_eliminabile_se_ha_uno_storico(client, db, calen
     db.add(utente)
     db.commit()
     # Una prenotazione cancellata in passato basta a legare lo slot allo storico.
-    db.add(Booking(user_id=utente.id, slot_id=slot.id, duration_hours=1,
+    db.add(Booking(user_id=utente.id, slot_id=slot.id, start_time=slot.start_time, duration_hours=1,
                    price_cents=2000, service_type="vod_review", status="cancelled"))
     db.commit()
 
@@ -259,7 +259,7 @@ def test_uno_slot_bloccato_non_e_eliminabile_se_ha_uno_storico(client, db, calen
 
 def prenota(db, utente, slot, status="confirmed"):
     prenotazione = Booking(
-        user_id=utente.id, slot_id=slot.id, duration_hours=1,
+        user_id=utente.id, slot_id=slot.id, start_time=slot.start_time, duration_hours=1,
         price_cents=2000, service_type="vod_review", status=status
     )
     slot.is_available = False
@@ -586,7 +586,7 @@ def test_anonimizzare_un_cliente_ripulisce_note_e_prenotazioni(db):
     db.refresh(slot)
 
     db.add(Booking(
-        user_id=utente.id, slot_id=slot.id, duration_hours=1, price_cents=2000,
+        user_id=utente.id, slot_id=slot.id, start_time=slot.start_time, duration_hours=1, price_cents=2000,
         service_type="vod_review", status="confirmed", created_at=vecchio,
         note_cliente="Sono Mario Rossi, il mio Discord è mario#1234",
         note_admin="Mario gioca sempre Incineroar, insistere sul posizionamento",
@@ -640,7 +640,7 @@ def test_lanonimizzazione_non_tocca_le_note_di_un_cliente_attivo(db):
     db.refresh(slot_attivo)
 
     db.add(Booking(
-        user_id=attivo.id, slot_id=slot_attivo.id, duration_hours=1, price_cents=2000,
+        user_id=attivo.id, slot_id=slot_attivo.id, start_time=slot_attivo.start_time, duration_hours=1, price_cents=2000,
         service_type="vod_review", status="confirmed", created_at=recente,
         note_cliente="Sono Luigi Verdi, gioco da due anni",
     ))

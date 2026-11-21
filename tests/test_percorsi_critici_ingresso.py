@@ -110,7 +110,7 @@ def test_si_puo_prenotare_a_nome_di_un_altro_conoscendone_solo_lemail(client, db
 def test_email_con_maiuscole_diverse_ritrova_lo_stesso_utente(client, db):
     """L'email entra in minuscolo, quindi il confronto non dipende dal motore.
 
-    Prima `get_or_create_user` (backend/routers/users.py:111) confrontava
+    Prima `get_or_create_user` (backend/routers/users.py:107) confrontava
     l'email così come scritta, e l'esito dipendeva dalla collation: su
     SQLite (case-sensitive) nascevano due clienti per la stessa persona, su
     MySQL (case-insensitive) tornava l'utente esistente, la cui email non

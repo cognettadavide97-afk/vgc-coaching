@@ -130,7 +130,7 @@ def test_analytics_esclude_prenotazioni_oltre_i_12_mesi(client, db):
     db.refresh(slot_vecchio)
 
     prenotazione_vecchia = Booking(
-        user_id=utente["id"], slot_id=slot_vecchio.id,
+        user_id=utente["id"], slot_id=slot_vecchio.id, start_time=slot_vecchio.start_time,
         duration_hours=1, price_cents=2000,
         service_type="bo3_sparring", status="no_show"
     )
@@ -173,27 +173,28 @@ def test_analytics_calcola_correttamente_le_metriche(client, db):
     ora = datetime.now(timezone.utc).replace(tzinfo=None)
 
     def slot_passato(giorni_fa):
+        """Slot e orario di una prenotazione di `giorni_fa` giorni fa, pronti per Booking(**...)."""
         s = Slot(start_time=ora - timedelta(days=giorni_fa), duration_hours=1, is_available=False)
         db.add(s)
         db.commit()
         db.refresh(s)
-        return s
+        return {"slot_id": s.id, "start_time": s.start_time}
 
     # utente_1: una sola prenotazione, confermata e già passata → "cliente nuovo".
     db.add(Booking(
-        user_id=utente_1["id"], slot_id=slot_passato(5).id,
+        user_id=utente_1["id"], **slot_passato(5),
         duration_hours=1, price_cents=2000,
         service_type="vod_review", status="confirmed"
     ))
     # utente_2: due prenotazioni → "cliente ricorrente" — una confermata e
     # passata, una no_show (entrambe entro la finestra di 12 mesi).
     db.add(Booking(
-        user_id=utente_2["id"], slot_id=slot_passato(10).id,
+        user_id=utente_2["id"], **slot_passato(10),
         duration_hours=1, price_cents=4000,
         service_type="team_building", status="confirmed"
     ))
     db.add(Booking(
-        user_id=utente_2["id"], slot_id=slot_passato(3).id,
+        user_id=utente_2["id"], **slot_passato(3),
         duration_hours=1, price_cents=2000,
         service_type="vod_review", status="no_show"
     ))
@@ -323,7 +324,7 @@ def test_data_creazione_prenotazione_in_ora_italiana(client, db):
     db.refresh(slot)
 
     prenotazione = Booking(
-        user_id=utente["id"], slot_id=slot.id,
+        user_id=utente["id"], slot_id=slot.id, start_time=slot.start_time,
         duration_hours=1, price_cents=2000, service_type="vod_review",
         # 22:30 UTC del 14 luglio = 00:30 del 15 luglio in Italia (CEST, UTC+2).
         created_at=datetime(2026, 7, 14, 22, 30)

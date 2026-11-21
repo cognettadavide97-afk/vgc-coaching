@@ -23,10 +23,9 @@ from datetime import timedelta
 from typing import Callable, NamedTuple
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy.orm import contains_eager, joinedload
+from sqlalchemy.orm import joinedload
 from backend.database import SessionLocal, engine
 from backend.models.booking import Booking
-from backend.models.slots import Slot
 from backend.models.availability_rule import AvailabilityRule
 from backend.services.email_service import invia_promemoria_cliente, invia_richiesta_recensione, verifica_credenziali_gmail
 from backend.services.discord_service import invia_promemoria_discord, invia_alert_sistema
@@ -99,16 +98,15 @@ CREDENZIALI_SORVEGLIATE = (
 )
 
 
-def _query_prenotazioni_con_slot_e_utente(db):
+def _query_prenotazioni_con_utente(db):
     """Query di base condivisa dai due job che notificano i clienti.
 
     Restituisce la query senza filtri né esecuzione: le condizioni le
-    aggiunge il chiamante. Il join sulla relationship (e non su `Slot`) è
-    necessario perché due colonne puntano a slots, e l'eager loading evita
-    due query aggiuntive per ogni prenotazione nel ciclo del chiamante.
+    aggiunge il chiamante. L'eager loading dell'utente evita una query
+    aggiuntiva per ogni prenotazione nel ciclo del chiamante. Lo slot non
+    serve: dal pezzo 4.3 l'orario sta sulla prenotazione.
     """
-    return db.query(Booking).join(Booking.slot).options(
-        contains_eager(Booking.slot),
+    return db.query(Booking).options(
         joinedload(Booking.user)
     )
 
@@ -123,20 +121,19 @@ def controlla_e_invia_promemoria():
         ora = ora_utc_naive()
         soglia = ora + timedelta(hours=REMINDER_HOURS_BEFORE)
 
-        prenotazioni = _query_prenotazioni_con_slot_e_utente(db).filter(
+        prenotazioni = _query_prenotazioni_con_utente(db).filter(
             Booking.status == "confirmed",
             Booking.reminder_sent == False,
-            Slot.start_time > ora,       # non ancora passato
-            Slot.start_time <= soglia    # ma abbastanza vicino
+            Booking.start_time > ora,       # non ancora passato
+            Booking.start_time <= soglia    # ma abbastanza vicino
         ).all()
 
         for prenotazione in prenotazioni:
             user = prenotazione.user
-            slot = prenotazione.slot
-            if not user or not slot:
+            if not user:
                 continue  # sicurezza: salta se per qualche motivo mancano i dati collegati
 
-            slot_rome = utc_to_rome(slot.start_time)
+            slot_rome = utc_to_rome(prenotazione.start_time)
             data_slot = slot_rome.strftime("%d/%m/%Y")
             ora_slot = slot_rome.strftime("%H:%M")
 
@@ -194,21 +191,20 @@ def controlla_e_invia_richieste_recensione():
         # una iniziata prima è certamente conclusa. Riduce le righe da
         # esaminare senza escluderne di valide; la verifica esatta sulla
         # durata effettiva avviene nel ciclo.
-        candidate = _query_prenotazioni_con_slot_e_utente(db).filter(
+        candidate = _query_prenotazioni_con_utente(db).filter(
             Booking.status == "confirmed",
             Booking.review_email_sent == False,
-            Slot.start_time <= ora - timedelta(hours=2),
-            Slot.start_time >= ora - timedelta(days=GIORNI_TENTATIVI_RECENSIONE)
+            Booking.start_time <= ora - timedelta(hours=2),
+            Booking.start_time >= ora - timedelta(days=GIORNI_TENTATIVI_RECENSIONE)
         ).all()
 
         inviate = 0
         for prenotazione in candidate:
             user = prenotazione.user
-            slot = prenotazione.slot
-            if not user or not slot or not prenotazione.review_token:
+            if not user or not prenotazione.review_token:
                 continue
 
-            fine_sessione = slot.start_time + timedelta(hours=prenotazione.duration_hours)
+            fine_sessione = prenotazione.start_time + timedelta(hours=prenotazione.duration_hours)
             if fine_sessione > ora:
                 continue  # sessione non ancora conclusa nonostante il pre-filtro largo
 

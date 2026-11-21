@@ -87,7 +87,7 @@ def test_la_dashboard_riassume_prenotazioni_incassi_e_voti(client, db):
     slot_passato = crea_slot(db, ORA - timedelta(days=3), is_available=False)
     slot_futuro = crea_slot(db, ORA + timedelta(days=7))
 
-    confermata = Booking(user_id=utente.id, slot_id=slot_passato.id, duration_hours=1,
+    confermata = Booking(user_id=utente.id, slot_id=slot_passato.id, start_time=slot_passato.start_time, duration_hours=1,
                          price_cents=2000, service_type="vod_review", status="confirmed")
     db.add(confermata)
     db.commit()
@@ -126,7 +126,7 @@ def test_una_prenotazione_cancellata_sparisce_dagli_incassi_ma_non_dal_totale(cl
     """Le due metriche contano cose diverse."""
     utente = crea_utente_db(db)
     slot = crea_slot(db, ORA + timedelta(days=7), is_available=False)
-    db.add(Booking(user_id=utente.id, slot_id=slot.id, duration_hours=1,
+    db.add(Booking(user_id=utente.id, slot_id=slot.id, start_time=slot.start_time, duration_hours=1,
                    price_cents=2000, service_type="vod_review", status="cancelled"))
     db.commit()
 
@@ -150,7 +150,7 @@ def prepara_incassi(db):
 
     def prenotazione(utente, ore_da_adesso, prezzo_cents, stato):
         slot = crea_slot(db, ORA + timedelta(hours=ore_da_adesso), is_available=False)
-        db.add(Booking(user_id=utente.id, slot_id=slot.id, duration_hours=1,
+        db.add(Booking(user_id=utente.id, slot_id=slot.id, start_time=slot.start_time, duration_hours=1,
                        price_cents=prezzo_cents, service_type="vod_review", status=stato))
 
     prenotazione(luca, -3, 4000, "cancelled")   # cancellata: mai incassata

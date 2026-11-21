@@ -19,7 +19,6 @@ from typing import List, NamedTuple, Optional
 from sqlalchemy.orm import Session
 from backend.models.booking import Booking
 from backend.models.package import Package
-from backend.models.slots import Slot
 from backend.services.timezone_service import ora_utc_naive
 
 
@@ -43,15 +42,14 @@ def movimenti_incasso(
     SQL andrebbe ripetuta per ogni raggruppamento, e sui volumi di un coach
     leggere qualche riga in più non si misura.
     """
-    sessioni = db.query(Slot.start_time, Booking.user_id, Booking.price_cents) \
-        .select_from(Booking).join(Booking.slot).filter(
-            Booking.status == "confirmed",
-            Slot.start_time < ora_utc_naive()
-        )
+    sessioni = db.query(Booking.start_time, Booking.user_id, Booking.price_cents).filter(
+        Booking.status == "confirmed",
+        Booking.start_time < ora_utc_naive()
+    )
     pacchetti = db.query(Package.created_at, Package.user_id, Package.prezzo_cents)
 
     if dal_utc is not None:
-        sessioni = sessioni.filter(Slot.start_time >= dal_utc)
+        sessioni = sessioni.filter(Booking.start_time >= dal_utc)
         pacchetti = pacchetti.filter(Package.created_at >= dal_utc)
     if user_ids is not None:
         sessioni = sessioni.filter(Booking.user_id.in_(user_ids))

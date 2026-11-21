@@ -64,6 +64,7 @@ def test_non_anonimizza_cliente_con_prenotazione_recente(db):
     prenotazione = Booking(
         user_id=utente.id,
         slot_id=slot.id,
+        start_time=slot.start_time,
         duration_hours=1,
         price_cents=2000,
         service_type="vod_review",

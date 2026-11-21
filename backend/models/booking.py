@@ -1,7 +1,9 @@
 """Model della tabella `bookings`: le prenotazioni.
 
-Collega un `User` a uno `Slot` ed è il centro di quasi tutte le
-funzionalità dell'applicazione.
+Collega un `User` a un orario ed è il centro di quasi tutte le
+funzionalità dell'applicazione. L'orario sta sulla prenotazione stessa
+(`start_time`); il collegamento allo `Slot` da cui è nata resta fino alla
+rimozione della tabella slots (decisione P9).
 """
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Boolean
@@ -22,6 +24,14 @@ class Booking(Base):
     # 1 ora consecutivi: il calendario genera esclusivamente slot da 1 ora.
     # Resta None per le prenotazioni da 1 ora.
     slot_id_secondario = Column(Integer, ForeignKey("slots.id"), nullable=True)
+
+    # Inizio della sessione, UTC naive come ogni orario del database. Fino
+    # al pezzo 4.3 si leggeva dallo slot collegato: con la disponibilità
+    # calcolata (P9) gli slot spariscono, e la prenotazione deve sapere da
+    # sé quando avviene. Indicizzata per lo stesso motivo di
+    # slots.start_time: è il filtro di promemoria, recensioni, dashboard e
+    # incassi, su una tabella che cresce sempre.
+    start_time = Column(DateTime, nullable=False, index=True)
 
     duration_hours = Column(Integer, nullable=False, default=1)
 

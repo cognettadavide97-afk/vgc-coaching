@@ -30,7 +30,7 @@ def crea_studente(db, email="studente@example.com", nome="Studente Test"):
 
 def crea_prenotazione(db, utente, slot, **campi):
     prenotazione = Booking(
-        user_id=utente.id, slot_id=slot.id,
+        user_id=utente.id, slot_id=slot.id, start_time=slot.start_time,
         duration_hours=campi.get("duration_hours", 1),
         price_cents=campi.get("price_cents", 2000),
         service_type=campi.get("service_type", "vod_review"),

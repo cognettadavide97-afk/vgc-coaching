@@ -9,12 +9,11 @@ sessione.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session, contains_eager
+from sqlalchemy.orm import Session
 from datetime import timezone
 from backend.database import get_db
 from backend.models.users import User
 from backend.models.booking import Booking
-from backend.models.slots import Slot
 from backend.models.package import Package
 from backend.schemas.users import UserCreate, UserResponse, UserIdResponse
 from backend.routers.admin import get_admin
@@ -73,20 +72,17 @@ def get_prenotazioni_studente(
     db: Session = Depends(get_db)
 ):
     """Storico delle prenotazioni dello studente, dalla più recente."""
-    # Il join serve a ordinare per un campo di slots; contains_eager evita
-    # che il ciclo rilegga lo slot riga per riga. La relationship va
-    # indicata esplicitamente perché due colonne puntano a slots.
-    prenotazioni = db.query(Booking).join(Booking.slot).options(
-        contains_eager(Booking.slot)
-    ).filter(
+    # Ordinate per l'orario della sessione, che sta sulla prenotazione: fino
+    # al pezzo 4.3 serviva un join con slots per leggerlo.
+    prenotazioni = db.query(Booking).filter(
         Booking.user_id == studente.id
-    ).order_by(Slot.start_time.desc()).all()
+    ).order_by(Booking.start_time.desc()).all()
 
     # Risposta costruita a mano invece che con un response_model: espone
     # solo i campi utili al frontend, già formattati.
     risultato = []
     for p in prenotazioni:
-        data, ora = formatta_data_ora_rome(p.slot.start_time)
+        data, ora = formatta_data_ora_rome(p.start_time)
         risultato.append({
             "id": p.id,
             "servizio": p.service_type,
@@ -96,7 +92,7 @@ def get_prenotazioni_studente(
             "durata_ore": p.duration_hours,
             # Offset UTC esplicito: consente al frontend di stabilire se la
             # sessione è passata senza reinterpretare le stringhe formattate.
-            "start_time_iso": p.slot.start_time.replace(tzinfo=timezone.utc).isoformat()
+            "start_time_iso": p.start_time.replace(tzinfo=timezone.utc).isoformat()
         })
     return risultato
 

@@ -7,8 +7,9 @@ succedeva la copia mentiva. Qui non si salva nulla: si parte dalle regole
 ricorrenti e si tolgono blocchi, prenotazioni e impegni Google, ogni volta
 che qualcuno chiede. Una sola fonte di verità, niente da tenere allineato.
 
-Nel pezzo 4.2 la funzione esiste ma il sito non la usa ancora; le
-prenotazioni puntano ancora a uno slot, da cui si legge il loro orario.
+Il sito non la usa ancora (arriva nel pezzo 4.4). L'orario delle
+prenotazioni si legge dalla prenotazione stessa (pezzo 4.3), non dallo
+slot a cui punta ancora.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -16,7 +17,6 @@ from sqlalchemy.orm import Session
 from backend.models.availability_exception import AvailabilityException
 from backend.models.availability_rule import AvailabilityRule
 from backend.models.booking import Booking
-from backend.models.slots import Slot
 from backend.services.calendar_service import leggi_eventi_calendario
 from backend.services.timezone_service import ROME_TZ, ora_utc_naive, utc_to_rome, intervalli_si_sovrappongono
 
@@ -76,17 +76,16 @@ def calcola_disponibilita(db: Session, da: datetime, a: datetime) -> dict[int, l
     ).all()
 
     # Una prenotazione no_show occupa ancora la sua ora: solo la
-    # cancellazione la libera. L'orario si legge dallo slot finché le
-    # prenotazioni non avranno un orario proprio (pezzo 4.3).
+    # cancellazione la libera.
     # Il filtro sull'orario sta nella query perché la tabella cresce sempre;
     # il margine di 2 ore copre le sessioni lunghe iniziate prima di `da`.
-    prenotazioni = db.query(Booking).join(Booking.slot).filter(
+    prenotazioni = db.query(Booking).filter(
         Booking.status != "cancelled",
-        Slot.start_time < fine_lettura,
-        Slot.start_time > da - timedelta(hours=2)
+        Booking.start_time < fine_lettura,
+        Booking.start_time > da - timedelta(hours=2)
     ).all()
     occupati = [
-        (b.slot.start_time, b.slot.start_time + timedelta(hours=b.duration_hours))
+        (b.start_time, b.start_time + timedelta(hours=b.duration_hours))
         for b in prenotazioni
     ]
 
