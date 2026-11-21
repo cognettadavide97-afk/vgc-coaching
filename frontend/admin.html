@@ -8,8 +8,8 @@
     (#login-screen e #admin-panel) — non loggato vedi solo la prima,
     loggato solo la seconda (admin.js le nasconde/mostra cambiando lo
     stile "display"). Dentro #admin-panel, poi, c'è UN'ALTRA alternanza:
-    sei <section> (dashboard, prenotazioni, clienti, slot, pacchetti,
-    recensioni), di cui una
+    sei <section> (dashboard, prenotazioni, clienti, disponibilità,
+    pacchetti, recensioni), di cui una
     sola visibile alla volta — stesso concetto degli "step" del form
     pubblico, ma qui il cambio avviene cliccando i bottoni della barra
     laterale invece che avanzando in un flusso lineare.
@@ -77,8 +77,8 @@
                 <button class="nav-btn" onclick="showSection('clienti')">
                     👤 Clienti
                 </button>
-                <button class="nav-btn" onclick="showSection('slots')">
-                    🕐 Slot
+                <button class="nav-btn" onclick="showSection('disponibilita')">
+                    🗓 Disponibilità
                 </button>
                 <button class="nav-btn" onclick="showSection('pacchetti')">
                     🎁 Pacchetti
@@ -113,7 +113,8 @@
                         <div class="stat-label">Totale incassato</div>
                     </div>
                 </div>
-                <h3>Prossimi slot liberi</h3>
+                <!-- Le prime cinque ore che il sito vende, dallo stesso calcolo (GET /admin/dashboard) -->
+                <h3>Prossime ore in vendita</h3>
                 <div id="prossimi-slot"></div>
 
                 <!-- Questi tre e i tre grafici sotto vengono da GET /admin/analytics (funzione caricaAnalytics in admin.js) -->
@@ -183,51 +184,19 @@
                 <div id="lista-clienti"></div>
             </section>
 
-            <!-- SLOT -->
-            <section id="section-slots" class="admin-section">
-                <div class="section-header">
-                    <h2>Gestione Slot</h2>
-                    <button class="btn-export" onclick="sincronizzaCalendario()">
-                        🔄 Sincronizza calendario
-                    </button>
-                </div>
-                <div class="nuovo-slot-form">
-                    <h3>Aggiungi nuovo slot</h3>
-                    <p style="font-size: 0.85rem; color: #888; margin-top: -0.5rem;">
-                        L'orario inserito è sempre riferito al fuso orario italiano (Europe/Rome).
-                    </p>
-                    <div class="form-inline">
-                        <!--
-                            type="datetime-local" è un tipo di <input> HTML
-                            che mostra automaticamente un selettore di
-                            data+ora nel browser, senza bisogno di nessuna
-                            libreria JavaScript — il valore che produce è
-                            però sempre "senza fuso orario" (es.
-                            "2026-08-12T18:00"), per questo il backend deve
-                            interpretarlo esplicitamente come ora italiana
-                            (vedi il validator in backend/schemas/slots.py).
-                        -->
-                        <input type="datetime-local" id="nuovo-slot-data">
-                        <!-- Solo 1 ora. Una sessione da 2 ore non è uno slot
-                             da 2 ore: è l'unione di due slot da 1 ora adiacenti,
-                             decisa al momento della prenotazione. Uno slot da 2
-                             ore creato qui non comparirebbe nemmeno ai clienti,
-                             perché il form pubblico mostra solo quelli da 1 ora,
-                             e salterebbe il vincolo sugli orari di inizio.
-                             Il server rifiuta comunque durate diverse
-                             (backend/schemas/slots.py). -->
-                        <select id="nuovo-slot-durata">
-                            <option value="1">1 ora</option>
-                        </select>
-                        <button class="btn-primary" onclick="creaSlot()">
-                            + Aggiungi
-                        </button>
-                    </div>
-                </div>
+            <!--
+                DISPONIBILITÀ (pezzo 4.5, decisione P9). Il sito non vende più
+                slot salvati: calcola le ore a ogni richiesta da regole, blocchi,
+                prenotazioni e impegni Google. Per questo qui non c'è più nulla
+                da sincronizzare, sbloccare o cancellare a mano: si cambiano
+                regole e blocchi, e l'anteprima mostra subito l'effetto.
+            -->
+            <section id="section-disponibilita" class="admin-section">
+                <h2>Disponibilità</h2>
                 <div class="nuovo-slot-form">
                     <h3>Disponibilità ricorrente</h3>
                     <p style="font-size: 0.85rem; color: #888; margin-top: -0.5rem;">
-                        Genera automaticamente gli slot fino alla fine del mese corrente (si estende da sola quando inizia il mese successivo). Orari in ora italiana.
+                        Le ore delle regole sono in vendita fino alla fine del mese corrente; il mese successivo si apre quando inizia. Una regola nuova o eliminata vale subito. Orari in ora italiana.
                     </p>
                     <div class="form-inline">
                         <!-- Il "value" di ogni <option> qui deve combaciare con la numerazione 0=lunedì...6=domenica usata dal backend (vedi AvailabilityRule) -->
@@ -270,7 +239,22 @@
                     <div id="lista-blocchi"></div>
                 </div>
 
-                <div id="lista-slots"></div>
+                <div class="nuovo-slot-form">
+                    <div class="section-header">
+                        <h3 id="anteprima-titolo">Anteprima della settimana</h3>
+                        <div class="header-actions">
+                            <button class="btn-secondary" id="anteprima-precedente"
+                                onclick="caricaAnteprima(settimanaAnteprima - 1)">← Precedente</button>
+                            <button class="btn-secondary"
+                                onclick="caricaAnteprima(settimanaAnteprima + 1)">Successiva →</button>
+                        </div>
+                    </div>
+                    <p style="font-size: 0.85rem; color: #888; margin-top: -0.5rem;">
+                        Sola lettura: le ore come le vede il sito, con il motivo di quelle non in vendita. Orari in ora italiana.
+                    </p>
+                    <!-- Riempito da caricaAnteprima in admin.js (GET /admin/disponibilita/anteprima) -->
+                    <div id="anteprima"></div>
+                </div>
             </section>
 
             <!-- PACCHETTI -->

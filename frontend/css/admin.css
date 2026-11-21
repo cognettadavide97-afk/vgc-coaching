@@ -510,7 +510,7 @@ nav { flex: 1; padding: 1rem 0; }
    invece che per classe perché admin.js scrive l'HTML della tabella
    direttamente dentro questi contenitori con innerHTML (vedi es.
    caricaPrenotazioni), non c'è un wrapper dedicato da targetizzare via classe. */
-#lista-prenotazioni, #lista-clienti, #lista-slots,
+#lista-prenotazioni, #lista-clienti, #anteprima,
 #lista-pacchetti, #lista-regole, #lista-blocchi {
     overflow-x: auto;
 }

@@ -11,11 +11,11 @@
 // clienti e non merita la comodità di una sessione persistente.
 let token = null;
 
-// ─── PAGINAZIONE (helper condiviso da prenotazioni/clienti/slot) ─
+// ─── PAGINAZIONE (helper condiviso da prenotazioni/clienti) ─
 // tiene traccia della pagina corrente di ciascuna lista, cosi le azioni
 // (nota, cambio stato, elimina...) possono ricaricare la stessa pagina
 // invece di riportare sempre l'admin a pagina 1
-const paginaCorrente = { prenotazioni: 1, clienti: 1, slots: 1 };
+const paginaCorrente = { prenotazioni: 1, clienti: 1 };
 
 // ─── AZIONI SU RIGHE (delegazione eventi, al posto di onclick inline) ─
 // PERCHÉ esiste questo blocco: prima i bottoni "Note/Pacchetto/Elimina"
@@ -86,7 +86,7 @@ function gestisciAzionePrenotazione(e) {
 function renderPaginazione(dati, nomeFunzione) {
     // nomeFunzione è il nome della funzione che ricarica la lista,
     // interpolato negli onclick: è ciò che rende questo helper riusabile
-    // dalle tre liste paginate invece di duplicarlo.
+    // dalle liste paginate invece di duplicarlo.
     if (dati.pagine_totali <= 1) return '';
     return `
         <div class="paginazione">
@@ -172,10 +172,10 @@ function showSection(nome) {
     if (nome === 'dashboard') caricaDashboard();
     if (nome === 'prenotazioni') caricaPrenotazioni();
     if (nome === 'clienti') caricaClienti();
-    if (nome === 'slots') {
-        caricaSlots();
+    if (nome === 'disponibilita') {
         caricaRegole();
         caricaBlocchi();
+        caricaAnteprima(0);
     }
     if (nome === 'pacchetti') caricaPacchetti();
     if (nome === 'recensioni') caricaRecensioni();
@@ -264,9 +264,14 @@ async function caricaDashboard() {
         document.getElementById('stat-voto-medio').textContent =
             data.media_voto_recensioni !== null ? `⭐ ${data.media_voto_recensioni}` : '—';
 
+        // null e lista vuota sono due risposte diverse: null vuol dire che
+        // Google non ha risposto e il server non sa quali ore siano libere,
+        // [] che lo sa e non ce n'è nessuna (routers/admin/dashboard.py).
         const container = document.getElementById('prossimi-slot');
-        if (data.prossimi_slot_liberi.length === 0) {
-            container.innerHTML = '<p style="color:#aaa">Nessuno slot libero disponibile.</p>';
+        if (data.prossimi_slot_liberi === null) {
+            container.innerHTML = '<p style="color:#aaa">Google Calendar non raggiungibile: impossibile calcolare le ore in vendita.</p>';
+        } else if (data.prossimi_slot_liberi.length === 0) {
+            container.innerHTML = '<p style="color:#aaa">Nessuna ora in vendita.</p>';
         } else {
             container.innerHTML = `<div class="slot-list">${
                 data.prossimi_slot_liberi.map(s => `
@@ -817,104 +822,107 @@ async function impostaApprovazioneRecensione(id, approvata) {
     }
 }
 
-// ─── SLOTS ───────────────────────────────────────────────────
-async function caricaSlots(pagina = 1) {
-    paginaCorrente.slots = pagina;
-    try {
-        const res = await fetch(`/admin/slots?pagina=${pagina}&per_pagina=20`, { headers: authHeaders() });
-        const dati = await res.json();
-        const slots = dati.items;
+// ─── ANTEPRIMA SETTIMANALE ────────────────────────────────────
+// Sostituisce la lista degli slot (pezzo 4.5): il sito non vende più slot
+// salvati, ma ore calcolate a ogni richiesta, e l'anteprima mostra quelle.
+// Il server decide lo stato di ogni ora con lo stesso calcolo del sito
+// (anteprima_settimana in backend/services/disponibilita_service.py); qui
+// si sceglie solo come mostrarlo.
 
-        const container = document.getElementById('lista-slots');
+// 0 = questa settimana, 1 = la prossima. Il limite in avanti lo tiene il
+// server (422): ripeterlo qui sarebbe una costante duplicata da allineare.
+let settimanaAnteprima = 0;
 
-        if (slots.length === 0) {
-            container.innerHTML = '<p style="color:#aaa; padding:1rem">Nessuno slot da oggi in poi.</p>';
-            return;
+function etichettaOra(o) {
+    // Un ramo per ogni stato del server. Il nome del cliente e il motivo
+    // del blocco sono testo libero: passano da escapeHtml, che basta
+    // perché finiscono nel contenuto dell'elemento e non in un attributo.
+    switch (o.stato) {
+        case 'in_vendita':
+            return '<span class="badge badge-confirmed">In vendita</span>'
+                + (o.da_due_ore ? ' anche da 2 ore' : '');
+        case 'fuori_orizzonte':
+            return '<span class="badge badge-no-show">Libera, non ancora in vendita</span>'
+                + (o.da_due_ore ? ' anche da 2 ore' : '');
+        case 'prenotata': {
+            const p = o.prenotazione;
+            const servizio = SERVICE_LABELS[p.servizio] || p.servizio;
+            return '<span class="badge badge-pending">Prenotata</span> '
+                + `${escapeHtml(p.cliente)}, ${escapeHtml(servizio)}`
+                + (p.stato === 'no_show' ? ' (no-show)' : '');
         }
-
-        container.innerHTML = `
-            <table class="admin-table">
-                <thead>
-                    <tr>
-                        <th>Data</th>
-                        <th>Ora</th>
-                        <th>Durata</th>
-                        <th>Stato</th>
-                        <th>Azioni</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${slots.map(s => `
-                        <tr>
-                            <td>${s.data}</td>
-                            <td>${s.ora}</td>
-                            <td>${s.durata_ore}h</td>
-                            <td>
-                                ${s.disponibile
-                                    ? '<span class="badge badge-confirmed">Libero</span>'
-                                    : s.bloccato_da_calendario
-                                        ? '<span class="badge badge-cancelled">Bloccato (calendario)</span>'
-                                        : s.bloccato_da_admin
-                                            ? '<span class="badge badge-no-show">Bloccato (ferie)</span>'
-                                            : '<span class="badge badge-pending">Prenotato</span>'
-                                }
-                            </td>
-                            <td>
-                                ${s.disponibile ? `
-                                    <button class="action-btn action-delete"
-                                        onclick="eliminaSlot(${s.id})">
-                                        🗑 Elimina
-                                    </button>
-                                ` : (s.bloccato_da_calendario || s.bloccato_da_admin) ? `
-                                    <button class="action-btn action-delete"
-                                        onclick="eliminaSlot(${s.id})">
-                                        🗑 Elimina
-                                    </button>
-                                    <button class="action-btn action-confirm"
-                                        onclick="sbloccaSlot(${s.id})">
-                                        🔓 Sblocca
-                                    </button>
-                                ` : '—'}
-                            </td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-            ${renderPaginazione(dati, 'caricaSlots')}
-        `;
-        // L'ordine dei casi conta: "prenotato" è il ramo residuo, quando
-        // nessun flag di blocco è attivo.
-        // Lo stesso ordine vale per la colonna Azioni: uno slot bloccato si
-        // sblocca o si elimina (il server accetta la DELETE su uno slot non
-        // disponibile: rifiuta solo se ha prenotazioni collegate), mentre su
-        // quello prenotato non c'è azione possibile dal pannello — quell'ora
-        // è stata venduta e si libera solo cancellando la prenotazione.
-        // Elimina va per primo anche se l'azione principale è Sblocca: dopo
-        // uno sblocco la riga si ridisegna con il solo Elimina, e se questo
-        // scivolasse nella posizione appena occupata da Sblocca il secondo
-        // clic di chi clicca due volte cadrebbe su un bottone distruttivo.
-        // Tenendolo ancorato in prima posizione, quel punto resta vuoto.
-    } catch (error) {
-        console.error('Errore slots:', error);
+        case 'bloccata':
+            return '<span class="badge badge-cancelled">Bloccata</span>'
+                + (o.motivo ? ` ${escapeHtml(o.motivo)}` : '');
+        case 'google':
+            return '<span class="badge badge-cancelled">Occupata su Google Calendar</span>';
+        case 'passata':
+            return '<span style="color:#aaa">Passata</span>';
+        default:
+            return escapeHtml(o.stato);
     }
 }
 
-async function sincronizzaCalendario() {
+async function caricaAnteprima(settimana) {
+    const container = document.getElementById('anteprima');
     try {
-        const res = await fetch('/admin/slots/sync-calendario', {
-            method: 'POST',
-            headers: authHeaders()
-        });
-        if (!res.ok) {
-            alert('Errore durante la sincronizzazione con il calendario.');
+        const res = await fetch(`/admin/disponibilita/anteprima?settimana=${settimana}`, { headers: authHeaders() });
+
+        // Il numero della settimana cambia solo se la risposta arriva: un
+        // passo oltre il limite (422) lascia a schermo la settimana di prima.
+        if (res.status === 422) {
+            alert('L\'anteprima non guarda oltre questa settimana.');
             return;
         }
-        const data = await res.json();
-        alert(`Sincronizzazione completata: ${data.slot_bloccati} slot bloccati per eventi sul calendario.`);
-        caricaSlots(paginaCorrente.slots);
+        if (!res.ok) {
+            // 503: senza gli impegni Google l'anteprima mostrerebbe in
+            // vendita ore che il sito non offre, quindi non la si mostra.
+            container.innerHTML = res.status === 503
+                ? '<p style="color:#aaa; margin-top:1rem">Google Calendar non raggiungibile: l\'anteprima non è disponibile.</p>'
+                : '<p style="color:#aaa; margin-top:1rem">Errore nel caricamento dell\'anteprima.</p>';
+            return;
+        }
+
+        const dati = await res.json();
+        settimanaAnteprima = dati.settimana;
+        const giorni = dati.giorni;
+
+        document.getElementById('anteprima-titolo').textContent =
+            `Settimana dal ${giorni[0].data} al ${giorni[6].data}`;
+        // La settimana in corso è la prima: indietro non si va.
+        document.getElementById('anteprima-precedente').disabled = settimanaAnteprima === 0;
+
+        // Una riga per ora; il giorno compare solo sulla prima delle sue
+        // righe (rowspan), così la settimana si legge a colpo d'occhio.
+        const righe = giorni.map(g => {
+            const giorno = `${GIORNI_SETTIMANA[g.giorno_settimana]} ${g.data.slice(0, 5)}`;
+            if (g.ore.length === 0) {
+                return `<tr><td>${giorno}</td><td>—</td><td style="color:#aaa">Nessuna ora</td></tr>`;
+            }
+            return g.ore.map((o, i) => `
+                <tr>
+                    ${i === 0 ? `<td rowspan="${g.ore.length}">${giorno}</td>` : ''}
+                    <td>${o.ora}</td>
+                    <td>${etichettaOra(o)}</td>
+                </tr>
+            `).join('');
+        }).join('');
+
+        container.innerHTML = `
+            <table class="admin-table" style="margin-top:1rem">
+                <thead>
+                    <tr>
+                        <th>Giorno</th>
+                        <th>Ora</th>
+                        <th>Stato</th>
+                    </tr>
+                </thead>
+                <tbody>${righe}</tbody>
+            </table>
+        `;
     } catch (error) {
-        console.error('Errore sync calendario:', error);
-        alert('Errore di connessione durante la sincronizzazione.');
+        console.error('Errore anteprima:', error);
+        container.innerHTML = '<p style="color:#aaa; margin-top:1rem">Errore di connessione.</p>';
     }
 }
 
@@ -990,10 +998,12 @@ async function creaRegolaDisponibilita() {
             return;
         }
 
-        const data = await res.json();
-        alert(`Regola creata: ${data.slot_creati} slot generati fino a fine mese.`);
+        // La risposta conta ancora gli slot generati nella vecchia tabella,
+        // che il sito non vende più: qui non si mostra, l'effetto vero lo
+        // dice l'anteprima.
+        alert('Regola creata: le sue ore libere sono subito in vendita, fino a fine mese.');
         caricaRegole();
-        caricaSlots(paginaCorrente.slots);
+        caricaAnteprima(settimanaAnteprima);
     } catch (error) {
         console.error('Errore creazione regola:', error);
         alert('Errore di connessione.');
@@ -1001,7 +1011,7 @@ async function creaRegolaDisponibilita() {
 }
 
 async function eliminaRegola(id) {
-    if (!confirm('Eliminare questa regola? Gli slot già generati restano invariati.')) return;
+    if (!confirm('Eliminare questa regola? Le sue ore escono subito dalla vendita; le prenotazioni già fatte restano.')) return;
 
     try {
         await fetch(`/admin/disponibilita/regole/${id}`, {
@@ -1009,6 +1019,7 @@ async function eliminaRegola(id) {
             headers: authHeaders()
         });
         caricaRegole();
+        caricaAnteprima(settimanaAnteprima);
     } catch (error) {
         console.error('Errore eliminazione regola:', error);
     }
@@ -1084,11 +1095,14 @@ async function creaBloccoEccezionale() {
             return;
         }
 
-        const data = await res.json();
-        alert(`Blocco creato: ${data.slot_bloccati} slot bloccati.`);
+        // Come per le regole: il conteggio degli slot della vecchia tabella
+        // non dice nulla sulle ore in vendita, e non si mostra. Un blocco
+        // non cancella le prenotazioni già fatte in quei giorni: restano
+        // nell'anteprima come "Prenotata".
+        alert('Blocco creato: quei giorni escono subito dalla vendita. Le prenotazioni già fatte restano.');
         document.getElementById('blocco-motivo').value = '';
         caricaBlocchi();
-        caricaSlots(paginaCorrente.slots);
+        caricaAnteprima(settimanaAnteprima);
     } catch (error) {
         console.error('Errore creazione blocco:', error);
         alert('Errore di connessione.');
@@ -1096,7 +1110,7 @@ async function creaBloccoEccezionale() {
 }
 
 async function eliminaBlocco(id) {
-    if (!confirm('Eliminare questo blocco? Gli slot già bloccati restano bloccati.')) return;
+    if (!confirm('Eliminare questo blocco? Quei giorni tornano subito in vendita, se una regola li prevede.')) return;
 
     try {
         await fetch(`/admin/disponibilita/blocchi/${id}`, {
@@ -1104,88 +1118,9 @@ async function eliminaBlocco(id) {
             headers: authHeaders()
         });
         caricaBlocchi();
+        caricaAnteprima(settimanaAnteprima);
     } catch (error) {
         console.error('Errore eliminazione blocco:', error);
-    }
-}
-
-async function creaSlot() {
-    const data = document.getElementById('nuovo-slot-data').value;
-    const durata = document.getElementById('nuovo-slot-durata').value;
-
-    if (!data) {
-        alert('Seleziona una data e un orario.');
-        return;
-    }
-
-    try {
-        await fetch('/slots/', {
-            method: 'POST',
-            headers: authHeaders(),
-            body: JSON.stringify({
-                start_time: data,
-                duration_hours: parseInt(durata)
-            })
-        });
-        document.getElementById('nuovo-slot-data').value = '';
-        caricaSlots(paginaCorrente.slots);
-    } catch (error) {
-        console.error('Errore creazione slot:', error);
-    }
-}
-
-async function eliminaSlot(id) {
-    if (!confirm('Sei sicuro di voler eliminare questo slot?')) return;
-
-    try {
-        const res = await fetch(`/admin/slots/${id}`, {
-            method: 'DELETE',
-            headers: authHeaders()
-        });
-
-        if (!res.ok) {
-            const errore = await res.json();
-            alert(errore.detail || 'Errore durante l\'eliminazione dello slot.');
-            return;
-        }
-
-        caricaSlots(paginaCorrente.slots);
-    } catch (error) {
-        console.error('Errore eliminazione slot:', error);
-        alert('Errore di connessione durante l\'eliminazione.');
-    }
-}
-
-async function sbloccaSlot(id) {
-    // La conferma non è simmetrica a quella di eliminaSlot: lo sblocco
-    // rimette l'ora in vendita al pubblico subito, e per richiuderla
-    // servirebbe un nuovo blocco eccezionale o una sincronizzazione. Un
-    // clic sulla riga sbagliata va intercettato prima, non dopo.
-    if (!confirm('Sbloccare questo slot? Tornerà subito prenotabile dal pubblico.')) return;
-
-    try {
-        const res = await fetch(`/admin/slots/${id}/sblocca`, {
-            method: 'POST',
-            headers: authHeaders()
-        });
-
-        // Il detail del server va mostrato, non ingoiato: i due 409
-        // dell'endpoint ("già disponibile", "è prenotato da un cliente")
-        // sono scritti per essere letti dal coach e distinguono una lista
-        // vecchia a schermo da un'ora davvero venduta.
-        if (!res.ok) {
-            const errore = await res.json();
-            alert(errore.detail || 'Errore durante lo sblocco dello slot.');
-            return;
-        }
-
-        // Si ricarica la pagina corrente, non la prima: la riga sparisce
-        // dai bloccati senza far perdere al coach il punto della lista in
-        // cui stava lavorando.
-        caricaSlots(paginaCorrente.slots);
-    } catch (error) {
-        console.error('Errore sblocco slot:', error);
-        alert('Errore di connessione durante lo sblocco.');
     }
 }
 
