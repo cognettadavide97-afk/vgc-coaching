@@ -12,15 +12,15 @@
 // ─── STATO GLOBALE ───────────────────────────────────────────
 // Qui salviamo tutto quello che l'utente sceglie durante il flusso
 const state = {
-    selectedSlot: null,      // slot scelto
+    selectedStart: null,     // inizio scelto: stringa ISO con il fuso, come arriva dal server
     // Default 1 ora, allineato al bottone "active" in index.html.
     //
     // Non è una preferenza estetica: la vista da 2 ore mostra soltanto gli
-    // slot che iniziano alle 15:00 o alle 17:00 (vedi ORE_INIZIO_VALIDE_2H
-    // sotto), quindi partendo da 2 ore il visitatore vedeva una parte sola
-    // della disponibilità, senza nessun indizio del perché. Un orario
-    // "insolito" -- le 20:00, per dire -- sembrava non esistere, e per il
-    // coach uno slot appena creato sembrava sparito.
+    // inizi delle sessioni lunghe, ogni 2 ore dall'inizio di ogni regola del
+    // coach (le 15 e le 17 con una regola 15-19), quindi partendo da 2 ore
+    // il visitatore vedrebbe una parte sola della disponibilità, senza
+    // nessun indizio del perché. Un orario "insolito" -- le 16:00, per dire --
+    // sembrerebbe non esistere.
     selectedHours: 1,        // durata scelta
     selectedPrice: 20,       // prezzo calcolato
     selectedService: 'vod_review', // tipo di servizio scelto
@@ -188,7 +188,7 @@ function renderBookingHistory(prenotazioni) {
 }
 
 async function cancellaPrenotazione(bookingId) {
-    // Conferma esplicita: l'azione libera lo slot ed elimina l'evento sul
+    // Conferma esplicita: l'azione libera l'ora ed elimina l'evento sul
     // calendario, e non è reversibile.
     if (!confirm(t('confirm_cancel_booking'))) return;
 
@@ -202,7 +202,7 @@ async function cancellaPrenotazione(bookingId) {
             return;
         }
         // Ricarica sia lo storico (mostra "cancelled" al posto del bottone)
-        // sia gli slot dello step 1 (quello appena liberato torna prenotabile).
+        // sia gli orari dello step 1 (quello appena liberato torna prenotabile).
         const prenotazioni = await loadBookingHistory();
         renderBookingHistory(prenotazioni);
         loadSlots();
@@ -281,15 +281,22 @@ function showStep(stepId) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-// ─── STEP 1: CARICA GLI SLOT ──────────────────────────────────
-// Vengono mostrati solo gli slot compatibili con la durata selezionata:
-// una durata diversa da quella dello slot verrebbe comunque rifiutata.
-let allSlots = [];
+// ─── STEP 1: CARICA GLI ORARI ─────────────────────────────────
+// Il server calcola gli inizi liberi per ciascuna durata (GET
+// /disponibilita/, decisione P9): regole del coach, blocchi, prenotazioni e
+// impegni del suo calendario Google. Qui si mostra solo la lista della
+// durata scelta, senza ricalcolare nulla; alla prenotazione il server
+// riverifica comunque l'orario, perché l'interfaccia è scavalcabile.
+let orariDisponibili = { "1": [], "2": [] };
 
 async function loadSlots() {
     try {
-        const response = await fetch('/slots/');
-        allSlots = await response.json();
+        const response = await fetch('/disponibilita/');
+        // 503 quando Google non risponde: nel dubbio il server non offre
+        // orari. Trattarlo come una lista vuota direbbe "nessun orario
+        // disponibile", che non è vero: è un errore, e lo si dice.
+        if (!response.ok) throw new Error('Availability not loaded');
+        orariDisponibili = await response.json();
         renderSlots();
     } catch (error) {
         document.getElementById('slots-container').innerHTML =
@@ -297,60 +304,32 @@ async function loadSlots() {
     }
 }
 
-// Ora italiana dell'istante, indipendente dal fuso del visitatore.
-// Serve ad applicare il vincolo sugli orari di inizio delle sessioni da
-// 2 ore, che è espresso in ora italiana. new Date().getHours() userebbe
-// il fuso del dispositivo e darebbe risultati diversi per utente.
-function oraItaliana(isoString) {
-    return parseInt(
-        new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', hour: '2-digit', hourCycle: 'h23' })
-            .format(new Date(isoString))
-    );
-}
-
-const ORE_INIZIO_VALIDE_2H = [15, 17];
-
 function renderSlots() {
     const container = document.getElementById('slots-container');
 
-    // Il calendario contiene solo slot da 1 ora. Una card da 2 ore è
-    // virtuale: esiste se ci sono due slot adiacenti e l'orario di inizio
-    // è fra quelli ammessi. Il backend riapplica la stessa regola al
-    // momento della prenotazione; qui serve solo a scegliere cosa mostrare.
-    const slotsUnOra = allSlots.filter(s => s.duration_hours === 1);
+    // Le sessioni da 2 ore hanno una lista loro: non sono "due ore da 1
+    // libere di fila", perché partono solo ogni 2 ore dall'inizio della
+    // regola. Le sceglie il server; qui non si combina niente.
+    const inizi = orariDisponibili[String(state.selectedHours)] || [];
 
-    let cardsDaMostrare;
-    if (state.selectedHours === 1) {
-        cardsDaMostrare = slotsUnOra;
-    } else {
-        const perTimestamp = new Map(slotsUnOra.map(s => [new Date(s.start_time).getTime(), s]));
-        cardsDaMostrare = slotsUnOra.filter(slot => {
-            if (!ORE_INIZIO_VALIDE_2H.includes(oraItaliana(slot.start_time))) return false;
-            const inizioSecondario = new Date(slot.start_time).getTime() + 60 * 60 * 1000;
-            return perTimestamp.has(inizioSecondario);
-        });
-    }
-
-    if (cardsDaMostrare.length === 0) {
+    if (inizi.length === 0) {
         container.innerHTML = `<p class="loading">${t('no_slots')}</p>`;
         return;
     }
 
-    // Anche per una card da 2h, si passa a selectSlot() solo il PRIMO slot:
-    // il backend risale da solo al secondo (stesso motivo del filtro sopra).
-    container.innerHTML = cardsDaMostrare.map(slot => `
-        <button type="button" class="slot-card" onclick="selectSlot(${slot.id}, '${slot.start_time}')">
-            <div class="slot-date">${formatDate(slot.start_time)}</div>
-            <div class="slot-time">${formatTime(slot.start_time)}</div>
+    container.innerHTML = inizi.map(inizio => `
+        <button type="button" class="slot-card" onclick="selectSlot('${inizio}')">
+            <div class="slot-date">${formatDate(inizio)}</div>
+            <div class="slot-time">${formatTime(inizio)}</div>
         </button>
     `).join('');
-    // L'attributo onclick riceve solo valori numerici e una stringa ISO
-    // generata dal backend: nessun dato compilato dall'utente entra qui.
+    // L'attributo onclick riceve solo una stringa ISO generata dal backend:
+    // nessun dato compilato dall'utente entra qui.
 }
 
-// Quando l'utente clicca uno slot
-function selectSlot(slotId, startTime) {
-    state.selectedSlot = { id: slotId, start_time: startTime };
+// Quando l'utente clicca un orario
+function selectSlot(startTime) {
+    state.selectedStart = startTime;
 
     // rimuove la selezione precedente
     document.querySelectorAll('.slot-card').forEach(c => c.classList.remove('selected'));
@@ -379,9 +358,9 @@ document.querySelectorAll('.duration-btn').forEach(btn => {
         state.selectedHours = parseInt(btn.dataset.hours);
         state.selectedPrice = parseInt(btn.dataset.price);
 
-        // cambiando durata, gli slot mostrati cambiano: la selezione
+        // cambiando durata, gli orari mostrati cambiano: la selezione
         // precedente potrebbe non essere più valida/visibile
-        state.selectedSlot = null;
+        state.selectedStart = null;
         document.getElementById('btn-to-step2').disabled = true;
         renderSlots();
     });
@@ -440,12 +419,12 @@ document.getElementById('usa-pacchetto').addEventListener('change', aggiornaPrez
 
 // Richiamata anche al cambio lingua, quando lo step 3 è già visibile.
 function aggiornaRiepilogo() {
-    if (!state.selectedSlot) return;
+    if (!state.selectedStart) return;
     const nome = document.getElementById('nome').value.trim();
     const email = document.getElementById('email').value.trim();
 
     document.getElementById('summary-slot').textContent =
-        `${formatDate(state.selectedSlot.start_time)} ${t('at_time_connector')} ${formatTime(state.selectedSlot.start_time)}`;
+        `${formatDate(state.selectedStart)} ${t('at_time_connector')} ${formatTime(state.selectedStart)}`;
     document.getElementById('summary-service').textContent = getServiceLabel(state.selectedService);
     document.getElementById('summary-duration').textContent =
         `${state.selectedHours} ${state.selectedHours > 1 ? t('unit_hours') : t('unit_hour')}`;
@@ -520,7 +499,7 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
                 // Serve al server per verificare che user_id appartenga a
                 // chi sta prenotando, quando non c'è un login.
                 email: document.getElementById('email').value.trim(),
-                slot_id: state.selectedSlot.id,
+                start_time: state.selectedStart,
                 duration_hours: state.selectedHours,
                 service_type: state.selectedService,
                 note_cliente: document.getElementById('note').value.trim(),
@@ -545,7 +524,7 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
 });
 
 // ─── CONSULENZA GRATUITA (20 minuti) ──────────────────────────
-// Indipendente dal wizard: non tocca slot né prenotazioni, invia solo i
+// Indipendente dal wizard: non tocca orari né prenotazioni, invia solo i
 // contatti al coach.
 document.getElementById('btn-mostra-consulenza').addEventListener('click', () => {
     const form = document.getElementById('consulenza-form');

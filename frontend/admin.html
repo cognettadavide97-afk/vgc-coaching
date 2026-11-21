@@ -243,10 +243,12 @@
                         <input type="time" id="regola-ora-inizio" value="18:00">
                         <span>—</span>
                         <input type="time" id="regola-ora-fine" value="22:00">
-                        <!-- Solo slot da 1 ora: le sessioni da 2 ore uniscono due slot da 1h
-                             adiacenti al momento della prenotazione (vedi ORE_INIZIO_VALIDE_2H
-                             in backend/routers/booking.py) — non esiste un secondo modo di
-                             generare disponibilità da 2h, quindi qui non c'è nulla da scegliere. -->
+                        <!-- Solo ore da 1 ora: le sessioni da 2 ore uniscono due ore consecutive
+                             della regola, ogni 2 ore dal suo inizio (calcola_disponibilita in
+                             backend/services/disponibilita_service.py) — non esiste un secondo
+                             modo di generare disponibilità da 2h, quindi qui non c'è nulla da
+                             scegliere. Inizio e fine solo a ore piene: il server rifiuta le 18:30
+                             (AvailabilityRuleCreate in backend/schemas/availability.py). -->
                         <button class="btn-primary" onclick="creaRegolaDisponibilita()">
                             + Aggiungi regola
                         </button>

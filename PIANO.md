@@ -24,9 +24,7 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
 - [ ] 24 · R3 — 16 fetch su 26 del pannello admin non controllano res.ok
 - [ ] 48 — Rate limit forse unico per tutti dietro il proxy: verificare con la 40, poi FORWARDED_ALLOW_IPS
 - [ ] 26 · R15 — Messaggi d'errore pubblici in una lingua sola; recensione.html senza i18n
-- [ ] 25 · R8 — Errori silenziosi nel frontend pubblico; ogni errore di prenotazione è lo stesso avviso generico (`app.js:533`)
-- [ ] 60 — Sessioni da 2 h solo alle 15 e alle 17 (`app.js:311`; lato server tolto nel 4.4a): con la regola 18-22 proposta dal pannello spariscono;
-  decisione del 2026-11-20: ogni 2 ore dall'inizio della regola, già in `calcola_disponibilita` (4.2), si chiude quando il sito la usa (4.4)
+- [ ] 25 · R8 — Errori silenziosi nel frontend pubblico; ogni errore di prenotazione è lo stesso avviso generico (`app.js:512`)
 - [ ] 63 — Orizzonte prenotabile fino a fine mese (`fine_orizzonte`, intervento 38): circa 30 giorni a inizio mese,
   quasi nessuno negli ultimi giorni. Decisione di prodotto da prendere; con il calcolo (P9) cambiarlo è una riga
 - [ ] 20 · R14 — Due formati di data e due fusi orari nel pannello
@@ -35,7 +33,7 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
 - [ ] 14 · R1+R2 — Identità dell'ospite = email pubblica, limite di prenotazioni aggirabile (decisione P3)
 - [ ] 53 — Railway: variabili sul solo servizio app, GMAIL_HEALTHCHECK_INTERVAL_HOURS, https, MYSQL_PUBLIC_URL
   (proxy TCP spento, verificato il 2026-11-12: si accende solo per una misura e si rispegne)
-- [ ] 22 · R9 — Prezzi e ore valide duplicati fra backend e frontend (decisione P5)
+- [ ] 22 · R9 — Prezzi duplicati fra backend e frontend (decisione P5); le ore valide le calcola solo il server dal 4.4
 - [ ] 33 · C5 — Etichette, pacchetti e prezzi barrati scritti in più posti (decisione P5)
 - [ ] 29 · C4 — Commenti che dicono altro dal codice, rimandi a documenti cancellati, motivazioni perse (§6)
 - [ ] 18 · R12 — Percorsi relativi: il sito non parte se avviato fuori dalla radice
