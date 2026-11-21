@@ -26,6 +26,11 @@ from backend.services.timezone_service import (
 
 UN_ORA = timedelta(hours=1)
 
+# Con quanti giorni di anticipo si può prenotare, oltre a oggi (voce 63).
+# Più è grande, prima vanno inseriti i blocchi: un giorno entra in vendita
+# GIORNI_PRENOTABILI giorni prima, e le ferie devono esserci già.
+GIORNI_PRENOTABILI = 14
+
 
 def _ore_della_regola(regola: AvailabilityRule, giorno) -> list[datetime]:
     """Gli inizi da 1 ora della regola in quel giorno, convertiti in UTC naive.
@@ -80,16 +85,23 @@ def _prenotazioni_fra(db: Session, da: datetime, a: datetime) -> list[Booking]:
 
 
 def fine_orizzonte() -> datetime:
-    """Fin dove si può prenotare: la mezzanotte italiana fra l'ultimo giorno del mese e il primo del prossimo, in UTC naive.
+    """Fin dove si può prenotare: la mezzanotte italiana dopo il giorno oggi + GIORNI_PRENOTABILI, in UTC naive.
 
-    È l'orizzonte di sempre, quello degli slot generati fino a fine mese
-    (availability_service.py, intervento 38): il 4.4 cambia da dove vengono
-    le ore, non fin dove arrivano. La conseguenza resta: circa trenta giorni
-    prenotabili a inizio mese, quasi nessuno negli ultimi giorni (voce 63).
+    Una finestra scorrevole (voce 63, decisa il 2026-11-21): il cliente può
+    prenotare sempre lo stesso anticipo, e ogni notte si apre un giorno in
+    fondo. Fino ad allora l'orizzonte era la fine del mese corrente, eredità
+    degli slot generati fino a fine mese (intervento 38): circa trenta giorni
+    a inizio mese e quasi nessuno negli ultimi, così chi a fine mese cercava
+    un'ora per la settimana dopo non trovava nulla.
+
+    Il confine cade a mezzanotte, non a quest'ora fra 14 giorni: il cliente
+    vede giornate intere, mai una giornata tagliata a metà. Il giorno si
+    conta sull'orologio di Roma e solo dopo si converte in UTC, così il
+    cambio dell'ora legale sposta l'orario UTC e non il confine italiano.
     """
-    oggi = utc_to_rome(ora_utc_naive())
-    anno, mese = (oggi.year + 1, 1) if oggi.month == 12 else (oggi.year, oggi.month + 1)
-    return datetime(anno, mese, 1, tzinfo=ROME_TZ).astimezone(timezone.utc).replace(tzinfo=None)
+    oggi = utc_to_rome(ora_utc_naive()).date()
+    primo_giorno_escluso = oggi + timedelta(days=GIORNI_PRENOTABILI + 1)
+    return datetime.combine(primo_giorno_escluso, time.min, tzinfo=ROME_TZ).astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def calcola_disponibilita(db: Session, da: datetime, a: datetime) -> dict[int, list[datetime]]:

@@ -170,8 +170,8 @@ def test_le_ore_passate_sono_passate(db, monkeypatch):
 
 
 def test_le_ore_oltre_l_orizzonte_sono_libere_ma_non_in_vendita(db, monkeypatch):
-    # Voce 63: il sito vende fino a fine mese. Qui l'orizzonte cade fra
-    # lunedì e martedì.
+    # Il sito vende fino a 14 giorni da oggi (voce 63). Qui l'orizzonte cade
+    # fra lunedì e martedì.
     regola(db, 15, 17)
     regola(db, 15, 17, giorno_settimana=1)
     monkeypatch.setattr(disponibilita_service, "fine_orizzonte", lambda: datetime.combine(MARTEDI, time(0)))

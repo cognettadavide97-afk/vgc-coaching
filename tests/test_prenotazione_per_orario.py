@@ -103,7 +103,7 @@ def test_un_ora_che_nessuna_regola_prevede_viene_rifiutata(client, db):
 
 
 def test_un_ora_oltre_l_orizzonte_viene_rifiutata(client, db, monkeypatch):
-    # Con l'orizzonte vero (fine del mese corrente) il 2030 è fuori: il sito
+    # Con l'orizzonte vero (14 giorni da oggi) il 2030 è fuori: il sito
     # non lo offrirebbe, e una richiesta diretta non deve ottenerlo.
     monkeypatch.setattr(disponibilita_service, "fine_orizzonte", fine_orizzonte_vera)
     apri_ore(db, LUNEDI_15)
@@ -171,19 +171,41 @@ def test_uno_slot_che_nessuna_regola_prevede_non_si_prenota_piu(client, db):
 
 # ─── orizzonte e regole ───────────────────────────────────────
 
-def test_l_orizzonte_e_la_fine_del_mese_italiano(monkeypatch):
-    # Mezzanotte italiana del primo del mese dopo, in UTC: 23:00 d'inverno,
-    # 22:00 d'estate.
+def test_l_orizzonte_e_la_fine_del_quattordicesimo_giorno_italiano(monkeypatch):
+    # Voce 63: una finestra scorrevole di 14 giorni, non più la fine del mese.
+    # Il confine è la mezzanotte italiana dopo il giorno oggi+14, in UTC:
+    # 23:00 d'inverno, 22:00 d'estate.
     casi = [
-        (datetime(2026, 12, 15, 10, 0), datetime(2026, 12, 31, 23, 0)),
-        (datetime(2026, 7, 10, 10, 0), datetime(2026, 7, 31, 22, 0)),
-        # 23:30 UTC del 31 dicembre è già il primo gennaio a Roma: l'orizzonte
-        # è la fine di gennaio, non di dicembre.
-        (datetime(2026, 12, 31, 23, 30), datetime(2027, 1, 31, 23, 0)),
+        # Sabato 21 novembre: si vende fino a tutto sabato 5 dicembre, anche
+        # a cavallo del mese.
+        (datetime(2026, 11, 21, 10, 0), datetime(2026, 12, 5, 23, 0)),
+        (datetime(2026, 7, 10, 10, 0), datetime(2026, 7, 24, 22, 0)),
+        # Cambio d'anno.
+        (datetime(2026, 12, 25, 10, 0), datetime(2027, 1, 8, 23, 0)),
+        # 23:30 UTC del 31 dicembre è già il primo gennaio a Roma: i 14 giorni
+        # si contano dal primo gennaio.
+        (datetime(2026, 12, 31, 23, 30), datetime(2027, 1, 15, 23, 0)),
+        # Il 28 marzo 2027 inizia l'ora legale: oggi è inverno, il confine è
+        # d'estate, quindi la mezzanotte italiana cade alle 22:00 UTC.
+        (datetime(2027, 3, 20, 10, 0), datetime(2027, 4, 3, 22, 0)),
     ]
     for adesso, atteso in casi:
         monkeypatch.setattr(disponibilita_service, "ora_utc_naive", lambda adesso=adesso: adesso)
         assert fine_orizzonte_vera() == atteso, adesso
+
+
+def test_l_ultimo_giorno_della_finestra_si_vende_il_successivo_no(db, monkeypatch):
+    # Adesso: sabato 21 novembre 2026, 11:00 italiane. Il quattordicesimo
+    # giorno è sabato 5 dicembre, il quindicesimo domenica 6.
+    monkeypatch.setattr(disponibilita_service, "ora_utc_naive", lambda: datetime(2026, 11, 21, 10, 0))
+    monkeypatch.setattr(disponibilita_service, "fine_orizzonte", fine_orizzonte_vera)
+    ultimo = rome_naive_utc(2026, 12, 5, 15)
+    fuori = rome_naive_utc(2026, 12, 6, 15)
+    apri_ore(db, ultimo)
+    apri_ore(db, fuori)
+
+    assert disponibilita_service.ora_prenotabile(db, ultimo, 1) is True
+    assert disponibilita_service.ora_prenotabile(db, fuori, 1) is False
 
 
 def test_una_regola_alle_15_30_viene_rifiutata(client):

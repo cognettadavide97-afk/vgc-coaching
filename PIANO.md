@@ -25,8 +25,6 @@ Aperti, in ordine di priorità (il numero è l'ordine di scoperta, non il rischi
 - [ ] 48 — Rate limit forse unico per tutti dietro il proxy: verificare con la 40, poi FORWARDED_ALLOW_IPS
 - [ ] 26 · R15 — Messaggi d'errore pubblici in una lingua sola; recensione.html senza i18n
 - [ ] 25 · R8 — Errori silenziosi nel frontend pubblico; ogni errore di prenotazione è lo stesso avviso generico (`app.js:512`)
-- [ ] 63 — Orizzonte prenotabile fino a fine mese (`fine_orizzonte`, intervento 38): circa 30 giorni a inizio mese,
-  quasi nessuno negli ultimi giorni. Decisione di prodotto da prendere; con il calcolo (P9) cambiarlo è una riga
 - [ ] 20 · R14 — Due formati di data e due fusi orari nel pannello
 - [ ] 62 — Colonna "Sessioni" della lista clienti: conta tutte le prenotazioni, cancellate comprese (`clients.py:48-54`)
 - [ ] 49 — Input pubblici senza limiti: max_length, a-capo nel nome, token di recensione non ASCII

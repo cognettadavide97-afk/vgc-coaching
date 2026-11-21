@@ -45,8 +45,8 @@ I documenti cancellati il 2026-09-11, citati da alcuni commenti: `git show 2f912
   senza timezone: toccarlo sposta l'orario reale di tutti i job (R11/D3, interventi 13/17).
   `TOLLERANZA_RITARDI` (`misfire_grace_time=None`) fa partire in ritardo invece di saltare: con il default di
   1 s un avviso di `sorveglia_job` farebbe saltare gli altri job (voce 47).
-- `services/availability_service.py:68` — gli slot delle regole si generano solo fino a fine mese
-  corrente: a fine mese il calendario è quasi vuoto. È voluto (intervento 38).
+- `services/availability_service.py:68` — gli slot delle regole si generano solo fino a fine mese (intervento 38),
+  ma dal 4.4 il sito non li vende: vende per `GIORNI_PRENOTABILI` giorni da oggi (voce 63). Via nel 4.6.
 - `routers/admin/__init__.py` — `get_admin` e l'import dei sotto-router in fondo (D1/D2, 15/16).
 - `tests/conftest.py` — il listener `PRAGMA foreign_keys=ON` allinea SQLite a MySQL sui vincoli, ma
   collation, bulk delete e locking di riga restano diversi: si prova sul MySQL locale. Le righe in cima,

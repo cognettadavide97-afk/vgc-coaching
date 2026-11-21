@@ -1001,7 +1001,7 @@ async function creaRegolaDisponibilita() {
         // La risposta conta ancora gli slot generati nella vecchia tabella,
         // che il sito non vende più: qui non si mostra, l'effetto vero lo
         // dice l'anteprima.
-        alert('Regola creata: le sue ore libere sono subito in vendita, fino a fine mese.');
+        alert('Regola creata: le sue ore libere sono subito in vendita (l\'anteprima mostra fin dove).');
         caricaRegole();
         caricaAnteprima(settimanaAnteprima);
     } catch (error) {

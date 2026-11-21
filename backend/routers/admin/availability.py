@@ -35,7 +35,8 @@ from datetime import datetime, time, timedelta, timezone
 router = APIRouter()
 
 # Fin dove l'anteprima guarda avanti. Serve solo a rifiutare numeri assurdi:
-# tre mesi sono già ben oltre l'orizzonte di vendita (fine mese, voce 63).
+# tre mesi sono già ben oltre l'orizzonte di vendita (GIORNI_PRENOTABILI in
+# services/disponibilita_service.py).
 SETTIMANE_ANTEPRIMA = 12
 
 
