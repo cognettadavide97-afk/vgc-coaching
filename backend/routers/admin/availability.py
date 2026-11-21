@@ -2,9 +2,16 @@
 
 Tre livelli distinti: gli slot concreti, le regole che li generano
 ("ogni martedì 18-22") e i blocchi eccezionali che li sospendono (ferie).
+
+Dal pezzo 4.4 il sito non vende più gli slot: calcola le ore da regole e
+blocchi a ogni richiesta (services/disponibilita_service.py), quindi una
+regola o un blocco creati o eliminati valgono subito. Gli slot si generano e
+si bloccano ancora, per le pagine vecchie nella cache dei browser, fino
+alla rimozione della tabella nel 4.6. Dal 4.5 il pannello mostra le ore
+calcolate con l'anteprima settimanale.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from backend.database import get_db
@@ -20,11 +27,16 @@ from backend.routers.admin import get_admin
 from backend.services.calendar_service import CalendarioNonRaggiungibile, sincronizza_slot_con_calendario
 from backend.services.timezone_service import ROME_TZ, formatta_data_ora_rome, ora_utc_naive, utc_to_rome
 from backend.services.availability_service import genera_slot_da_regola, applica_blocco_eccezionale
+from backend.services.disponibilita_service import anteprima_settimana
 from backend.services.pagination_service import pagina_e_offset, busta_paginazione
 from typing import List
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 
 router = APIRouter()
+
+# Fin dove l'anteprima guarda avanti. Serve solo a rifiutare numeri assurdi:
+# tre mesi sono già ben oltre l'orizzonte di vendita (fine mese, voce 63).
+SETTIMANE_ANTEPRIMA = 12
 
 
 # ─── GESTIONE SLOT ───────────────────────────────────────────
@@ -170,6 +182,31 @@ def sblocca_slot(
     # sincronizzazione notturna richiude lo slot da sola.
     return {"message": "Slot sbloccato"}
 
+# ─── ANTEPRIMA SETTIMANALE ────────────────────────────────────
+@router.get("/disponibilita/anteprima")
+def anteprima_disponibilita(
+    settimana: int = Query(0, ge=0, le=SETTIMANE_ANTEPRIMA),
+    admin: str = Depends(get_admin),
+    db: Session = Depends(get_db)
+):
+    """Le ore di una settimana con il loro stato, in sola lettura (pezzo 4.5).
+
+    `settimana` conta da questa: 0 è la settimana in corso, 1 la prossima.
+    Il lunedì è quello del giorno italiano: la domenica alle 23:30 UTC, a
+    Roma, è già lunedì. "In vendita" lo decide lo stesso calcolo del sito
+    (anteprima_settimana in services/disponibilita_service.py).
+
+    Google irraggiungibile è un 503, come per il sito: un'anteprima senza
+    i suoi impegni mostrerebbe in vendita ore che il sito non offre.
+    """
+    oggi = utc_to_rome(ora_utc_naive()).date()
+    lunedi = oggi - timedelta(days=oggi.weekday()) + timedelta(weeks=settimana)
+    try:
+        giorni = anteprima_settimana(db, lunedi)
+    except CalendarioNonRaggiungibile:
+        raise HTTPException(status_code=503, detail="Google Calendar non raggiungibile")
+    return {"settimana": settimana, "giorni": giorni}
+
 # ─── DISPONIBILITÀ RICORRENTE ─────────────────────────────────
 @router.get("/disponibilita/regole", response_model=List[AvailabilityRuleResponse])
 def lista_regole_disponibilita(
@@ -223,8 +260,10 @@ def elimina_regola_disponibilita(
     db: Session = Depends(get_db)
 ):
     """
-    Elimina una regola di disponibilità ricorrente. Non tocca gli slot
-    già generati in passato — restano come slot normali indipendenti.
+    Elimina una regola di disponibilità ricorrente. Le sue ore escono
+    subito dalla vendita, perché il sito le calcola dalle regole (dal 4.4);
+    le prenotazioni già fatte restano. Gli slot che aveva generato restano
+    nella tabella come slot indipendenti, che nessuno vende più.
     """
     regola = db.query(AvailabilityRule).filter(AvailabilityRule.id == regola_id).first()
     if not regola:
@@ -282,12 +321,16 @@ def elimina_blocco_eccezionale(
 ):
     """Elimina un blocco eccezionale.
 
-    Gli slot che aveva chiuso non vengono riaperti: vanno sbloccati uno per
-    uno con `POST /admin/slots/{slot_id}/sblocca`. Non è una dimenticanza:
-    il blocco non registra da nessuna parte *quali* slot abbia chiuso, e
-    riaprirli in automatico significherebbe riaprire tutto ciò che cade
-    nell'intervallo di date — compresi gli slot chiusi da un secondo blocco
-    sovrapposto, che deve restare in vigore.
+    Per il sito il blocco smette di valere subito: dal 4.4 le ore si
+    calcolano leggendo i blocchi a ogni richiesta, e un secondo blocco
+    sovrapposto resta in vigore perché il calcolo lo legge per conto suo.
+
+    Gli slot che aveva chiuso nella tabella, invece, non vengono riaperti.
+    Non è una dimenticanza: il blocco non registra da nessuna parte *quali*
+    slot abbia chiuso, e riaprirli in automatico significherebbe riaprire
+    tutto ciò che cade nell'intervallo di date, compresi gli slot chiusi da
+    un secondo blocco sovrapposto. Restano chiusi in una tabella che il sito
+    non vende più, fino alla sua rimozione nel 4.6.
     """
     blocco = db.query(AvailabilityException).filter(AvailabilityException.id == blocco_id).first()
     if not blocco:

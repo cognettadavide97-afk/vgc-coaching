@@ -6,9 +6,10 @@ from sqlalchemy import func
 from datetime import datetime, timedelta, timezone
 from backend.database import get_db
 from backend.models.booking import Booking
-from backend.models.slots import Slot
 from backend.models.review import Review
 from backend.routers.admin import get_admin
+from backend.services.calendar_service import CalendarioNonRaggiungibile
+from backend.services.disponibilita_service import disponibilita_pubblica
 from backend.services.timezone_service import utc_to_rome, ROME_TZ, ora_utc_naive, formatta_data_ora_rome
 from backend.services.incasso_service import movimenti_incasso
 
@@ -49,23 +50,27 @@ def dashboard(
     # Senza movimenti sum() dà 0, non None come la SUM di SQL su zero righe.
     totale_incassato = sum(m.cents for m in movimenti_incasso(db))
 
-    prossimi_slot = db.query(Slot).filter(
-        Slot.is_available == True,
-        Slot.start_time >= ora_utc_naive()
-    ).order_by(Slot.start_time).limit(5).all()
+    # Le prime cinque ore che il sito vende davvero, dallo stesso calcolo
+    # (pezzo 4.5): la tabella slots non sa delle prenotazioni per orario.
+    # Con Google giù si spegne solo questo riquadro, e vale None e non []:
+    # "non lo so" non è "nessuna ora libera". La chiave tiene il vecchio nome
+    # perché il pannello in cache dei browser la legge ancora.
+    try:
+        prossime_ore = [
+            dict(zip(("data", "ora"), formatta_data_ora_rome(inizio)))
+            for inizio in disponibilita_pubblica(db)[1][:5]
+        ]
+    except CalendarioNonRaggiungibile:
+        prossime_ore = None
 
     media_voto = db.query(func.avg(Review.voto)).scalar()
-
-    def slot_liberi_dict(s):
-        data, ora = formatta_data_ora_rome(s.start_time)
-        return {"id": s.id, "data": data, "ora": ora}
 
     return {
         "totale_prenotazioni": totale_prenotazioni,
         "prenotazioni_oggi": prenotazioni_oggi,
         "totale_incassato_euro": totale_incassato / 100,
         "media_voto_recensioni": round(media_voto, 1) if media_voto is not None else None,
-        "prossimi_slot_liberi": [slot_liberi_dict(s) for s in prossimi_slot]
+        "prossimi_slot_liberi": prossime_ore
     }
 
 # ─── ANALYTICS ─────────────────────────────────────────────────

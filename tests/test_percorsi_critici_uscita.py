@@ -28,10 +28,20 @@ from backend.models.slots import Slot
 from backend.models.users import User
 from backend.services import calendar_service, discord_service, email_service
 from backend.services.backup_service import RIGHE_PER_INSERT, crea_dump_sql
-from backend.services.timezone_service import ROME_TZ
-from conftest import admin_headers, crea_slot
+from backend.services.timezone_service import ROME_TZ, formatta_data_ora_rome
+from conftest import admin_headers, apri_ore, crea_slot
 
 ORA = datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def ora_piena_fra(settimane):
+    """L'ora piena italiana di adesso, fra `settimane` settimane, in UTC naive.
+
+    Si conta sull'orologio di Roma, come le regole: in UTC una settimana a
+    cavallo del cambio dell'ora legale sposterebbe l'orario italiano di un'ora.
+    """
+    roma = ORA.replace(tzinfo=timezone.utc).astimezone(ROME_TZ).replace(minute=0, second=0, microsecond=0)
+    return (roma + timedelta(weeks=settimane)).astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def crea_utente_db(db, email="cliente@example.com", nome="Cliente"):
@@ -85,7 +95,10 @@ def test_la_dashboard_riassume_prenotazioni_incassi_e_voti(client, db):
     """I cinque numeri della schermata iniziale del pannello."""
     utente = crea_utente_db(db)
     slot_passato = crea_slot(db, ORA - timedelta(days=3), is_available=False)
-    slot_futuro = crea_slot(db, ORA + timedelta(days=7))
+    # Fra una settimana, all'ora piena: l'occorrenza di oggi della stessa
+    # regola settimanale è già iniziata, quindi la prima in vendita è questa.
+    ora_libera = ora_piena_fra(1)
+    apri_ore(db, ora_libera)
 
     confermata = Booking(user_id=utente.id, slot_id=slot_passato.id, start_time=slot_passato.start_time, duration_hours=1,
                          price_cents=2000, service_type="vod_review", status="confirmed")
@@ -104,9 +117,50 @@ def test_la_dashboard_riassume_prenotazioni_incassi_e_voti(client, db):
     # La media considera anche le recensioni non ancora approvate: è un
     # dato interno, diverso da quello della vetrina pubblica.
     assert dati["media_voto_recensioni"] == 4.0
-    # I prossimi slot liberi escono già formattati in ora italiana.
-    assert [s["id"] for s in dati["prossimi_slot_liberi"]] == [slot_futuro.id]
-    assert "/" in dati["prossimi_slot_liberi"][0]["data"]   # gg/mm/aaaa
+    # Le prossime ore in vendita escono già formattate in ora italiana: le
+    # prime cinque della lista pubblica, una a settimana per questa regola.
+    data, ora = formatta_data_ora_rome(ora_libera)
+    assert dati["prossimi_slot_liberi"][0] == {"data": data, "ora": ora}
+    assert len(dati["prossimi_slot_liberi"]) == 5
+
+
+def test_la_dashboard_mostra_le_ore_calcolate_non_la_tabella_degli_slot(client, db):
+    """Pezzo 4.5a: i prossimi orari liberi sono quelli che il sito vende.
+
+    Uno slot della vecchia tabella senza una regola che lo preveda non si
+    vende dal 4.4; un'ora della regola, senza slot, sì.
+    """
+    crea_slot(db, ORA + timedelta(days=3))
+    ora_libera = ora_piena_fra(1)
+    apri_ore(db, ora_libera)
+    # Prenotata per orario, senza slot: la prima occorrenza esce dalla lista.
+    utente = crea_utente_db(db)
+    db.add(Booking(user_id=utente.id, start_time=ora_libera, duration_hours=1,
+                   price_cents=2000, service_type="vod_review", status="confirmed"))
+    db.commit()
+
+    prossime = client.get("/admin/dashboard", headers=admin_headers()).json()["prossimi_slot_liberi"]
+
+    data, ora = formatta_data_ora_rome(ora_piena_fra(2))
+    assert prossime[0] == {"data": data, "ora": ora}
+
+
+def test_con_google_giu_la_dashboard_risponde_senza_le_ore_libere(client, db, monkeypatch):
+    """Si spegne un solo riquadro, non tutta la schermata iniziale."""
+    from backend.services import disponibilita_service
+    from backend.services.calendar_service import CalendarioNonRaggiungibile
+
+    def esplode(da, a):
+        raise CalendarioNonRaggiungibile()
+
+    monkeypatch.setattr(disponibilita_service, "leggi_eventi_calendario", esplode)
+    apri_ore(db, ora_piena_fra(1))
+
+    res = client.get("/admin/dashboard", headers=admin_headers())
+
+    assert res.status_code == 200, res.text
+    # None e non []: "Google non risponde" non è "nessuna ora libera".
+    assert res.json()["prossimi_slot_liberi"] is None
 
 
 def test_la_dashboard_senza_dati_non_restituisce_valori_nulli_al_posto_degli_zeri(client, db):

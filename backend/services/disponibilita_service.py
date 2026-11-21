@@ -10,16 +10,19 @@ che qualcuno chiede. Una sola fonte di verità, niente da tenere allineato.
 Dal pezzo 4.4 è la fonte delle ore che il sito pubblico mostra
 (`disponibilita_pubblica`) e la verifica di ogni prenotazione
 (`ora_prenotabile`). L'orario delle prenotazioni si legge dalla prenotazione
-stessa (pezzo 4.3).
+stessa (pezzo 4.3). Dal 4.5 ne legge anche il pannello: la dashboard e
+l'anteprima settimanale (`anteprima_settimana`).
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy.orm import Session
 from backend.models.availability_exception import AvailabilityException
 from backend.models.availability_rule import AvailabilityRule
 from backend.models.booking import Booking
 from backend.services.calendar_service import leggi_eventi_calendario
-from backend.services.timezone_service import ROME_TZ, ora_utc_naive, utc_to_rome, intervalli_si_sovrappongono
+from backend.services.timezone_service import (
+    ROME_TZ, formatta_data_ora_rome, ora_utc_naive, utc_to_rome, intervalli_si_sovrappongono
+)
 
 UN_ORA = timedelta(hours=1)
 
@@ -38,6 +41,42 @@ def _ore_della_regola(regola: AvailabilityRule, giorno) -> list[datetime]:
         ore.append(cursore.replace(tzinfo=ROME_TZ).astimezone(timezone.utc).replace(tzinfo=None))
         cursore += UN_ORA
     return ore
+
+
+def _regole_valide(db: Session) -> list[AvailabilityRule]:
+    """Le regole che producono ore: attive e da 1 ora.
+
+    Solo regole da 1 ora, come in genera_slot_da_regola: una regola salvata
+    prima del vincolo sulla durata non produce ore. Una funzione sola perché
+    calcolo e anteprima devono vedere le stesse regole.
+    """
+    return db.query(AvailabilityRule).filter(
+        AvailabilityRule.attiva == True,
+        AvailabilityRule.durata_slot_ore == 1
+    ).all()
+
+
+def _blocchi_fra(db: Session, primo_giorno: date, ultimo_giorno: date) -> list[AvailabilityException]:
+    """I blocchi che toccano almeno un giorno italiano fra i due, estremi inclusi."""
+    return db.query(AvailabilityException).filter(
+        AvailabilityException.data_fine >= primo_giorno,
+        AvailabilityException.data_inizio <= ultimo_giorno
+    ).all()
+
+
+def _prenotazioni_fra(db: Session, da: datetime, a: datetime) -> list[Booking]:
+    """Le prenotazioni non cancellate che possono toccare l'intervallo [da, a).
+
+    Una prenotazione no_show occupa ancora la sua ora: solo la
+    cancellazione la libera.
+    Il filtro sull'orario sta nella query perché la tabella cresce sempre;
+    il margine di 2 ore copre le sessioni lunghe iniziate prima di `da`.
+    """
+    return db.query(Booking).filter(
+        Booking.status != "cancelled",
+        Booking.start_time < a,
+        Booking.start_time > da - timedelta(hours=2)
+    ).all()
 
 
 def fine_orizzonte() -> datetime:
@@ -77,27 +116,9 @@ def calcola_disponibilita(db: Session, da: datetime, a: datetime) -> dict[int, l
     primo_giorno = utc_to_rome(da).date()
     ultimo_giorno = utc_to_rome(a).date()
 
-    # Solo regole da 1 ora, come in genera_slot_da_regola: una regola
-    # salvata prima del vincolo sulla durata non produce ore.
-    regole = db.query(AvailabilityRule).filter(
-        AvailabilityRule.attiva == True,
-        AvailabilityRule.durata_slot_ore == 1
-    ).all()
-
-    blocchi = db.query(AvailabilityException).filter(
-        AvailabilityException.data_fine >= primo_giorno,
-        AvailabilityException.data_inizio <= ultimo_giorno
-    ).all()
-
-    # Una prenotazione no_show occupa ancora la sua ora: solo la
-    # cancellazione la libera.
-    # Il filtro sull'orario sta nella query perché la tabella cresce sempre;
-    # il margine di 2 ore copre le sessioni lunghe iniziate prima di `da`.
-    prenotazioni = db.query(Booking).filter(
-        Booking.status != "cancelled",
-        Booking.start_time < fine_lettura,
-        Booking.start_time > da - timedelta(hours=2)
-    ).all()
+    regole = _regole_valide(db)
+    blocchi = _blocchi_fra(db, primo_giorno, ultimo_giorno)
+    prenotazioni = _prenotazioni_fra(db, da, fine_lettura)
     occupati = [
         (b.start_time, b.start_time + timedelta(hours=b.duration_hours))
         for b in prenotazioni
@@ -156,3 +177,95 @@ def ora_prenotabile(db: Session, inizio: datetime, durata: int) -> bool:
         return False
     libere = calcola_disponibilita(db, inizio, inizio + timedelta(minutes=1))
     return inizio in libere.get(durata, [])
+
+
+def anteprima_settimana(db: Session, lunedi: date) -> list[dict]:
+    """Ogni ora della settimana italiana da `lunedi`, con il suo stato, per il pannello.
+
+    Restituisce sette giorni, ognuno con le sue ore in ordine. Le ore sono
+    quelle delle regole valide più quelle di ogni prenotazione non
+    cancellata della settimana, anche fuori dalle regole (fatta prima che
+    la regola fosse eliminata): la sessione resta in agenda e il coach deve
+    vederla. Lo stato di ciascuna, nell'ordine in cui si controlla:
+
+    - "prenotata": vince su tutto. Un blocco creato dopo non cancella la
+      sessione, e una sessione già svolta resta una prenotazione;
+    - "passata";
+    - "bloccata": il giorno cade in un blocco, di cui si riporta il motivo;
+    - "in_vendita" o "fuori_orizzonte": libera secondo calcola_disponibilita,
+      la stessa funzione del sito, prima o dopo la fine dell'orizzonte;
+    - "google": ciò che resta. Esclusi gli altri motivi, l'unico per cui il
+      calcolo può scartare un'ora della regola è un impegno su Google
+      Calendar. Dedurlo per esclusione evita una seconda lettura di Google;
+      se il calcolo avesse un giorno un motivo nuovo, va aggiunto qui prima
+      di questo ramo, o l'anteprima lo chiamerebbe "google".
+
+    Valori grezzi, come in analytics: etichette e colori sono del frontend.
+    Se Google non risponde, `CalendarioNonRaggiungibile` passa al chiamante.
+    """
+    giorni = [lunedi + timedelta(days=i) for i in range(7)]
+
+    def mezzanotte_utc(giorno: date) -> datetime:
+        return datetime.combine(giorno, time.min, tzinfo=ROME_TZ).astimezone(timezone.utc).replace(tzinfo=None)
+
+    da, a = mezzanotte_utc(giorni[0]), mezzanotte_utc(giorni[-1] + timedelta(days=1))
+
+    # L'unica lettura di Google: il resto si deduce (vedi "google" sopra).
+    libere = calcola_disponibilita(db, da, a)
+    in_vendita, da_due_ore = set(libere[1]), set(libere[2])
+    adesso = ora_utc_naive()
+    orizzonte = fine_orizzonte()
+
+    regole = _regole_valide(db)
+    blocchi = _blocchi_fra(db, giorni[0], giorni[-1])
+    prenotazioni = _prenotazioni_fra(db, da, a)
+
+    # Insiemi per giorno italiano: regole sovrapposte, o una prenotazione
+    # dentro la regola, non producono la stessa ora due volte.
+    ore_per_giorno = {giorno: set() for giorno in giorni}
+    for giorno in giorni:
+        for regola in regole:
+            if regola.giorno_settimana == giorno.weekday():
+                ore_per_giorno[giorno].update(_ore_della_regola(regola, giorno))
+    for p in prenotazioni:
+        for i in range(p.duration_hours):
+            inizio = p.start_time + i * UN_ORA
+            giorno = utc_to_rome(inizio).date()
+            if giorno in ore_per_giorno:
+                ore_per_giorno[giorno].add(inizio)
+
+    def stato_ora(inizio: datetime, giorno: date) -> dict:
+        voce = {"ora": formatta_data_ora_rome(inizio)[1], "stato": None, "da_due_ore": False,
+                "prenotazione": None, "motivo": None}
+        prenotazione = next((
+            p for p in prenotazioni
+            if intervalli_si_sovrappongono(inizio, inizio + UN_ORA,
+                                           p.start_time, p.start_time + timedelta(hours=p.duration_hours))
+        ), None)
+        blocco = next((b for b in blocchi if b.data_inizio <= giorno <= b.data_fine), None)
+
+        if prenotazione is not None:
+            voce["stato"] = "prenotata"
+            voce["prenotazione"] = {"id": prenotazione.id, "cliente": prenotazione.user.nome,
+                                    "servizio": prenotazione.service_type, "stato": prenotazione.status}
+        elif inizio <= adesso:
+            voce["stato"] = "passata"
+        elif blocco is not None:
+            voce["stato"] = "bloccata"
+            voce["motivo"] = blocco.motivo
+        elif inizio in in_vendita:
+            # Stesso confine di ora_prenotabile: dall'orizzonte in poi non si vende.
+            voce["stato"] = "in_vendita" if inizio < orizzonte else "fuori_orizzonte"
+            voce["da_due_ore"] = inizio in da_due_ore
+        else:
+            voce["stato"] = "google"
+        return voce
+
+    return [
+        {
+            "data": giorno.strftime("%d/%m/%Y"),
+            "giorno_settimana": giorno.weekday(),
+            "ore": [stato_ora(inizio, giorno) for inizio in sorted(ore_per_giorno[giorno])]
+        }
+        for giorno in giorni
+    ]
