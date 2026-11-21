@@ -23,7 +23,7 @@ class BookingCreate(BaseModel):
     # `user_id` appartenga davvero a chi sta prenotando (gli id sono
     # sequenziali e facili da indovinare). Ignorata quando lo studente è
     # autenticato: in quel caso l'identità viene dal token. Stessa forma
-    # minuscola della registrazione, così il confronto di booking.py:125
+    # minuscola della registrazione, così il confronto di booking.py:127
     # non dipende dalle maiuscole digitate (voce 9).
     email: Optional[EmailNormalizzata] = None
 

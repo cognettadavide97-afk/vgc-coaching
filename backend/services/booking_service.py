@@ -7,13 +7,14 @@ dello studente, che devono comportarsi in modo identico.
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 from backend.models.booking import Booking
+from backend.models.ora_prenotata import OraPrenotata
 from backend.models.package import Package
 from backend.models.slots import Slot
 from backend.services.calendar_service import elimina_evento_calendario
 
 
 def libera_slot_prenotazione(prenotazione: Booking, db: Session):
-    """Elimina l'evento su Google Calendar e rende di nuovo liberi gli slot.
+    """Elimina l'evento su Google Calendar e rende di nuovo liberi gli slot e le ore.
 
     Gestisce anche lo slot secondario delle sessioni da 2 ore. Non esegue
     il commit: lo fa il chiamante, insieme al cambio di stato della
@@ -41,6 +42,12 @@ def libera_slot_prenotazione(prenotazione: Booking, db: Session):
         slot_secondario = db.query(Slot).filter(Slot.id == prenotazione.slot_id_secondario).first()
         if slot_secondario:
             slot_secondario.is_available = True
+
+    # Anche le ore vendute (models/ora_prenotata.py), per lo stesso motivo
+    # degli slot. Solo quelle di questa prenotazione: se l'ora fosse già
+    # passata a un altro cliente, la sua riga ha un altro booking_id e resta.
+    # La DELETE parte subito, ma nella transazione del chiamante.
+    db.query(OraPrenotata).filter(OraPrenotata.booking_id == prenotazione.id).delete()
 
 
 def restituisci_credito_pacchetto(prenotazione: Booking, db: Session):

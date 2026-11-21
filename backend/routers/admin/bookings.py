@@ -119,7 +119,7 @@ def aggiorna_stato(
     # slot, e ogni ulteriore cambio di stato va rifiutato: ri-cancellarla
     # rimetterebbe in vendita l'orario del cliente subentrato (la sua
     # prenotazione resterebbe confermata su uno slot libero, aggirando la
-    # riserva atomica di booking.py:178-187), e riportarla a confirmed
+    # riserva atomica di booking.py:180-189), e riportarla a confirmed
     # darebbe una prenotazione confermata su uno slot che nessuno ha
     # ri-occupato. Per rimettere in piedi una prenotazione cancellata si
     # rifà la prenotazione dal flusso normale, che lo slot lo riserva davvero.

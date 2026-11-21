@@ -14,3 +14,4 @@ from backend.models.availability_rule import AvailabilityRule
 from backend.models.availability_exception import AvailabilityException
 from backend.models.package import Package
 from backend.models.review import Review
+from backend.models.ora_prenotata import OraPrenotata

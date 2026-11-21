@@ -9,10 +9,12 @@ cancellazione self-service e di gestione delle recensioni.
 import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from datetime import timedelta
 from backend.database import get_db
 from backend.models.booking import Booking
+from backend.models.ora_prenotata import OraPrenotata
 from backend.models.slots import Slot
 from backend.models.users import User
 from backend.models.package import Package
@@ -245,6 +247,28 @@ def create_booking(
         review_token=secrets.token_urlsafe(32)
     )
     db.add(db_booking)
+    # flush e non commit: la prenotazione riceve il suo id, che serve alle
+    # righe qui sotto, ma niente è ancora salvato.
+    db.flush()
+
+    # Guardia sulle ore vendute (models/ora_prenotata.py): una riga per ogni
+    # ora della sessione, e il database rifiuta un'ora già presente. Come le
+    # riserve sopra, sposta la verifica dentro la scrittura; a differenza di
+    # quella sullo slot vale anche senza slot, ed è l'unica che resterà
+    # quando la disponibilità sarà calcolata (P9). Fino ad allora le due
+    # guardie convivono: lo slot dice se l'ora è in vendita, questa se è già
+    # venduta. Con due richieste davvero simultanee, MySQL fa aspettare la
+    # seconda scrittura finché la prima non è salvata, poi la rifiuta.
+    for ora in range(booking.duration_hours):
+        db.add(OraPrenotata(inizio=db_booking.start_time + timedelta(hours=ora), booking_id=db_booking.id))
+    try:
+        db.flush()
+    except IntegrityError:
+        # Il rollback annulla anche le riserve di slot e credito e la
+        # prenotazione stessa: o tutto, o niente.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Slot not available")
+
     db.commit()
     db.refresh(db_booking)
 

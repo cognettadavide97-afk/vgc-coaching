@@ -37,7 +37,7 @@ I documenti cancellati il 2026-09-11, citati da alcuni commenti: `git show 2f912
   gli slot si liberano comunque (R5, intervento 7).
 - `services/google_oauth_service.py` — chiave di cache `(refresh_token, client_id)` e `raise` sul
   token vuoto: separano Gmail da Drive (R17, intervento 6).
-- `routers/booking.py:282-322` — l'evento Google Calendar si crea **dopo** il commit e le notifiche: dentro la
+- `routers/booking.py:306-346` — l'evento Google Calendar si crea **dopo** il commit e le notifiche: dentro la
   transazione teneva il lock su slot e credito fino a 60 s contro i 50 s di attesa di MySQL, e chi prenotava lo
   stesso slot riceveva un 500 (R4, voci 11-12, provato sul MySQL locale). L'id si salva solo se la prenotazione
   è ancora `confirmed`, altrimenti l'evento si elimina: una cancellazione arrivata durante la chiamata non lo trova.

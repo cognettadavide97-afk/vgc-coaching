@@ -15,7 +15,7 @@ Categoria = Literal["junior", "senior", "master"]
 # ogni email entra nel sistema, dal form, dalla prenotazione e dal login
 # Discord (discord_auth.py). EmailStr da solo abbassa solo il dominio, e i
 # due confronti sull'email non seguono la stessa regola: MySQL (collation
-# utf8mb4_0900_ai_ci) ignora le maiuscole, Python (booking.py:125) no. Un
+# utf8mb4_0900_ai_ci) ignora le maiuscole, Python (booking.py:127) no. Un
 # cliente che scriveva "Mario@example.com" ritrovava su MySQL l'account
 # "mario@example.com" e poi riceveva 403 dal confronto in Python (voce 9).
 # Con un'unica forma i due giudici vedono lo stesso testo. Abbassare anche
